@@ -1,0 +1,13 @@
+export const FILE_NODE_WIDTH = 244;
+export const FILE_NODE_HEIGHT = 126;
+export const SYMBOL_NODE_WIDTH = 244;
+export const SYMBOL_NODE_HEIGHT = 112;
+export const GROUP_GAP_X = 112;
+export const GROUP_GAP_Y = 92;
+export const GROUP_PADDING_X = 24;
+export const GROUP_HEADER_HEIGHT = 72;
+export const GROUP_CHILD_GAP = 18;
+export const FILE_DETAIL_WIDTH = 700;
+export const MAX_PORTAL_NODES = 14;
+export const TARGET_HANDLE_ID = "target-left";
+export const SOURCE_HANDLE_ID = "source-right";
