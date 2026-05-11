@@ -36,6 +36,8 @@ const GROUP_HEADER_HEIGHT = 72;
 const GROUP_CHILD_GAP = 18;
 const FILE_DETAIL_WIDTH = 700;
 const MAX_PORTAL_NODES = 14;
+const TARGET_HANDLE_ID = "target-left";
+const SOURCE_HANDLE_ID = "source-right";
 
 type GraphViewMode = "overview" | "file" | "focus";
 
@@ -204,7 +206,7 @@ export function GraphPage() {
         setSelectedNodeTypes(new Set(repoGraph.nodes.map((node) => node.type)));
         setSelectedEdgeTypes(new Set(repoGraph.edges.map((edge) => edge.type)));
         setSelectedNodeId(firstFile?.id ?? null);
-        setSelectedVisualId(firstFile?.id ?? null);
+        setSelectedVisualId(null);
         setSelectedFileId(firstFile?.type === "file" ? firstFile.id : null);
         setViewMode("overview");
       })
@@ -253,6 +255,18 @@ export function GraphPage() {
       setSelectedVisualId(`file-detail:${nextFile.id}`);
     }
   }, [graph, selectedFileId, viewMode]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      setSelectedVisualId(null);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const visualGraph = useMemo(() => {
     if (!graph) {
@@ -312,6 +326,25 @@ export function GraphPage() {
     setShowInferredCalls(true);
   }, [edgeTypes, nodeTypes]);
 
+  const openFileDetail = useCallback((fileId: string) => {
+    setSelectedVisualId(`file-detail:${fileId}`);
+    setSelectedNodeId(fileId);
+    setSelectedFileId(fileId);
+    setViewMode("file");
+  }, []);
+
+  useEffect(() => {
+    const handleOpenFileDetail = (event: Event) => {
+      const fileId = (event as CustomEvent<{ fileId?: string }>).detail?.fileId;
+      if (fileId) {
+        openFileDetail(fileId);
+      }
+    };
+
+    window.addEventListener("codewiki:open-file-detail", handleOpenFileDetail);
+    return () => window.removeEventListener("codewiki:open-file-detail", handleOpenFileDetail);
+  }, [openFileDetail]);
+
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: FlowNode) => {
       const data = node.data;
@@ -320,18 +353,21 @@ export function GraphPage() {
       setSelectedVisualId(node.id);
       setSelectedNodeId(primaryNodeId);
 
-      if (data.fileId) {
+      if (data.fileId && viewMode !== "file") {
         setSelectedFileId(data.fileId);
-      }
-
-      if (viewMode === "overview" && data.kind === "code" && data.nodeType === "file" && data.fileId) {
-        setSelectedVisualId(`file-detail:${data.fileId}`);
-        setSelectedNodeId(data.fileId);
-        setSelectedFileId(data.fileId);
-        setViewMode("file");
       }
     },
     [viewMode]
+  );
+
+  const handleNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: FlowNode) => {
+      const data = node.data;
+      if (data.kind === "code" && data.nodeType === "file" && data.fileId) {
+        openFileDetail(data.fileId);
+      }
+    },
+    [openFileDetail]
   );
 
   const selectMode = useCallback(
@@ -353,9 +389,10 @@ export function GraphPage() {
   );
 
   const isLoading = repoLoading || graphLoading;
-  const flowKey = `${selectedRepoId}:${viewMode}:${selectedFileId ?? "none"}:${selectedNodeId ?? "none"}:${filterKey(
-    selectedNodeTypes
-  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}`;
+  const layoutKey = viewMode === "file" ? selectedFileId ?? "none" : "stable";
+  const flowKey = `${selectedRepoId}:${viewMode}:${layoutKey}:${filterKey(selectedNodeTypes)}:${filterKey(
+    selectedEdgeTypes
+  )}:${showInferredCalls}`;
 
   return (
     <section id="graph" className="graph-panel">
@@ -477,6 +514,8 @@ export function GraphPage() {
               maxZoom={2}
               nodesDraggable={false}
               onNodeClick={handleNodeClick}
+              onNodeDoubleClick={handleNodeDoubleClick}
+              zoomOnDoubleClick={false}
               proOptions={{ hideAttribution: true }}
             >
               <Background
@@ -581,11 +620,23 @@ function CodeFlowNode({ data }: NodeProps<Node<CodeVisualData, "code">>) {
     .filter(Boolean)
     .join(" ");
 
+  const handleDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (data.nodeType !== "file" || !data.fileId) {
+      return;
+    }
+    event.stopPropagation();
+    window.dispatchEvent(
+      new CustomEvent("codewiki:open-file-detail", {
+        detail: { fileId: data.fileId }
+      })
+    );
+  };
+
   return (
-    <div className={className} title={data.label}>
+    <div className={className} title={data.label} onDoubleClick={handleDoubleClick}>
       <div className="code-node-accent" style={{ background: data.accentColor }} />
-      <Handle type="target" position={Position.Left} className="code-node-handle" />
-      <Handle type="source" position={Position.Right} className="code-node-handle" />
+      <Handle id={TARGET_HANDLE_ID} type="target" position={Position.Left} className="code-node-handle" />
+      <Handle id={SOURCE_HANDLE_ID} type="source" position={Position.Right} className="code-node-handle" />
       <div className="code-node-body">
         <div className="code-node-topline">
           <span className="code-node-type" style={{ color: data.accentColor }}>
@@ -622,8 +673,8 @@ function ContainerFlowNode({ data, width, height }: NodeProps<Node<ContainerVisu
 
   return (
     <div className={className} style={{ borderColor: data.accentColor, width, height }}>
-      <Handle type="target" position={Position.Left} className="code-node-handle" />
-      <Handle type="source" position={Position.Right} className="code-node-handle" />
+      <Handle id={TARGET_HANDLE_ID} type="target" position={Position.Left} className="code-node-handle" />
+      <Handle id={SOURCE_HANDLE_ID} type="source" position={Position.Right} className="code-node-handle" />
       <div className="code-container-header">
         <div>
           <span className="code-container-kind" style={{ color: data.accentColor }}>
@@ -868,7 +919,7 @@ function buildOverviewGraph(
         isFocusedViaChild: false,
         isCompact: false
       },
-      style: { width: group.width, height: group.height },
+      ...nodeSize(group.width, group.height),
       selectable: true,
       draggable: false
     });
@@ -895,7 +946,7 @@ function buildOverviewGraph(
           isExternal: false,
           stats: statsByRawNode.get(file.id)
         }),
-        style: { width: FILE_NODE_WIDTH, height: FILE_NODE_HEIGHT },
+        ...nodeSize(FILE_NODE_WIDTH, FILE_NODE_HEIGHT),
         selectable: true,
         draggable: false,
         zIndex: 5
@@ -928,7 +979,7 @@ function buildOverviewGraph(
         isFocusedViaChild: false,
         isCompact: false
       },
-      style: { width: 300, height: 190 },
+      ...nodeSize(300, 190),
       selectable: true,
       draggable: false
     });
@@ -989,7 +1040,7 @@ function buildFileDetailGraph(
         isFocusedViaChild: Boolean(selectedNodeId && selectedNodeId !== fileNode.id),
         isCompact: false
       },
-      style: { width: FILE_DETAIL_WIDTH, height: fileHeight },
+      ...nodeSize(FILE_DETAIL_WIDTH, fileHeight),
       selectable: true,
       draggable: false
     }
@@ -1016,7 +1067,7 @@ function buildFileDetailGraph(
         isContained: true,
         isExternal: false
       }),
-      style: { width: SYMBOL_NODE_WIDTH, height: SYMBOL_NODE_HEIGHT },
+      ...nodeSize(SYMBOL_NODE_WIDTH, SYMBOL_NODE_HEIGHT),
       selectable: true,
       draggable: false,
       zIndex: 6
@@ -1053,7 +1104,7 @@ function buildFileDetailGraph(
     edges.push(toFlowEdge(portal.bucket, portal.visualId, selectedSymbolId ?? fileContainerId));
   });
 
-  return applyVisualState(nodes, edges, selectedVisualId ?? fileContainerId, "file");
+  return applyVisualState(nodes, edges, selectedVisualId, "file");
 }
 
 function buildFocusGraph(
@@ -1128,10 +1179,10 @@ function buildFocusGraph(
       isContained: false,
       isExternal: node.type === "module"
     }),
-    style: {
-      width: node.type === "file" ? FILE_NODE_WIDTH : SYMBOL_NODE_WIDTH,
-      height: node.type === "file" ? FILE_NODE_HEIGHT : SYMBOL_NODE_HEIGHT
-    },
+    ...nodeSize(
+      node.type === "file" ? FILE_NODE_WIDTH : SYMBOL_NODE_WIDTH,
+      node.type === "file" ? FILE_NODE_HEIGHT : SYMBOL_NODE_HEIGHT
+    ),
     selectable: true,
     draggable: false
   }));
@@ -1139,7 +1190,7 @@ function buildFocusGraph(
   const rawToVisual = new Map(rawNodes.map((node) => [node.id, node.id]));
   const edges = aggregateEdges(rawEdges, rawToVisual, { skipSelfEdges: true }).map((bucket) => toFlowEdge(bucket));
 
-  return applyVisualState(nodes, edges, selectedVisualId ?? focusNode.id, "focus");
+  return applyVisualState(nodes, edges, selectedVisualId, "focus");
 }
 
 function deriveContainment(graph: GraphResponse | null): ContainmentIndex {
@@ -1388,17 +1439,25 @@ function aggregateEdges(
 function toFlowEdge(bucket: EdgeBucket, sourceOverride?: string, targetOverride?: string): FlowEdge {
   const tone = edgeTone(bucket.type);
   const countLabel = bucket.count > 1 ? ` x${bucket.count}` : "";
+  const isFlowing = bucket.type === "calls" || bucket.hasInferred;
 
   return {
     id: sourceOverride || targetOverride ? `${bucket.id}:${sourceOverride ?? bucket.source}:${targetOverride ?? bucket.target}` : bucket.id,
     source: sourceOverride ?? bucket.source,
     target: targetOverride ?? bucket.target,
+    sourceHandle: SOURCE_HANDLE_ID,
+    targetHandle: TARGET_HANDLE_ID,
     data: {
       edgeType: bucket.type,
       count: bucket.count,
       rawEdgeIds: bucket.rawEdgeIds,
       hasInferred: bucket.hasInferred
     },
+    animated: isFlowing,
+    className: edgeClassName(bucket.type, {
+      hasInferred: bucket.hasInferred,
+      isFlowing
+    }),
     label: `${bucket.type}${countLabel}`,
     labelBgBorderRadius: 6,
     labelBgPadding: [7, 4],
@@ -1408,10 +1467,92 @@ function toFlowEdge(bucket: EdgeBucket, sourceOverride?: string, targetOverride?
     style: {
       stroke: tone.stroke,
       strokeDasharray: bucket.hasInferred ? "7 5" : undefined,
+      opacity: bucket.type === "contains" ? 0.45 : 0.78,
       strokeWidth: Math.min(1.4 + Math.log2(bucket.count + 1), 5)
     },
-    type: "smoothstep"
+    type: "default"
   };
+}
+
+function nodeSize(
+  width: number,
+  height: number
+): Pick<FlowNode, "height" | "initialHeight" | "initialWidth" | "sourcePosition" | "style" | "targetPosition" | "width"> {
+  return {
+    height,
+    initialHeight: height,
+    initialWidth: width,
+    sourcePosition: Position.Right,
+    style: { width, height },
+    targetPosition: Position.Left,
+    width
+  };
+}
+
+function styleEdgeForSelection(edge: FlowEdge, isActive: boolean, mode: GraphViewMode): FlowEdge {
+  const edgeType = edge.data?.edgeType ?? "related";
+  const tone = edgeTone(edgeType);
+  const hasInferred = Boolean(edge.data?.hasInferred);
+  const baseWidth = numericStrokeWidth(edge.style?.strokeWidth);
+  const baseClassOptions = { hasInferred, isFlowing: edgeType === "calls" || hasInferred };
+
+  if (isActive) {
+    return {
+      ...edge,
+      animated: true,
+      className: edgeClassName(edgeType, {
+        ...baseClassOptions,
+        isActive: true
+      }),
+      labelStyle: { fill: "#e8c49a", fontSize: 11, fontWeight: 900 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#e8c49a" },
+      style: {
+        ...edge.style,
+        opacity: 1,
+        stroke: tone.active,
+        strokeDasharray: hasInferred ? "7 5" : undefined,
+        strokeWidth: Math.max(2.6, baseWidth + 0.8)
+      }
+    };
+  }
+
+  return {
+    ...edge,
+    animated: false,
+    className: edgeClassName(edgeType, {
+      ...baseClassOptions,
+      isMuted: true
+    }),
+    labelStyle: { fill: mode === "focus" ? "rgba(163,151,135,0.16)" : "rgba(163,151,135,0.24)", fontSize: 10, fontWeight: 700 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(163,151,135,0.18)" },
+    style: {
+      ...edge.style,
+      opacity: mode === "focus" ? 0.06 : 0.1,
+      stroke: "rgba(212,165,116,0.12)",
+      strokeDasharray: undefined,
+      strokeWidth: 1
+    }
+  };
+}
+
+function numericStrokeWidth(value: unknown): number {
+  return typeof value === "number" ? value : 1.5;
+}
+
+function edgeClassName(
+  type: string,
+  state: { hasInferred?: boolean; isActive?: boolean; isMuted?: boolean; isFlowing?: boolean } = {}
+): string {
+  return [
+    "code-flow-edge",
+    `edge-${type.replaceAll("_", "-").replace(/[^a-zA-Z0-9-]/g, "")}`,
+    state.hasInferred ? "is-inferred" : "",
+    state.isActive ? "is-active" : "",
+    state.isMuted ? "is-muted" : "",
+    state.isFlowing ? "is-flowing" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function layoutBoxes(
@@ -1458,25 +1599,49 @@ function applyVisualState(
   selectedVisualId: string | null,
   mode: GraphViewMode
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  const anchoredNodes = nodes.map(withConnectionAnchors);
+
   if (!selectedVisualId) {
-    return { nodes, edges };
+    return { nodes: anchoredNodes, edges };
+  }
+
+  const nodeById = new Map(anchoredNodes.map((node) => [node.id, node]));
+  const selectedNode = nodeById.get(selectedVisualId);
+  const selectedRawIds = new Set(selectedNode?.data.rawNodeIds ?? []);
+  const selectedVisualIds = new Set<string>([selectedVisualId]);
+
+  if (selectedNode?.data.kind === "container") {
+    anchoredNodes.forEach((node) => {
+      const isChild = node.parentId === selectedVisualId;
+      const sharesRawNode = node.data.rawNodeIds.some((rawId) => selectedRawIds.has(rawId));
+      if (isChild || sharesRawNode) {
+        selectedVisualIds.add(node.id);
+      }
+    });
   }
 
   const neighbors = new Set<string>();
+  const activeEdgeIds = new Set<string>();
   edges.forEach((edge) => {
-    if (edge.source === selectedVisualId) {
-      neighbors.add(edge.target);
+    const isActive = selectedVisualIds.has(edge.source) || selectedVisualIds.has(edge.target);
+    if (!isActive) {
+      return;
     }
-    if (edge.target === selectedVisualId) {
+    activeEdgeIds.add(edge.id);
+    if (!selectedVisualIds.has(edge.source)) {
       neighbors.add(edge.source);
+    }
+    if (!selectedVisualIds.has(edge.target)) {
+      neighbors.add(edge.target);
     }
   });
 
   return {
-    nodes: nodes.map((node) => {
+    nodes: anchoredNodes.map((node) => {
       const isSelected = node.id === selectedVisualId;
-      const isNeighbor = neighbors.has(node.id);
-      const isFaded = mode === "focus" && !isSelected && !isNeighbor;
+      const isInsideSelectedContainer = selectedNode?.data.kind === "container" && selectedVisualIds.has(node.id);
+      const isNeighbor = neighbors.has(node.id) || (isInsideSelectedContainer && !isSelected);
+      const isFaded = !isSelected && !isNeighbor;
       return {
         ...node,
         data: {
@@ -1487,7 +1652,18 @@ function applyVisualState(
         }
       };
     }),
-    edges
+    edges: edges.map((edge) => {
+      const isActive = activeEdgeIds.has(edge.id);
+      return styleEdgeForSelection(edge, isActive, mode);
+    })
+  };
+}
+
+function withConnectionAnchors(node: FlowNode): FlowNode {
+  return {
+    ...node,
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left
   };
 }
 
@@ -1637,7 +1813,7 @@ function portalToNode(
         isFocusedViaChild: false,
         isCompact: true
       },
-      style: { width: FILE_NODE_WIDTH, height: 134 },
+      ...nodeSize(FILE_NODE_WIDTH, 134),
       selectable: true,
       draggable: false
     };
@@ -1658,7 +1834,7 @@ function portalToNode(
       isContained: false,
       isExternal: true
     }),
-    style: { width: FILE_NODE_WIDTH, height: FILE_NODE_HEIGHT },
+    ...nodeSize(FILE_NODE_WIDTH, FILE_NODE_HEIGHT),
     selectable: true,
     draggable: false
   };
@@ -1950,15 +2126,15 @@ function nodeTone(type: string): { border: string; background: string } {
   }
 }
 
-function edgeTone(type: string): { stroke: string; label: string } {
+function edgeTone(type: string): { stroke: string; active: string; label: string } {
   switch (type) {
     case "contains":
-      return { stroke: "rgba(212, 165, 116, 0.35)", label: "#d4a574" };
+      return { stroke: "rgba(212, 165, 116, 0.35)", active: "rgba(232, 196, 154, 0.88)", label: "#d4a574" };
     case "imports":
-      return { stroke: "#6e9ee8", label: "#a9c6f5" };
+      return { stroke: "#6e9ee8", active: "#a9c6f5", label: "#a9c6f5" };
     case "calls":
-      return { stroke: "#63c08a", label: "#a7dfba" };
+      return { stroke: "#63c08a", active: "#a7dfba", label: "#a7dfba" };
     default:
-      return { stroke: "rgba(163, 151, 135, 0.58)", label: "#a39787" };
+      return { stroke: "rgba(163, 151, 135, 0.58)", active: "#e8c49a", label: "#a39787" };
   }
 }
