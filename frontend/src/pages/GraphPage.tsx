@@ -3,15 +3,18 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  Handle,
   MarkerType,
   MiniMap,
   Position,
   ReactFlow,
   type Edge,
-  type Node
+  type Node,
+  type NodeProps,
+  type NodeTypes
 } from "@xyflow/react";
-import { RefreshCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileCode2, Focus, FolderTree, Network, RefreshCcw } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getRepoGraph,
@@ -22,11 +25,116 @@ import {
   type RepoSummary
 } from "../api/client";
 
-const NODE_WIDTH = 210;
-const NODE_HEIGHT = 66;
+const FILE_NODE_WIDTH = 244;
+const FILE_NODE_HEIGHT = 126;
+const SYMBOL_NODE_WIDTH = 244;
+const SYMBOL_NODE_HEIGHT = 112;
+const GROUP_GAP_X = 112;
+const GROUP_GAP_Y = 92;
+const GROUP_PADDING_X = 24;
+const GROUP_HEADER_HEIGHT = 72;
+const GROUP_CHILD_GAP = 18;
+const FILE_DETAIL_WIDTH = 700;
+const MAX_PORTAL_NODES = 14;
 
-type FlowNode = Node<{ label: string; codeNode: CodeNode }>;
-type FlowEdge = Edge<{ codeEdge: CodeEdge }>;
+type GraphViewMode = "overview" | "file" | "focus";
+
+type VisualNodeData = CodeVisualData | ContainerVisualData;
+
+type FlowNode = Node<VisualNodeData, "code" | "container">;
+type FlowEdge = Edge<VisualEdgeData>;
+
+type VisualEdgeData = {
+  edgeType: string;
+  count: number;
+  rawEdgeIds: string[];
+  hasInferred: boolean;
+};
+
+type CodeVisualData = {
+  kind: "code";
+  label: string;
+  nodeType: string;
+  summary: string;
+  pathLabel: string;
+  lineLabel: string;
+  countLabel?: string;
+  statsLabel?: string;
+  accentColor: string;
+  codeNode: CodeNode;
+  fileId?: string;
+  rawNodeIds: string[];
+  isSelected: boolean;
+  isNeighbor: boolean;
+  isFaded: boolean;
+  isContained: boolean;
+  isExternal: boolean;
+};
+
+type ContainerVisualData = {
+  kind: "container";
+  title: string;
+  subtitle: string;
+  containerType: "repository" | "directory" | "file" | "dependency" | "focus";
+  pathLabel: string;
+  countLabel: string;
+  statsLabel: string;
+  accentColor: string;
+  fileId?: string;
+  primaryNodeId?: string;
+  rawNodeIds: string[];
+  isSelected: boolean;
+  isNeighbor: boolean;
+  isFaded: boolean;
+  isFocusedViaChild: boolean;
+  isCompact: boolean;
+};
+
+type FilteredGraph = {
+  nodes: CodeNode[];
+  edges: CodeEdge[];
+  nodeIds: Set<string>;
+};
+
+type ContainmentIndex = {
+  nodeById: Map<string, CodeNode>;
+  childrenByParent: Map<string, string[]>;
+  parentByChild: Map<string, string>;
+  fileByNode: Map<string, string>;
+  descendantsByFile: Map<string, string[]>;
+};
+
+type FileGroup = {
+  id: string;
+  name: string;
+  pathLabel: string;
+  files: CodeNode[];
+  width: number;
+  height: number;
+  childPositions: Map<string, { x: number; y: number }>;
+};
+
+type EdgeBucket = {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  count: number;
+  rawEdgeIds: string[];
+  hasInferred: boolean;
+};
+
+type NodeStats = {
+  incoming: number;
+  outgoing: number;
+  calls: number;
+  imports: number;
+};
+
+const flowNodeTypes: NodeTypes = {
+  code: memo(CodeFlowNode),
+  container: memo(ContainerFlowNode)
+};
 
 export function GraphPage() {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
@@ -35,7 +143,10 @@ export function GraphPage() {
   const [repoLoading, setRepoLoading] = useState(true);
   const [graphLoading, setGraphLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<GraphViewMode>("overview");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedVisualId, setSelectedVisualId] = useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedNodeTypes, setSelectedNodeTypes] = useState<Set<string>>(new Set());
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(new Set());
   const [showInferredCalls, setShowInferredCalls] = useState(true);
@@ -74,6 +185,8 @@ export function GraphPage() {
     if (!selectedRepoId) {
       setGraph(null);
       setSelectedNodeId(null);
+      setSelectedVisualId(null);
+      setSelectedFileId(null);
       return;
     }
 
@@ -85,15 +198,22 @@ export function GraphPage() {
         if (cancelled) {
           return;
         }
+        const firstFile = repoGraph.nodes.find((node) => node.type === "file") ?? repoGraph.nodes[0] ?? null;
+
         setGraph(repoGraph);
         setSelectedNodeTypes(new Set(repoGraph.nodes.map((node) => node.type)));
         setSelectedEdgeTypes(new Set(repoGraph.edges.map((edge) => edge.type)));
-        setSelectedNodeId(repoGraph.nodes[0]?.id ?? null);
+        setSelectedNodeId(firstFile?.id ?? null);
+        setSelectedVisualId(firstFile?.id ?? null);
+        setSelectedFileId(firstFile?.type === "file" ? firstFile.id : null);
+        setViewMode("overview");
       })
       .catch((apiError: unknown) => {
         if (!cancelled) {
           setGraph(null);
           setSelectedNodeId(null);
+          setSelectedVisualId(null);
+          setSelectedFileId(null);
           setError(apiError instanceof Error ? apiError.message : "Failed to load repository graph");
         }
       })
@@ -113,59 +233,69 @@ export function GraphPage() {
     [repos, selectedRepoId]
   );
 
+  const containment = useMemo(() => deriveContainment(graph), [graph]);
   const nodeTypes = useMemo(() => collectTypes(graph?.nodes ?? []), [graph?.nodes]);
   const edgeTypes = useMemo(() => collectTypes(graph?.edges ?? []), [graph?.edges]);
 
-  const visibleGraph = useMemo(() => {
-    if (!graph) {
-      return { nodes: [] as CodeNode[], edges: [] as CodeEdge[] };
-    }
-
-    const nodes = graph.nodes.filter((node) => selectedNodeTypes.has(node.type));
-    const visibleNodeIds = new Set(nodes.map((node) => node.id));
-    const edges = graph.edges.filter((edge) => {
-      if (!selectedEdgeTypes.has(edge.type)) {
-        return false;
-      }
-      if (!showInferredCalls && edge.type === "calls" && edge.is_inferred) {
-        return false;
-      }
-      return visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target);
-    });
-
-    return { nodes, edges };
-  }, [graph, selectedEdgeTypes, selectedNodeTypes, showInferredCalls]);
-
-  const flowNodes = useMemo(
-    () => layoutNodes(visibleGraph.nodes, visibleGraph.edges, selectedNodeId),
-    [selectedNodeId, visibleGraph.edges, visibleGraph.nodes]
-  );
-
-  const flowEdges = useMemo(
-    () => visibleGraph.edges.map((edge) => toFlowEdge(edge)),
-    [visibleGraph.edges]
+  const filteredGraph = useMemo(
+    () => filterRawGraph(graph, selectedNodeTypes, selectedEdgeTypes, showInferredCalls),
+    [graph, selectedEdgeTypes, selectedNodeTypes, showInferredCalls]
   );
 
   useEffect(() => {
-    if (!selectedNodeId) {
+    if (!graph || viewMode !== "file" || selectedFileId) {
       return;
     }
-    if (!visibleGraph.nodes.some((node) => node.id === selectedNodeId)) {
-      setSelectedNodeId(visibleGraph.nodes[0]?.id ?? null);
+    const nextFile = graph.nodes.find((node) => node.type === "file");
+    if (nextFile) {
+      setSelectedFileId(nextFile.id);
+      setSelectedNodeId(nextFile.id);
+      setSelectedVisualId(`file-detail:${nextFile.id}`);
     }
-  }, [selectedNodeId, visibleGraph.nodes]);
+  }, [graph, selectedFileId, viewMode]);
+
+  const visualGraph = useMemo(() => {
+    if (!graph) {
+      return { nodes: [] as FlowNode[], edges: [] as FlowEdge[] };
+    }
+
+    if (viewMode === "file") {
+      return buildFileDetailGraph(graph, filteredGraph, containment, selectedFileId, selectedNodeId, selectedVisualId);
+    }
+
+    if (viewMode === "focus") {
+      return buildFocusGraph(graph, filteredGraph, containment, selectedNodeId, selectedVisualId);
+    }
+
+    return buildOverviewGraph(graph, filteredGraph, containment, selectedVisualId);
+  }, [containment, filteredGraph, graph, selectedFileId, selectedNodeId, selectedVisualId, viewMode]);
+
+  const selectedVisualData = useMemo(
+    () => visualGraph.nodes.find((node) => node.id === selectedVisualId)?.data ?? null,
+    [selectedVisualId, visualGraph.nodes]
+  );
 
   const selectedNode = useMemo(
     () => graph?.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [graph?.nodes, selectedNodeId]
   );
 
+  const selectedDetailRawIds = useMemo(
+    () => selectedVisualData?.rawNodeIds ?? (selectedNodeId ? [selectedNodeId] : []),
+    [selectedNodeId, selectedVisualData]
+  );
+
   const selectedNodeEdges = useMemo(
-    () =>
-      graph?.edges.filter(
-        (edge) => edge.source === selectedNodeId || edge.target === selectedNodeId
-      ) ?? [],
-    [graph?.edges, selectedNodeId]
+    () => {
+      const rawIds = new Set(selectedDetailRawIds);
+      return graph?.edges.filter((edge) => rawIds.has(edge.source) || rawIds.has(edge.target)) ?? [];
+    },
+    [graph?.edges, selectedDetailRawIds]
+  );
+
+  const graphStats = useMemo(
+    () => summarizeVisualGraph(graph, filteredGraph, visualGraph),
+    [filteredGraph, graph, visualGraph]
   );
 
   const toggleNodeType = useCallback((type: string) => {
@@ -182,7 +312,50 @@ export function GraphPage() {
     setShowInferredCalls(true);
   }, [edgeTypes, nodeTypes]);
 
+  const handleNodeClick = useCallback(
+    (_: React.MouseEvent, node: FlowNode) => {
+      const data = node.data;
+      const primaryNodeId =
+        data.kind === "container" ? data.primaryNodeId ?? null : data.codeNode.id;
+      setSelectedVisualId(node.id);
+      setSelectedNodeId(primaryNodeId);
+
+      if (data.fileId) {
+        setSelectedFileId(data.fileId);
+      }
+
+      if (viewMode === "overview" && data.kind === "code" && data.nodeType === "file" && data.fileId) {
+        setSelectedVisualId(`file-detail:${data.fileId}`);
+        setSelectedNodeId(data.fileId);
+        setSelectedFileId(data.fileId);
+        setViewMode("file");
+      }
+    },
+    [viewMode]
+  );
+
+  const selectMode = useCallback(
+    (mode: GraphViewMode) => {
+      setViewMode(mode);
+      if (mode === "file" && selectedFileId) {
+        setSelectedVisualId(`file-detail:${selectedFileId}`);
+        setSelectedNodeId(selectedFileId);
+      }
+      if (mode === "overview" && selectedFileId) {
+        setSelectedVisualId(selectedFileId);
+        setSelectedNodeId(selectedFileId);
+      }
+      if (mode === "focus" && selectedNodeId) {
+        setSelectedVisualId(selectedNodeId);
+      }
+    },
+    [selectedFileId, selectedNodeId]
+  );
+
   const isLoading = repoLoading || graphLoading;
+  const flowKey = `${selectedRepoId}:${viewMode}:${selectedFileId ?? "none"}:${selectedNodeId ?? "none"}:${filterKey(
+    selectedNodeTypes
+  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}`;
 
   return (
     <section id="graph" className="graph-panel">
@@ -219,10 +392,35 @@ export function GraphPage() {
           </select>
         </label>
         {selectedRepo ? <span className="repo-path">{selectedRepo.path}</span> : null}
-        <div className="graph-counts" aria-live="polite">
-          {graph
-            ? `${visibleGraph.nodes.length}/${graph.nodes.length} nodes / ${visibleGraph.edges.length}/${graph.edges.length} edges`
-            : "No graph loaded"}
+        <div className="toolbar-actions">
+          <div className="view-switcher" aria-label="Graph view mode">
+            <ModeButton
+              active={viewMode === "overview"}
+              label="Overview"
+              title="Overview"
+              icon={<Network size={14} />}
+              onClick={() => selectMode("overview")}
+            />
+            <ModeButton
+              active={viewMode === "file"}
+              label="File"
+              title="File detail"
+              icon={<FileCode2 size={14} />}
+              onClick={() => selectMode("file")}
+              disabled={!selectedFileId}
+            />
+            <ModeButton
+              active={viewMode === "focus"}
+              label="Focus"
+              title="Focus neighborhood"
+              icon={<Focus size={14} />}
+              onClick={() => selectMode("focus")}
+              disabled={!selectedNodeId}
+            />
+          </div>
+          <div className="graph-counts" aria-live="polite">
+            {graphStats}
+          </div>
         </div>
       </div>
 
@@ -233,6 +431,10 @@ export function GraphPage() {
 
       <div className="graph-workspace">
         <aside className="graph-filters">
+          <div className="graph-insight">
+            <FolderTree size={16} />
+            <span>{modeHint(viewMode)}</span>
+          </div>
           <FilterGroup
             title="Node types"
             values={nodeTypes}
@@ -260,19 +462,21 @@ export function GraphPage() {
 
         <div className="flow-frame">
           {isLoading ? <div className="flow-state">Loading graph...</div> : null}
-          {!isLoading && graph && flowNodes.length === 0 ? (
+          {!isLoading && graph && visualGraph.nodes.length === 0 ? (
             <div className="flow-state">No nodes match the current filters.</div>
           ) : null}
-          {!isLoading && graph && flowNodes.length > 0 ? (
+          {!isLoading && graph && visualGraph.nodes.length > 0 ? (
             <ReactFlow
-              key={`${selectedRepoId}:${filterKey(selectedNodeTypes)}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}`}
-              nodes={flowNodes}
-              edges={flowEdges}
+              key={flowKey}
+              nodes={visualGraph.nodes}
+              edges={visualGraph.edges}
+              nodeTypes={flowNodeTypes}
               fitView
-              fitViewOptions={{ padding: 0.2 }}
-              minZoom={0.05}
+              fitViewOptions={{ padding: 0.18 }}
+              minZoom={0.04}
               maxZoom={2}
-              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              nodesDraggable={false}
+              onNodeClick={handleNodeClick}
               proOptions={{ hideAttribution: true }}
             >
               <Background
@@ -284,10 +488,7 @@ export function GraphPage() {
               <Controls />
               <MiniMap
                 maskColor="rgba(8, 9, 10, 0.72)"
-                nodeColor={(node) => {
-                  const codeNode = (node.data as { codeNode?: CodeNode }).codeNode;
-                  return nodeTone(codeNode?.type ?? "").border;
-                }}
+                nodeColor={(node) => miniMapColor(node as FlowNode)}
                 pannable
                 zoomable
               />
@@ -295,9 +496,45 @@ export function GraphPage() {
           ) : null}
         </div>
 
-        <NodeDetails node={selectedNode} edges={selectedNodeEdges} graph={graph} />
+        <NodeDetails
+          visualData={selectedVisualData}
+          node={selectedNode}
+          edges={selectedNodeEdges}
+          graph={graph}
+          containment={containment}
+        />
       </div>
     </section>
+  );
+}
+
+function ModeButton({
+  active,
+  disabled,
+  icon,
+  label,
+  title,
+  onClick
+}: {
+  active: boolean;
+  disabled?: boolean;
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`mode-button${active ? " is-active" : ""}`}
+      type="button"
+      title={title}
+      aria-pressed={active}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -332,15 +569,96 @@ function FilterGroup({
   );
 }
 
+function CodeFlowNode({ data }: NodeProps<Node<CodeVisualData, "code">>) {
+  const className = [
+    "code-node-card",
+    data.isContained ? "is-contained" : "",
+    data.isExternal ? "is-external" : "",
+    data.isSelected ? "is-selected" : "",
+    data.isNeighbor ? "is-neighbor" : "",
+    data.isFaded ? "is-faded" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className={className} title={data.label}>
+      <div className="code-node-accent" style={{ background: data.accentColor }} />
+      <Handle type="target" position={Position.Left} className="code-node-handle" />
+      <Handle type="source" position={Position.Right} className="code-node-handle" />
+      <div className="code-node-body">
+        <div className="code-node-topline">
+          <span className="code-node-type" style={{ color: data.accentColor }}>
+            {data.nodeType}
+          </span>
+          {data.countLabel ? <span className="code-node-count">{data.countLabel}</span> : null}
+        </div>
+        <div className="code-node-title">{data.label}</div>
+        <div className="code-node-summary">{data.summary}</div>
+        <div className="code-node-meta">
+          <span>{data.pathLabel}</span>
+          <span>{data.lineLabel}</span>
+        </div>
+      </div>
+      <div className="code-node-stats">
+        <span>{data.statsLabel || "No visible edges"}</span>
+      </div>
+    </div>
+  );
+}
+
+function ContainerFlowNode({ data, width, height }: NodeProps<Node<ContainerVisualData, "container">>) {
+  const className = [
+    "code-container-node",
+    data.isCompact ? "is-compact" : "",
+    data.containerType === "dependency" ? "is-dependency" : "",
+    data.isSelected ? "is-selected" : "",
+    data.isNeighbor ? "is-neighbor" : "",
+    data.isFaded ? "is-faded" : "",
+    data.isFocusedViaChild ? "is-focused-via-child" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className={className} style={{ borderColor: data.accentColor, width, height }}>
+      <Handle type="target" position={Position.Left} className="code-node-handle" />
+      <Handle type="source" position={Position.Right} className="code-node-handle" />
+      <div className="code-container-header">
+        <div>
+          <span className="code-container-kind" style={{ color: data.accentColor }}>
+            {data.subtitle}
+          </span>
+          <div className="code-container-title">{data.title}</div>
+        </div>
+        <span className="code-container-count">{data.countLabel}</span>
+      </div>
+      <div className="code-container-path">{data.pathLabel}</div>
+      <div className="code-container-body">
+        <span>{data.statsLabel}</span>
+      </div>
+    </div>
+  );
+}
+
 function NodeDetails({
+  visualData,
   node,
   edges,
-  graph
+  graph,
+  containment
 }: {
+  visualData: VisualNodeData | null;
   node: CodeNode | null;
   edges: CodeEdge[];
   graph: GraphResponse | null;
+  containment: ContainmentIndex;
 }) {
+  const rawNodeIds = visualData?.rawNodeIds ?? (node ? [node.id] : []);
+  const visualStats = useMemo(
+    () => (graph ? computeStatsForNodeIds(rawNodeIds, graph.edges) : { incoming: 0, outgoing: 0, calls: 0, imports: 0 }),
+    [graph, rawNodeIds]
+  );
   const imports = useMemo(() => collectEdgeMetadata(edges, "imports", "import"), [edges]);
   const calls = useMemo(() => {
     const metadataCalls = listFromUnknown(node?.metadata.calls);
@@ -348,7 +666,7 @@ function NodeDetails({
     return [...new Set([...metadataCalls, ...edgeCalls])];
   }, [edges, node?.metadata.calls]);
 
-  if (!node) {
+  if (!visualData && !node) {
     return (
       <aside className="node-details">
         <div className="detail-empty">Select a node to inspect it.</div>
@@ -356,24 +674,54 @@ function NodeDetails({
     );
   }
 
+  if (visualData?.kind === "container" && !node) {
+    return (
+      <aside className="node-details">
+        <div className="detail-heading">
+          <span className="node-type-pill">{visualData.containerType}</span>
+          <h3>{visualData.title}</h3>
+        </div>
+        <dl className="detail-list">
+          <DetailItem label="Path" value={visualData.pathLabel || "Synthetic graph group"} />
+          <DetailItem label="Items" value={visualData.countLabel} />
+          <DetailItem label="Edges" value={`${visualStats.incoming} in / ${visualStats.outgoing} out`} />
+          <DetailItem label="Raw nodes" value={`${rawNodeIds.length}`} />
+        </dl>
+      </aside>
+    );
+  }
+
+  const detailNode = node ?? getPrimaryNode(visualData, containment);
+  if (!detailNode) {
+    return (
+      <aside className="node-details">
+        <div className="detail-empty">No node metadata available.</div>
+      </aside>
+    );
+  }
+
+  const descendantCount =
+    detailNode.type === "file" ? containment.descendantsByFile.get(detailNode.id)?.length ?? 0 : 0;
+
   return (
     <aside className="node-details">
       <div className="detail-heading">
-        <span className="node-type-pill">{node.type}</span>
-        <h3>{node.name}</h3>
+        <span className="node-type-pill">{detailNode.type}</span>
+        <h3>{detailNode.name}</h3>
       </div>
 
       <dl className="detail-list">
-        <DetailItem label="File" value={node.file_path || "External or repository scope"} />
-        <DetailItem label="Lines" value={formatLineRange(node)} />
-        <DetailItem label="Language" value={node.language || "Unknown"} />
-        <DetailItem label="Edges" value={`${edges.length}`} />
-        {node.symbol_id ? <DetailItem label="Symbol" value={node.symbol_id} /> : null}
+        <DetailItem label="File" value={detailNode.file_path || "External or repository scope"} />
+        <DetailItem label="Lines" value={formatLineRange(detailNode)} />
+        <DetailItem label="Language" value={detailNode.language || "Unknown"} />
+        <DetailItem label="Edges" value={`${visualStats.incoming} in / ${visualStats.outgoing} out`} />
+        {descendantCount > 0 ? <DetailItem label="Symbols" value={`${descendantCount}`} /> : null}
+        {detailNode.symbol_id ? <DetailItem label="Symbol" value={detailNode.symbol_id} /> : null}
       </dl>
 
       <MetadataSection title="Imports" values={imports} />
       <MetadataSection title="Calls" values={calls} />
-      <RawMetadata metadata={node.metadata} />
+      <RawMetadata metadata={detailNode.metadata} />
 
       {graph ? (
         <div className="adjacent-list">
@@ -381,7 +729,7 @@ function NodeDetails({
           {edges.slice(0, 8).map((edge) => (
             <div className="adjacent-edge" key={edge.id}>
               <span>{edge.type}</span>
-              <small>{edge.source === node.id ? "outgoing" : "incoming"}</small>
+              <small>{edge.source === detailNode.id ? "outgoing" : "incoming"}</small>
             </div>
           ))}
           {edges.length > 8 ? <div className="muted small-text">+{edges.length - 8} more</div> : null}
@@ -406,11 +754,12 @@ function MetadataSection({ title, values }: { title: string; values: string[] })
       <div className="filter-title">{title}</div>
       {values.length > 0 ? (
         <div className="metadata-chips">
-          {values.map((value) => (
+          {values.slice(0, 16).map((value) => (
             <span className="metadata-chip" key={value}>
               {value}
             </span>
           ))}
+          {values.length > 16 ? <span className="metadata-chip">+{values.length - 16}</span> : null}
         </div>
       ) : (
         <span className="muted small-text">None</span>
@@ -420,7 +769,7 @@ function MetadataSection({ title, values }: { title: string; values: string[] })
 }
 
 function RawMetadata({ metadata }: { metadata: Record<string, unknown> }) {
-  const entries = Object.entries(metadata).filter(([key]) => key !== "calls");
+  const entries = Object.entries(metadata).filter(([key]) => key !== "calls" && key !== "imports");
   if (entries.length === 0) {
     return null;
   }
@@ -429,7 +778,7 @@ function RawMetadata({ metadata }: { metadata: Record<string, unknown> }) {
     <section className="metadata-section">
       <div className="filter-title">Metadata</div>
       <dl className="metadata-list">
-        {entries.map(([key, value]) => (
+        {entries.slice(0, 10).map(([key, value]) => (
           <DetailItem key={key} label={key} value={formatUnknown(value)} />
         ))}
       </dl>
@@ -437,79 +786,1051 @@ function RawMetadata({ metadata }: { metadata: Record<string, unknown> }) {
   );
 }
 
-function layoutNodes(nodes: CodeNode[], edges: CodeEdge[], selectedNodeId: string | null): FlowNode[] {
-  const dagreGraph = new dagre.graphlib.Graph();
-  dagreGraph.setDefaultEdgeLabel(() => ({}));
-  dagreGraph.setGraph({
-    edgesep: 16,
-    marginx: 24,
-    marginy: 24,
-    nodesep: 36,
-    rankdir: "LR",
-    ranksep: 96
+function buildOverviewGraph(
+  graph: GraphResponse,
+  filtered: FilteredGraph,
+  containment: ContainmentIndex,
+  selectedVisualId: string | null
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  const fileIds = collectOverviewFileIds(filtered.nodes, filtered.edges, containment);
+  const fileNodes = [...fileIds]
+    .map((id) => containment.nodeById.get(id))
+    .filter((node): node is CodeNode => Boolean(node))
+    .sort(compareByPath);
+  const groups = deriveFileGroups(fileNodes);
+  const fileToGroup = new Map<string, string>();
+
+  groups.forEach((group) => {
+    group.files.forEach((file) => fileToGroup.set(file.id, group.id));
   });
 
-  nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-  });
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
-  });
-  dagre.layout(dagreGraph);
+  const dependencyNodeId = "dependency:external";
+  const rawToVisualId = new Map<string, string>();
 
-  return nodes.map((node) => {
-    const position = dagreGraph.node(node.id) as { x: number; y: number } | undefined;
-    const tone = nodeTone(node.type);
+  graph.nodes.forEach((node) => {
+    if (node.type === "module") {
+      rawToVisualId.set(node.id, dependencyNodeId);
+      return;
+    }
 
-    return {
-      id: node.id,
+    const fileId = containment.fileByNode.get(node.id);
+    if (fileId && fileIds.has(fileId)) {
+      rawToVisualId.set(node.id, fileId);
+    }
+  });
+
+  const edgeBuckets = aggregateEdges(filtered.edges, rawToVisualId, {
+    skipSelfEdges: true,
+    skipTypes: new Set(["contains"])
+  });
+
+  const groupEdgeBuckets = aggregateEdges(filtered.edges, new Map([...rawToVisualId].map(([rawId, visualId]) => {
+    const groupId = visualId === dependencyNodeId ? dependencyNodeId : fileToGroup.get(visualId);
+    return [rawId, groupId ?? visualId];
+  })), {
+    skipSelfEdges: true,
+    skipTypes: new Set(["contains"])
+  });
+
+  const topLevelNodes = groups.map((group) => ({ id: group.id, width: group.width, height: group.height }));
+  const hasDependencies = filtered.nodes.some((node) => node.type === "module") || edgeBuckets.some((edge) => edge.source === dependencyNodeId || edge.target === dependencyNodeId);
+
+  if (hasDependencies) {
+    topLevelNodes.push({ id: dependencyNodeId, width: 300, height: 190 });
+  }
+
+  const topLevelPositions = layoutBoxes(topLevelNodes, groupEdgeBuckets, "LR");
+  const statsByRawNode = computeStatsByRawNode(graph.edges);
+  const nodes: FlowNode[] = [];
+
+  groups.forEach((group) => {
+    const position = topLevelPositions.get(group.id) ?? { x: 0, y: 0 };
+    const rawNodeIds = group.files.flatMap((file) => [file.id, ...(containment.descendantsByFile.get(file.id) ?? [])]);
+    const groupStats = computeStatsForNodeIds(rawNodeIds, filtered.edges);
+
+    nodes.push({
+      id: group.id,
+      type: "container",
+      position,
       data: {
-        label: node.name,
-        codeNode: node
+        kind: "container",
+        title: group.name,
+        subtitle: "folder container",
+        containerType: "directory",
+        pathLabel: group.pathLabel,
+        countLabel: `${group.files.length}`,
+        statsLabel: `${groupStats.incoming} in / ${groupStats.outgoing} out`,
+        accentColor: nodeTone("directory").border,
+        rawNodeIds,
+        isSelected: false,
+        isNeighbor: false,
+        isFaded: false,
+        isFocusedViaChild: false,
+        isCompact: false
       },
-      position: {
-        x: (position?.x ?? 0) - NODE_WIDTH / 2,
-        y: (position?.y ?? 0) - NODE_HEIGHT / 2
-      },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      style: {
-        background: tone.background,
-        border: `1px solid ${selectedNodeId === node.id ? "#d4a574" : tone.border}`,
-        borderRadius: 8,
-        boxShadow: selectedNodeId === node.id ? "0 0 0 3px rgba(212, 165, 116, 0.18)" : "none",
-        color: "#f5f0eb",
-        fontSize: 12,
-        fontWeight: 700,
-        minHeight: NODE_HEIGHT,
-        padding: 10,
-        width: NODE_WIDTH
-      }
-    };
+      style: { width: group.width, height: group.height },
+      selectable: true,
+      draggable: false
+    });
+
+    group.files.forEach((file) => {
+      const childPosition = group.childPositions.get(file.id) ?? { x: GROUP_PADDING_X, y: GROUP_HEADER_HEIGHT };
+      const descendants = containment.descendantsByFile.get(file.id) ?? [];
+      const stats = computeStatsForNodeIds([file.id, ...descendants], filtered.edges);
+
+      nodes.push({
+        id: file.id,
+        type: "code",
+        parentId: group.id,
+        extent: "parent",
+        position: childPosition,
+        data: toCodeVisualData(file, {
+          containment,
+          fileId: file.id,
+          rawNodeIds: [file.id, ...descendants],
+          summary: `${descendants.length} symbols in ${compactFilePath(file.file_path ?? file.name)}`,
+          countLabel: `${descendants.length}`,
+          statsLabel: `${stats.calls} calls / ${stats.imports} imports`,
+          isContained: true,
+          isExternal: false,
+          stats: statsByRawNode.get(file.id)
+        }),
+        style: { width: FILE_NODE_WIDTH, height: FILE_NODE_HEIGHT },
+        selectable: true,
+        draggable: false,
+        zIndex: 5
+      });
+    });
   });
+
+  if (hasDependencies) {
+    const depPosition = topLevelPositions.get(dependencyNodeId) ?? { x: 0, y: 0 };
+    const moduleIds = filtered.nodes.filter((node) => node.type === "module").map((node) => node.id);
+    const depStats = computeStatsForNodeIds(moduleIds, filtered.edges);
+
+    nodes.push({
+      id: dependencyNodeId,
+      type: "container",
+      position: depPosition,
+      data: {
+        kind: "container",
+        title: "External Dependencies",
+        subtitle: "module container",
+        containerType: "dependency",
+        pathLabel: "imports collapsed by target module",
+        countLabel: `${moduleIds.length}`,
+        statsLabel: `${depStats.incoming} imports / ${depStats.outgoing} out`,
+        accentColor: nodeTone("module").border,
+        rawNodeIds: moduleIds,
+        isSelected: false,
+        isNeighbor: false,
+        isFaded: false,
+        isFocusedViaChild: false,
+        isCompact: false
+      },
+      style: { width: 300, height: 190 },
+      selectable: true,
+      draggable: false
+    });
+  }
+
+  const edges = edgeBuckets.map((bucket) => toFlowEdge(bucket));
+  return applyVisualState(nodes, edges, selectedVisualId, "overview");
 }
 
-function toFlowEdge(edge: CodeEdge): FlowEdge {
-  const tone = edgeTone(edge.type);
+function buildFileDetailGraph(
+  graph: GraphResponse,
+  filtered: FilteredGraph,
+  containment: ContainmentIndex,
+  selectedFileId: string | null,
+  selectedNodeId: string | null,
+  selectedVisualId: string | null
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  const fileNode =
+    (selectedFileId ? containment.nodeById.get(selectedFileId) : null) ??
+    graph.nodes.find((node) => node.type === "file") ??
+    null;
+
+  if (!fileNode) {
+    return { nodes: [], edges: [] };
+  }
+
+  const descendantIds = containment.descendantsByFile.get(fileNode.id) ?? [];
+  const visibleSymbols = descendantIds
+    .map((id) => containment.nodeById.get(id))
+    .filter((node): node is CodeNode => Boolean(node))
+    .filter((node) => filtered.nodeIds.has(node.id))
+    .filter((node) => node.type === "class" || node.type === "function" || node.type === "method")
+    .sort(compareBySourceOrder);
+
+  const fileContainerId = `file-detail:${fileNode.id}`;
+  const fileHeight = Math.max(320, GROUP_HEADER_HEIGHT + 36 + visibleSymbols.length * (SYMBOL_NODE_HEIGHT + 16));
+  const stats = computeStatsForNodeIds([fileNode.id, ...descendantIds], filtered.edges);
+  const nodes: FlowNode[] = [
+    {
+      id: fileContainerId,
+      type: "container",
+      position: { x: 0, y: 0 },
+      data: {
+        kind: "container",
+        title: fileNode.name,
+        subtitle: "file detail",
+        containerType: "file",
+        pathLabel: fileNode.file_path ?? fileNode.name,
+        countLabel: `${visibleSymbols.length}`,
+        statsLabel: `${stats.calls} calls / ${stats.imports} imports`,
+        accentColor: nodeTone("file").border,
+        fileId: fileNode.id,
+        primaryNodeId: fileNode.id,
+        rawNodeIds: [fileNode.id, ...descendantIds],
+        isSelected: false,
+        isNeighbor: false,
+        isFaded: false,
+        isFocusedViaChild: Boolean(selectedNodeId && selectedNodeId !== fileNode.id),
+        isCompact: false
+      },
+      style: { width: FILE_DETAIL_WIDTH, height: fileHeight },
+      selectable: true,
+      draggable: false
+    }
+  ];
+
+  visibleSymbols.forEach((node, index) => {
+    const depth = symbolDepth(node.id, fileNode.id, containment);
+    nodes.push({
+      id: node.id,
+      type: "code",
+      parentId: fileContainerId,
+      extent: "parent",
+      position: {
+        x: 32 + Math.min(depth, 2) * 34,
+        y: GROUP_HEADER_HEIGHT + 26 + index * (SYMBOL_NODE_HEIGHT + 16)
+      },
+      data: toCodeVisualData(node, {
+        containment,
+        fileId: fileNode.id,
+        rawNodeIds: [node.id],
+        summary: nodeSummary(node),
+        countLabel: formatLineRange(node),
+        stats: computeStatsByRawNode(graph.edges).get(node.id),
+        isContained: true,
+        isExternal: false
+      }),
+      style: { width: SYMBOL_NODE_WIDTH, height: SYMBOL_NODE_HEIGHT },
+      selectable: true,
+      draggable: false,
+      zIndex: 6
+    });
+  });
+
+  const internalSymbolIds = new Set(visibleSymbols.map((node) => node.id));
+  const selectedSymbolId = selectedNodeId && internalSymbolIds.has(selectedNodeId) ? selectedNodeId : null;
+  const internalEdges = selectedSymbolId
+    ? filtered.edges.filter(
+        (edge) =>
+          edge.type !== "contains" &&
+          (edge.source === selectedSymbolId || edge.target === selectedSymbolId) &&
+          internalSymbolIds.has(edge.source) &&
+          internalSymbolIds.has(edge.target)
+      )
+    : [];
+  const rawToInternalVisual = new Map<string, string>(visibleSymbols.map((node) => [node.id, node.id]));
+  const edges: FlowEdge[] = aggregateEdges(internalEdges, rawToInternalVisual, {
+    skipSelfEdges: true
+  }).map((bucket) => toFlowEdge(bucket));
+
+  const portals = collectFilePortals(fileNode.id, selectedSymbolId, filtered.edges, containment, graph);
+  const outgoing = portals.filter((portal) => portal.direction === "out").slice(0, MAX_PORTAL_NODES);
+  const incoming = portals.filter((portal) => portal.direction === "in").slice(0, MAX_PORTAL_NODES);
+
+  outgoing.forEach((portal, index) => {
+    nodes.push(portalToNode(portal, { x: FILE_DETAIL_WIDTH + 150, y: 36 + index * 150 }, containment));
+    edges.push(toFlowEdge(portal.bucket, selectedSymbolId ?? fileContainerId, portal.visualId));
+  });
+
+  incoming.forEach((portal, index) => {
+    nodes.push(portalToNode(portal, { x: -FILE_NODE_WIDTH - 150, y: 36 + index * 150 }, containment));
+    edges.push(toFlowEdge(portal.bucket, portal.visualId, selectedSymbolId ?? fileContainerId));
+  });
+
+  return applyVisualState(nodes, edges, selectedVisualId ?? fileContainerId, "file");
+}
+
+function buildFocusGraph(
+  graph: GraphResponse,
+  filtered: FilteredGraph,
+  containment: ContainmentIndex,
+  selectedNodeId: string | null,
+  selectedVisualId: string | null
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  const focusNode = selectedNodeId ? containment.nodeById.get(selectedNodeId) : null;
+  if (!focusNode || !filtered.nodeIds.has(focusNode.id)) {
+    return buildOverviewGraph(graph, filtered, containment, selectedVisualId);
+  }
+
+  const relevantNodeIds = new Set<string>([focusNode.id]);
+  const relevantEdges = filtered.edges.filter((edge) => {
+    const isRelevant = edge.source === focusNode.id || edge.target === focusNode.id;
+    if (isRelevant) {
+      relevantNodeIds.add(edge.source);
+      relevantNodeIds.add(edge.target);
+    }
+    return isRelevant;
+  });
+
+  const fileId = containment.fileByNode.get(focusNode.id);
+  if (focusNode.type === "file") {
+    for (const childId of containment.descendantsByFile.get(focusNode.id) ?? []) {
+      if (filtered.nodeIds.has(childId)) {
+        relevantNodeIds.add(childId);
+      }
+    }
+  } else if (fileId) {
+    relevantNodeIds.add(fileId);
+  }
+
+  const rawNodes = [...relevantNodeIds]
+    .map((id) => containment.nodeById.get(id))
+    .filter((node): node is CodeNode => Boolean(node))
+    .sort(compareBySourceOrder);
+  const rawNodeIds = new Set(rawNodes.map((node) => node.id));
+  const rawEdges = filtered.edges.filter((edge) => rawNodeIds.has(edge.source) && rawNodeIds.has(edge.target));
+  const positions = layoutBoxes(
+    rawNodes.map((node) => ({
+      id: node.id,
+      width: node.type === "file" ? FILE_NODE_WIDTH : SYMBOL_NODE_WIDTH,
+      height: node.type === "file" ? FILE_NODE_HEIGHT : SYMBOL_NODE_HEIGHT
+    })),
+    rawEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: edge.type,
+      count: 1,
+      rawEdgeIds: [edge.id],
+      hasInferred: edge.is_inferred
+    })),
+    "LR"
+  );
+  const statsByRawNode = computeStatsByRawNode(graph.edges);
+
+  const nodes: FlowNode[] = rawNodes.map((node) => ({
+    id: node.id,
+    type: "code",
+    position: positions.get(node.id) ?? { x: 0, y: 0 },
+    data: toCodeVisualData(node, {
+      containment,
+      fileId: containment.fileByNode.get(node.id),
+      rawNodeIds: [node.id],
+      summary: nodeSummary(node),
+      countLabel: node.type === "file" ? `${containment.descendantsByFile.get(node.id)?.length ?? 0}` : formatLineRange(node),
+      stats: statsByRawNode.get(node.id),
+      isContained: false,
+      isExternal: node.type === "module"
+    }),
+    style: {
+      width: node.type === "file" ? FILE_NODE_WIDTH : SYMBOL_NODE_WIDTH,
+      height: node.type === "file" ? FILE_NODE_HEIGHT : SYMBOL_NODE_HEIGHT
+    },
+    selectable: true,
+    draggable: false
+  }));
+
+  const rawToVisual = new Map(rawNodes.map((node) => [node.id, node.id]));
+  const edges = aggregateEdges(rawEdges, rawToVisual, { skipSelfEdges: true }).map((bucket) => toFlowEdge(bucket));
+
+  return applyVisualState(nodes, edges, selectedVisualId ?? focusNode.id, "focus");
+}
+
+function deriveContainment(graph: GraphResponse | null): ContainmentIndex {
+  const nodeById = new Map<string, CodeNode>();
+  const childrenByParent = new Map<string, string[]>();
+  const parentByChild = new Map<string, string>();
+  const fileByNode = new Map<string, string>();
+  const descendantsByFile = new Map<string, string[]>();
+
+  if (!graph) {
+    return { nodeById, childrenByParent, parentByChild, fileByNode, descendantsByFile };
+  }
+
+  graph.nodes.forEach((node) => {
+    nodeById.set(node.id, node);
+  });
+
+  graph.edges
+    .filter((edge) => edge.type === "contains")
+    .forEach((edge) => {
+      const children = childrenByParent.get(edge.source) ?? [];
+      children.push(edge.target);
+      childrenByParent.set(edge.source, children);
+      if (!parentByChild.has(edge.target)) {
+        parentByChild.set(edge.target, edge.source);
+      }
+    });
+
+  const fileNodes = graph.nodes.filter((node) => node.type === "file");
+  fileNodes.forEach((file) => {
+    fileByNode.set(file.id, file.id);
+    descendantsByFile.set(file.id, []);
+  });
+
+  graph.nodes.forEach((node) => {
+    const fileId = findFileAncestor(node.id, nodeById, parentByChild, fileNodes);
+    if (fileId) {
+      fileByNode.set(node.id, fileId);
+      if (node.id !== fileId) {
+        const descendants = descendantsByFile.get(fileId) ?? [];
+        descendants.push(node.id);
+        descendantsByFile.set(fileId, descendants);
+      }
+    }
+  });
+
+  descendantsByFile.forEach((ids) => {
+    ids.sort((left, right) => compareBySourceOrder(nodeById.get(left), nodeById.get(right)));
+  });
+
+  return { nodeById, childrenByParent, parentByChild, fileByNode, descendantsByFile };
+}
+
+function findFileAncestor(
+  nodeId: string,
+  nodeById: Map<string, CodeNode>,
+  parentByChild: Map<string, string>,
+  fileNodes: CodeNode[]
+): string | null {
+  const node = nodeById.get(nodeId);
+  if (!node) {
+    return null;
+  }
+  if (node.type === "file") {
+    return node.id;
+  }
+
+  const visited = new Set<string>();
+  let currentId: string | undefined = nodeId;
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const parentId = parentByChild.get(currentId);
+    if (!parentId) {
+      break;
+    }
+    const parent = nodeById.get(parentId);
+    if (parent?.type === "file") {
+      return parent.id;
+    }
+    currentId = parentId;
+  }
+
+  if (node.file_path) {
+    return fileNodes.find((file) => file.file_path === node.file_path)?.id ?? null;
+  }
+
+  return null;
+}
+
+function filterRawGraph(
+  graph: GraphResponse | null,
+  selectedNodeTypes: Set<string>,
+  selectedEdgeTypes: Set<string>,
+  showInferredCalls: boolean
+): FilteredGraph {
+  if (!graph) {
+    return { nodes: [], edges: [], nodeIds: new Set() };
+  }
+
+  const nodes = graph.nodes.filter((node) => selectedNodeTypes.has(node.type));
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edges = graph.edges.filter((edge) => {
+    if (!selectedEdgeTypes.has(edge.type)) {
+      return false;
+    }
+    if (!showInferredCalls && edge.type === "calls" && edge.is_inferred) {
+      return false;
+    }
+    return nodeIds.has(edge.source) && nodeIds.has(edge.target);
+  });
+
+  return { nodes, edges, nodeIds };
+}
+
+function collectOverviewFileIds(
+  nodes: CodeNode[],
+  edges: CodeEdge[],
+  containment: ContainmentIndex
+): Set<string> {
+  const fileIds = new Set<string>();
+
+  nodes.forEach((node) => {
+    const fileId = containment.fileByNode.get(node.id);
+    if (fileId) {
+      fileIds.add(fileId);
+    }
+  });
+
+  edges.forEach((edge) => {
+    const sourceFile = containment.fileByNode.get(edge.source);
+    const targetFile = containment.fileByNode.get(edge.target);
+    if (sourceFile) {
+      fileIds.add(sourceFile);
+    }
+    if (targetFile) {
+      fileIds.add(targetFile);
+    }
+  });
+
+  return fileIds;
+}
+
+function deriveFileGroups(files: CodeNode[]): FileGroup[] {
+  if (files.length === 0) {
+    return [];
+  }
+
+  let groups = groupFilesByDepth(files, 1);
+  if (groups.size < 2 || largestGroupShare(groups, files.length) > 0.7) {
+    groups = groupFilesByDepth(files, 2);
+  }
+  if (groups.size < 2 || largestGroupShare(groups, files.length) > 0.7) {
+    groups = groupFilesByDepth(files, 3);
+  }
+
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([groupPath, groupFiles], index) => {
+      const cols = clamp(Math.ceil(Math.sqrt(groupFiles.length)), 1, 4);
+      const rows = Math.ceil(groupFiles.length / cols);
+      const width = GROUP_PADDING_X * 2 + cols * FILE_NODE_WIDTH + (cols - 1) * GROUP_CHILD_GAP;
+      const height = GROUP_HEADER_HEIGHT + 28 + rows * FILE_NODE_HEIGHT + (rows - 1) * GROUP_CHILD_GAP;
+      const childPositions = new Map<string, { x: number; y: number }>();
+
+      groupFiles.sort(compareByPath).forEach((file, fileIndex) => {
+        const col = fileIndex % cols;
+        const row = Math.floor(fileIndex / cols);
+        childPositions.set(file.id, {
+          x: GROUP_PADDING_X + col * (FILE_NODE_WIDTH + GROUP_CHILD_GAP),
+          y: GROUP_HEADER_HEIGHT + 24 + row * (FILE_NODE_HEIGHT + GROUP_CHILD_GAP)
+        });
+      });
+
+      return {
+        id: `group:${index}:${groupPath}`,
+        name: groupPath === "~" ? "(root)" : groupPath,
+        pathLabel: groupPath === "~" ? "repository root" : groupPath,
+        files: groupFiles,
+        width,
+        height,
+        childPositions
+      };
+    });
+}
+
+function groupFilesByDepth(files: CodeNode[], depth: number): Map<string, CodeNode[]> {
+  const prefix = commonDirectoryPrefix(files.map((file) => file.file_path ?? file.name));
+  const groups = new Map<string, CodeNode[]>();
+
+  files.forEach((file) => {
+    const path = file.file_path ?? file.name;
+    const stripped = stripPrefix(path, prefix);
+    const parts = stripped.split("/").filter(Boolean);
+    const dirParts = parts.length > 1 ? parts.slice(0, -1) : [];
+    const key = dirParts.length === 0 ? "~" : dirParts.slice(0, depth).join("/");
+    const groupFiles = groups.get(key) ?? [];
+    groupFiles.push(file);
+    groups.set(key, groupFiles);
+  });
+
+  return groups;
+}
+
+function aggregateEdges(
+  edges: CodeEdge[],
+  rawToVisualId: Map<string, string | undefined>,
+  options: { skipSelfEdges?: boolean; skipTypes?: Set<string> } = {}
+): EdgeBucket[] {
+  const buckets = new Map<string, EdgeBucket>();
+
+  edges.forEach((edge) => {
+    if (options.skipTypes?.has(edge.type)) {
+      return;
+    }
+    const source = rawToVisualId.get(edge.source);
+    const target = rawToVisualId.get(edge.target);
+    if (!source || !target) {
+      return;
+    }
+    if (options.skipSelfEdges && source === target) {
+      return;
+    }
+
+    const key = `${source.length}:${source}\0${target.length}:${target}\0${edge.type}`;
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.rawEdgeIds.push(edge.id);
+      existing.hasInferred = existing.hasInferred || edge.is_inferred;
+    } else {
+      buckets.set(key, {
+        id: `agg:${buckets.size}:${edge.type}`,
+        source,
+        target,
+        type: edge.type,
+        count: 1,
+        rawEdgeIds: [edge.id],
+        hasInferred: edge.is_inferred
+      });
+    }
+  });
+
+  return [...buckets.values()].sort((left, right) => right.count - left.count);
+}
+
+function toFlowEdge(bucket: EdgeBucket, sourceOverride?: string, targetOverride?: string): FlowEdge {
+  const tone = edgeTone(bucket.type);
+  const countLabel = bucket.count > 1 ? ` x${bucket.count}` : "";
 
   return {
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    data: { codeEdge: edge },
-    label: edge.type,
-    labelBgBorderRadius: 4,
-    labelBgPadding: [6, 3],
-    labelBgStyle: { fill: "rgba(17, 17, 17, 0.92)" },
-    labelStyle: { fill: "#a39787", fontSize: 10, fontWeight: 700 },
-    markerEnd: { type: MarkerType.ArrowClosed },
+    id: sourceOverride || targetOverride ? `${bucket.id}:${sourceOverride ?? bucket.source}:${targetOverride ?? bucket.target}` : bucket.id,
+    source: sourceOverride ?? bucket.source,
+    target: targetOverride ?? bucket.target,
+    data: {
+      edgeType: bucket.type,
+      count: bucket.count,
+      rawEdgeIds: bucket.rawEdgeIds,
+      hasInferred: bucket.hasInferred
+    },
+    label: `${bucket.type}${countLabel}`,
+    labelBgBorderRadius: 6,
+    labelBgPadding: [7, 4],
+    labelBgStyle: { fill: "rgba(12, 13, 13, 0.92)" },
+    labelStyle: { fill: tone.label, fontSize: 10, fontWeight: 800 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: tone.stroke },
     style: {
-      stroke: tone,
-      strokeDasharray: edge.is_inferred ? "6 4" : undefined,
-      strokeWidth: edge.type === "calls" ? 2 : 1.5
+      stroke: tone.stroke,
+      strokeDasharray: bucket.hasInferred ? "7 5" : undefined,
+      strokeWidth: Math.min(1.4 + Math.log2(bucket.count + 1), 5)
     },
     type: "smoothstep"
   };
+}
+
+function layoutBoxes(
+  nodes: Array<{ id: string; width: number; height: number }>,
+  edges: Array<{ source: string; target: string }>,
+  direction: "LR" | "TB"
+): Map<string, { x: number; y: number }> {
+  const graph = new dagre.graphlib.Graph();
+  graph.setDefaultEdgeLabel(() => ({}));
+  graph.setGraph({
+    edgesep: 18,
+    marginx: 32,
+    marginy: 32,
+    nodesep: direction === "LR" ? GROUP_GAP_Y : GROUP_GAP_X,
+    rankdir: direction,
+    ranksep: direction === "LR" ? GROUP_GAP_X : GROUP_GAP_Y
+  });
+
+  nodes.forEach((node) => {
+    graph.setNode(node.id, { width: node.width, height: node.height });
+  });
+  edges.forEach((edge) => {
+    if (edge.source !== edge.target) {
+      graph.setEdge(edge.source, edge.target);
+    }
+  });
+  dagre.layout(graph);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  nodes.forEach((node) => {
+    const position = graph.node(node.id) as { x: number; y: number } | undefined;
+    positions.set(node.id, {
+      x: (position?.x ?? 0) - node.width / 2,
+      y: (position?.y ?? 0) - node.height / 2
+    });
+  });
+
+  return positions;
+}
+
+function applyVisualState(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  selectedVisualId: string | null,
+  mode: GraphViewMode
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  if (!selectedVisualId) {
+    return { nodes, edges };
+  }
+
+  const neighbors = new Set<string>();
+  edges.forEach((edge) => {
+    if (edge.source === selectedVisualId) {
+      neighbors.add(edge.target);
+    }
+    if (edge.target === selectedVisualId) {
+      neighbors.add(edge.source);
+    }
+  });
+
+  return {
+    nodes: nodes.map((node) => {
+      const isSelected = node.id === selectedVisualId;
+      const isNeighbor = neighbors.has(node.id);
+      const isFaded = mode === "focus" && !isSelected && !isNeighbor;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isSelected,
+          isNeighbor,
+          isFaded
+        }
+      };
+    }),
+    edges
+  };
+}
+
+function toCodeVisualData(
+  node: CodeNode,
+  options: {
+    containment: ContainmentIndex;
+    fileId?: string;
+    rawNodeIds: string[];
+    summary: string;
+    countLabel?: string;
+    stats?: NodeStats;
+    statsLabel?: string;
+    isContained: boolean;
+    isExternal: boolean;
+  }
+): CodeVisualData {
+  const tone = nodeTone(node.type);
+  const statsLabel =
+    options.statsLabel ??
+    (options.stats ? `${options.stats.outgoing} out / ${options.stats.incoming} in` : "No visible edges");
+
+  return {
+    kind: "code",
+    label: node.name,
+    nodeType: node.type,
+    summary: options.summary,
+    pathLabel: compactFilePath(node.file_path ?? node.name),
+    lineLabel: formatLineRange(node),
+    countLabel: options.countLabel,
+    statsLabel,
+    accentColor: tone.border,
+    codeNode: node,
+    fileId: options.fileId,
+    rawNodeIds: options.rawNodeIds,
+    isSelected: false,
+    isNeighbor: false,
+    isFaded: false,
+    isContained: options.isContained,
+    isExternal: options.isExternal
+  };
+}
+
+type Portal = {
+  visualId: string;
+  direction: "in" | "out";
+  bucket: EdgeBucket;
+  node: CodeNode | null;
+};
+
+function collectFilePortals(
+  fileId: string,
+  selectedSymbolId: string | null,
+  edges: CodeEdge[],
+  containment: ContainmentIndex,
+  graph: GraphResponse
+): Portal[] {
+  const fileRawIds = new Set([fileId, ...(containment.descendantsByFile.get(fileId) ?? [])]);
+  const sourceIds = selectedSymbolId ? new Set([selectedSymbolId]) : fileRawIds;
+  const moduleVisualId = "portal:dependency";
+  const rawToVisual = new Map<string, string>();
+  const portalNodes = new Map<string, CodeNode | null>();
+
+  graph.nodes.forEach((node) => {
+    if (node.type === "module") {
+      rawToVisual.set(node.id, moduleVisualId);
+      portalNodes.set(moduleVisualId, null);
+      return;
+    }
+
+    const nodeFileId = containment.fileByNode.get(node.id);
+    if (nodeFileId && nodeFileId !== fileId) {
+      const visualId = `portal:${nodeFileId}`;
+      rawToVisual.set(node.id, visualId);
+      portalNodes.set(visualId, containment.nodeById.get(nodeFileId) ?? null);
+    }
+  });
+
+  const buckets = new Map<string, Portal>();
+  edges
+    .filter((edge) => edge.type !== "contains")
+    .forEach((edge) => {
+      const sourceInside = sourceIds.has(edge.source);
+      const targetInside = sourceIds.has(edge.target);
+      if (sourceInside === targetInside) {
+        return;
+      }
+
+      const externalRawId = sourceInside ? edge.target : edge.source;
+      const baseVisualId = rawToVisual.get(externalRawId);
+      if (!baseVisualId) {
+        return;
+      }
+
+      const direction: "in" | "out" = sourceInside ? "out" : "in";
+      const visualId = `portal:${direction}:${baseVisualId}`;
+      const key = `${direction}:${visualId}:${edge.type}`;
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.bucket.count += 1;
+        existing.bucket.rawEdgeIds.push(edge.id);
+        existing.bucket.hasInferred = existing.bucket.hasInferred || edge.is_inferred;
+      } else {
+        buckets.set(key, {
+          visualId,
+          direction,
+          node: portalNodes.get(baseVisualId) ?? null,
+          bucket: {
+            id: `portal-edge:${buckets.size}:${direction}:${edge.type}`,
+            source: direction === "out" ? fileId : visualId,
+            target: direction === "out" ? visualId : fileId,
+            type: edge.type,
+            count: 1,
+            rawEdgeIds: [edge.id],
+            hasInferred: edge.is_inferred
+          }
+        });
+      }
+    });
+
+  return [...buckets.values()].sort((left, right) => right.bucket.count - left.bucket.count);
+}
+
+function portalToNode(
+  portal: Portal,
+  position: { x: number; y: number },
+  containment: ContainmentIndex
+): FlowNode {
+  if (!portal.node) {
+    return {
+      id: portal.visualId,
+      type: "container",
+      position,
+      data: {
+        kind: "container",
+        title: "External Dependencies",
+        subtitle: "module portal",
+        containerType: "dependency",
+        pathLabel: "collapsed import target",
+        countLabel: `${portal.bucket.count}`,
+        statsLabel: `${portal.direction === "out" ? "outgoing" : "incoming"} ${portal.bucket.type}`,
+        accentColor: nodeTone("module").border,
+        rawNodeIds: portal.bucket.rawEdgeIds,
+        isSelected: false,
+        isNeighbor: false,
+        isFaded: false,
+        isFocusedViaChild: false,
+        isCompact: true
+      },
+      style: { width: FILE_NODE_WIDTH, height: 134 },
+      selectable: true,
+      draggable: false
+    };
+  }
+
+  const descendants = containment.descendantsByFile.get(portal.node.id) ?? [];
+  return {
+    id: portal.visualId,
+    type: "code",
+    position,
+    data: toCodeVisualData(portal.node, {
+      containment,
+      fileId: portal.node.id,
+      rawNodeIds: [portal.node.id, ...descendants],
+      summary: `${portal.bucket.count} ${portal.bucket.type} ${portal.direction === "out" ? "from this file" : "into this file"}`,
+      countLabel: `${descendants.length}`,
+      statsLabel: `${portal.direction === "out" ? "outgoing" : "incoming"} edge group`,
+      isContained: false,
+      isExternal: true
+    }),
+    style: { width: FILE_NODE_WIDTH, height: FILE_NODE_HEIGHT },
+    selectable: true,
+    draggable: false
+  };
+}
+
+function computeStatsByRawNode(edges: CodeEdge[]): Map<string, NodeStats> {
+  const stats = new Map<string, NodeStats>();
+  const ensure = (id: string) => {
+    const current = stats.get(id);
+    if (current) {
+      return current;
+    }
+    const next = { incoming: 0, outgoing: 0, calls: 0, imports: 0 };
+    stats.set(id, next);
+    return next;
+  };
+
+  edges.forEach((edge) => {
+    const source = ensure(edge.source);
+    const target = ensure(edge.target);
+    source.outgoing += 1;
+    target.incoming += 1;
+    if (edge.type === "calls") {
+      source.calls += 1;
+    }
+    if (edge.type === "imports") {
+      source.imports += 1;
+    }
+  });
+
+  return stats;
+}
+
+function computeStatsForNodeIds(nodeIds: string[], edges: CodeEdge[]): NodeStats {
+  const ids = new Set(nodeIds);
+  const stats = { incoming: 0, outgoing: 0, calls: 0, imports: 0 };
+
+  edges.forEach((edge) => {
+    const sourceInside = ids.has(edge.source);
+    const targetInside = ids.has(edge.target);
+    if (sourceInside && !targetInside) {
+      stats.outgoing += 1;
+    }
+    if (!sourceInside && targetInside) {
+      stats.incoming += 1;
+    }
+    if (sourceInside && edge.type === "calls") {
+      stats.calls += 1;
+    }
+    if (sourceInside && edge.type === "imports") {
+      stats.imports += 1;
+    }
+  });
+
+  return stats;
+}
+
+function symbolDepth(nodeId: string, fileId: string, containment: ContainmentIndex): number {
+  let depth = 0;
+  let current = containment.parentByChild.get(nodeId);
+  const visited = new Set<string>();
+
+  while (current && current !== fileId && !visited.has(current)) {
+    visited.add(current);
+    const parent = containment.nodeById.get(current);
+    if (parent?.type === "class" || parent?.type === "function" || parent?.type === "method") {
+      depth += 1;
+    }
+    current = containment.parentByChild.get(current);
+  }
+
+  return depth;
+}
+
+function compareByPath(left: CodeNode, right: CodeNode): number {
+  return (left.file_path ?? left.name).localeCompare(right.file_path ?? right.name);
+}
+
+function compareBySourceOrder(left?: CodeNode, right?: CodeNode): number {
+  if (!left && !right) {
+    return 0;
+  }
+  if (!left) {
+    return 1;
+  }
+  if (!right) {
+    return -1;
+  }
+  const leftPath = left.file_path ?? "";
+  const rightPath = right.file_path ?? "";
+  if (leftPath !== rightPath) {
+    return leftPath.localeCompare(rightPath);
+  }
+  const leftLine = left.start_line ?? Number.MAX_SAFE_INTEGER;
+  const rightLine = right.start_line ?? Number.MAX_SAFE_INTEGER;
+  if (leftLine !== rightLine) {
+    return leftLine - rightLine;
+  }
+  return left.name.localeCompare(right.name);
+}
+
+function largestGroupShare(groups: Map<string, CodeNode[]>, total: number): number {
+  if (total === 0) {
+    return 0;
+  }
+  return Math.max(...[...groups.values()].map((nodes) => nodes.length)) / total;
+}
+
+function commonDirectoryPrefix(paths: string[]): string {
+  const dirs = paths
+    .filter(Boolean)
+    .map((path) => path.replaceAll("\\", "/"))
+    .map((path) => {
+      const slash = path.lastIndexOf("/");
+      return slash >= 0 ? path.slice(0, slash + 1) : "";
+    });
+
+  if (dirs.length === 0) {
+    return "";
+  }
+
+  let prefix = dirs[0];
+  dirs.forEach((dir) => {
+    while (prefix && !dir.startsWith(prefix)) {
+      prefix = prefix.slice(0, -1);
+      const slash = prefix.lastIndexOf("/");
+      prefix = slash >= 0 ? prefix.slice(0, slash + 1) : "";
+    }
+  });
+
+  return prefix;
+}
+
+function stripPrefix(value: string, prefix: string): string {
+  const normalized = value.replaceAll("\\", "/");
+  return prefix && normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getPrimaryNode(visualData: VisualNodeData | null, containment: ContainmentIndex): CodeNode | null {
+  if (!visualData) {
+    return null;
+  }
+  if (visualData.kind === "code") {
+    return visualData.codeNode;
+  }
+  if (visualData.primaryNodeId) {
+    return containment.nodeById.get(visualData.primaryNodeId) ?? null;
+  }
+  return visualData.rawNodeIds.map((id) => containment.nodeById.get(id)).find(Boolean) ?? null;
+}
+
+function summarizeVisualGraph(
+  graph: GraphResponse | null,
+  filtered: FilteredGraph,
+  visualGraph: { nodes: FlowNode[]; edges: FlowEdge[] }
+): string {
+  if (!graph) {
+    return "No graph loaded";
+  }
+  return `${visualGraph.nodes.length} visual / ${filtered.nodes.length}/${graph.nodes.length} raw nodes / ${visualGraph.edges.length} edges`;
+}
+
+function miniMapColor(node: FlowNode): string {
+  const data = node.data;
+  if (data.kind === "container") {
+    return data.accentColor;
+  }
+  return data.accentColor;
 }
 
 function collectTypes(items: Array<{ type: string }>): string[] {
@@ -531,13 +1852,13 @@ function filterKey(values: Set<string>): string {
 }
 
 function formatLineRange(node: CodeNode): string {
-  if (node.start_line && node.end_line) {
+  if (node.start_line != null && node.end_line != null) {
     return `${node.start_line}-${node.end_line}`;
   }
-  if (node.start_line) {
+  if (node.start_line != null) {
     return `${node.start_line}`;
   }
-  return "Unknown";
+  return "n/a";
 }
 
 function collectEdgeMetadata(edges: CodeEdge[], edgeType: string, metadataKey: string): string[] {
@@ -573,35 +1894,71 @@ function formatUnknown(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function nodeTone(type: string): { background: string; border: string } {
-  switch (type) {
-    case "repository":
-      return { background: "#17251f", border: "#6fb07a" };
-    case "directory":
-      return { background: "#181a1d", border: "#5f6b73" };
+function compactFilePath(path: string): string {
+  const normalized = path.replaceAll("\\", "/");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 3) {
+    return normalized || "scope";
+  }
+  return `${parts[0]}/.../${parts.slice(-2).join("/")}`;
+}
+
+function nodeSummary(node: CodeNode): string {
+  const signature = typeof node.metadata.signature === "string" ? node.metadata.signature : "";
+  const docstring = typeof node.metadata.docstring === "string" ? node.metadata.docstring : "";
+  if (signature) {
+    return signature;
+  }
+  if (docstring) {
+    return docstring;
+  }
+  if (node.type === "module") {
+    return "External dependency";
+  }
+  return compactFilePath(node.file_path ?? node.name);
+}
+
+function modeHint(mode: GraphViewMode): string {
+  switch (mode) {
+    case "overview":
+      return "Files are grouped by readable folders; calls and imports are aggregated.";
     case "file":
-      return { background: "#14202a", border: "#4a7c9b" };
-    case "module":
-      return { background: "#272015", border: "#c9a06c" };
-    case "class":
-      return { background: "#201a2a", border: "#8b6fb0" };
-    case "function":
-    case "method":
-      return { background: "#14251d", border: "#5a9e6f" };
-    default:
-      return { background: "#171717", border: "#6b5f53" };
+      return "This view expands one file in source order and keeps cross-file links as portals.";
+    case "focus":
+      return "Only the selected node and its one-hop neighborhood are shown.";
   }
 }
 
-function edgeTone(type: string): string {
+function nodeTone(type: string): { border: string; background: string } {
+  switch (type) {
+    case "repository":
+      return { background: "#13251d", border: "#69b779" };
+    case "directory":
+      return { background: "#172129", border: "#5aa9c8" };
+    case "file":
+      return { background: "#151f2d", border: "#6e9ee8" };
+    case "module":
+      return { background: "#281d2c", border: "#c78be8" };
+    case "class":
+      return { background: "#242014", border: "#d7b65c" };
+    case "function":
+      return { background: "#14251d", border: "#63c08a" };
+    case "method":
+      return { background: "#241b22", border: "#e0829d" };
+    default:
+      return { background: "#171717", border: "#a39787" };
+  }
+}
+
+function edgeTone(type: string): { stroke: string; label: string } {
   switch (type) {
     case "contains":
-      return "rgba(212, 165, 116, 0.28)";
+      return { stroke: "rgba(212, 165, 116, 0.35)", label: "#d4a574" };
     case "imports":
-      return "#c9a06c";
+      return { stroke: "#6e9ee8", label: "#a9c6f5" };
     case "calls":
-      return "#5a9e6f";
+      return { stroke: "#63c08a", label: "#a7dfba" };
     default:
-      return "rgba(163, 151, 135, 0.45)";
+      return { stroke: "rgba(163, 151, 135, 0.58)", label: "#a39787" };
   }
 }
