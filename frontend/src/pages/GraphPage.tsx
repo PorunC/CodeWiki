@@ -13,7 +13,7 @@ import {
   type NodeProps,
   type NodeTypes
 } from "@xyflow/react";
-import { FileCode2, Focus, FolderTree, Network, RefreshCcw } from "lucide-react";
+import { EyeOff, FileCode2, Focus, FolderTree, Network, RefreshCcw } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -164,6 +164,7 @@ export function GraphPage() {
   const [selectedNodeTypes, setSelectedNodeTypes] = useState<Set<string>>(new Set());
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(new Set());
   const [showInferredCalls, setShowInferredCalls] = useState(true);
+  const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   useEffect(() => {
@@ -201,6 +202,7 @@ export function GraphPage() {
       setSelectedNodeId(null);
       setSelectedVisualId(null);
       setSelectedFileId(null);
+      setHiddenVisualIds(new Set());
       return;
     }
 
@@ -220,6 +222,7 @@ export function GraphPage() {
         setSelectedNodeId(firstFile?.id ?? null);
         setSelectedVisualId(null);
         setSelectedFileId(firstFile?.type === "file" ? firstFile.id : null);
+        setHiddenVisualIds(new Set());
         setViewMode("overview");
       })
       .catch((apiError: unknown) => {
@@ -228,6 +231,7 @@ export function GraphPage() {
           setSelectedNodeId(null);
           setSelectedVisualId(null);
           setSelectedFileId(null);
+          setHiddenVisualIds(new Set());
           setError(apiError instanceof Error ? apiError.message : "Failed to load repository graph");
         }
       })
@@ -280,7 +284,7 @@ export function GraphPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const visualGraph = useMemo(() => {
+  const baseVisualGraph = useMemo(() => {
     if (!graph) {
       return { nodes: [] as FlowNode[], edges: [] as FlowEdge[] };
     }
@@ -295,6 +299,11 @@ export function GraphPage() {
 
     return buildOverviewGraph(graph, filteredGraph, containment, selectedVisualId);
   }, [containment, filteredGraph, graph, selectedFileId, selectedNodeId, selectedVisualId, viewMode]);
+
+  const visualGraph = useMemo(
+    () => pruneHiddenVisualGraph(baseVisualGraph, hiddenVisualIds),
+    [baseVisualGraph, hiddenVisualIds]
+  );
 
   const selectedVisualData = useMemo(
     () => visualGraph.nodes.find((node) => node.id === selectedVisualId)?.data ?? null,
@@ -356,6 +365,25 @@ export function GraphPage() {
     window.addEventListener("codewiki:open-file-detail", handleOpenFileDetail);
     return () => window.removeEventListener("codewiki:open-file-detail", handleOpenFileDetail);
   }, [openFileDetail]);
+
+  useEffect(() => {
+    const handleHideNode = (event: Event) => {
+      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+      if (!nodeId) {
+        return;
+      }
+      setHiddenVisualIds((current) => {
+        const next = new Set(current);
+        next.add(nodeId);
+        return next;
+      });
+      setSelectedVisualId((current) => (current === nodeId ? null : current));
+      setSelectedNodeId((current) => (current === nodeId ? null : current));
+    };
+
+    window.addEventListener("codewiki:hide-visual-node", handleHideNode);
+    return () => window.removeEventListener("codewiki:hide-visual-node", handleHideNode);
+  }, []);
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: FlowNode) => {
@@ -507,6 +535,11 @@ export function GraphPage() {
           <button className="secondary-button" type="button" onClick={resetFilters} disabled={!graph}>
             Reset filters
           </button>
+          {hiddenVisualIds.size > 0 ? (
+            <button className="secondary-button" type="button" onClick={() => setHiddenVisualIds(new Set())}>
+              Show hidden nodes ({hiddenVisualIds.size})
+            </button>
+          ) : null}
         </aside>
 
         <div className="flow-frame">
@@ -620,7 +653,7 @@ function FilterGroup({
   );
 }
 
-function CodeFlowNode({ data }: NodeProps<Node<CodeVisualData, "code">>) {
+function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
   const className = [
     "code-node-card",
     data.isContained ? "is-contained" : "",
@@ -640,6 +673,15 @@ function CodeFlowNode({ data }: NodeProps<Node<CodeVisualData, "code">>) {
     window.dispatchEvent(
       new CustomEvent("codewiki:open-file-detail", {
         detail: { fileId: data.fileId }
+      })
+    );
+  };
+
+  const handleHideClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    window.dispatchEvent(
+      new CustomEvent("codewiki:hide-visual-node", {
+        detail: { nodeId: id }
       })
     );
   };
@@ -666,11 +708,21 @@ function CodeFlowNode({ data }: NodeProps<Node<CodeVisualData, "code">>) {
       <div className="code-node-stats">
         <span>{data.statsLabel || "No visible edges"}</span>
       </div>
+      <button
+        className="node-hide-button nodrag nopan"
+        type="button"
+        title="Hide node"
+        aria-label={`Hide ${data.label}`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={handleHideClick}
+      >
+        <EyeOff size={12} />
+      </button>
     </div>
   );
 }
 
-function ContainerFlowNode({ data, width, height }: NodeProps<Node<ContainerVisualData, "container">>) {
+function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<ContainerVisualData, "container">>) {
   const className = [
     "code-container-node",
     data.isCompact ? "is-compact" : "",
@@ -682,6 +734,15 @@ function ContainerFlowNode({ data, width, height }: NodeProps<Node<ContainerVisu
   ]
     .filter(Boolean)
     .join(" ");
+
+  const handleHideClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    window.dispatchEvent(
+      new CustomEvent("codewiki:hide-visual-node", {
+        detail: { nodeId: id }
+      })
+    );
+  };
 
   return (
     <div className={className} style={{ borderColor: data.accentColor, width, height }}>
@@ -700,6 +761,16 @@ function ContainerFlowNode({ data, width, height }: NodeProps<Node<ContainerVisu
       <div className="code-container-body">
         <span>{data.statsLabel}</span>
       </div>
+      <button
+        className="node-hide-button nodrag nopan"
+        type="button"
+        title="Hide node"
+        aria-label={`Hide ${data.title}`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={handleHideClick}
+      >
+        <EyeOff size={12} />
+      </button>
     </div>
   );
 }
@@ -1266,7 +1337,7 @@ function layoutFileDetailSymbols(
         height: SYMBOL_NODE_HEIGHT,
         label: className,
         pathLabel: "class",
-        summary: methods.length > 0 ? `class ${className} · ${methods.length} methods` : `class ${className}`,
+        summary: methods.length > 0 ? `${className} · ${methods.length} methods` : className,
         countLabel: formatLineRange(node)
       });
       processed.add(node.id);
@@ -1280,7 +1351,7 @@ function layoutFileDetailSymbols(
           height: SYMBOL_NODE_HEIGHT,
           label: methodDisplayName(method),
           pathLabel: className,
-          summary: `Method of ${className}`,
+          summary: methodDisplayName(method),
           countLabel: formatLineRange(method)
         });
         processed.add(method.id);
@@ -1303,7 +1374,7 @@ function layoutFileDetailSymbols(
         height: SYMBOL_NODE_HEIGHT,
         label: methodDisplayName(node),
         pathLabel: className,
-        summary: classNode ? `Method of ${className}` : "Method",
+        summary: methodDisplayName(node),
         countLabel: formatLineRange(node)
       });
       processed.add(node.id);
@@ -1317,9 +1388,10 @@ function layoutFileDetailSymbols(
       y,
       width: SYMBOL_NODE_WIDTH,
       height: SYMBOL_NODE_HEIGHT,
-      label: compactSymbolName(node),
+      label: node.type === "function" ? functionDisplayName(node) : compactSymbolName(node),
       pathLabel: node.type === "function" ? "function" : node.type,
-      summary: symbolSummary(node, node.type === "function" ? "Top-level function" : nodeSummary(node)),
+      summary:
+        node.type === "function" ? functionDisplayName(node) : symbolSummary(node, nodeSummary(node)),
       countLabel: formatLineRange(node)
     });
     processed.add(node.id);
@@ -1823,6 +1895,33 @@ function withConnectionAnchors(node: FlowNode): FlowNode {
   };
 }
 
+function pruneHiddenVisualGraph(
+  graph: { nodes: FlowNode[]; edges: FlowEdge[] },
+  hiddenVisualIds: Set<string>
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  if (hiddenVisualIds.size === 0) {
+    return graph;
+  }
+
+  const hiddenWithChildren = new Set(hiddenVisualIds);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    graph.nodes.forEach((node) => {
+      if (node.parentId && hiddenWithChildren.has(node.parentId) && !hiddenWithChildren.has(node.id)) {
+        hiddenWithChildren.add(node.id);
+        changed = true;
+      }
+    });
+  }
+
+  const nodes = graph.nodes.filter((node) => !hiddenWithChildren.has(node.id));
+  const visibleIds = new Set(nodes.map((node) => node.id));
+  const edges = graph.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+
+  return { nodes, edges };
+}
+
 function toCodeVisualData(
   node: CodeNode,
   options: {
@@ -2273,6 +2372,9 @@ function compactSymbolName(node: CodeNode): string {
   if (node.type === "method") {
     return methodDisplayName(node);
   }
+  if (node.type === "function") {
+    return functionDisplayName(node);
+  }
   const withoutParens = rawName.split("(")[0] || rawName;
   const separators = ["::", "."];
 
@@ -2300,8 +2402,17 @@ function methodDisplayName(node: CodeNode): string {
   return compactQualifiedName(fromSignature || node.name || node.symbol_id || "unnamed");
 }
 
+function functionDisplayName(node: CodeNode): string {
+  const signature = typeof node.metadata.signature === "string" ? node.metadata.signature : "";
+  const fromSignature =
+    signature.match(/\basync\s+def\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1] ??
+    signature.match(/\bdef\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1] ??
+    signature.match(/\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1];
+  return compactQualifiedName(fromSignature || node.name || node.symbol_id || "unnamed");
+}
+
 function compactQualifiedName(value: string): string {
-  const withoutKeyword = value.replace(/^(class|def|async\s+def)\s+/, "");
+  const withoutKeyword = value.replace(/^(class|def|async\s+def|function|method)\s+/, "");
   const withoutParens = withoutKeyword.split("(")[0] || withoutKeyword;
   const separators = ["::", "."];
 

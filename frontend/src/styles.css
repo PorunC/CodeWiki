@@ -738,6 +738,46 @@ select:disabled {
   transform: translate(50%, -50%) !important;
 }
 
+.node-hide-button {
+  align-items: center;
+  background: rgba(8, 9, 10, 0.82);
+  border: 1px solid rgba(212, 165, 116, 0.18);
+  border-radius: 6px;
+  bottom: 7px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  opacity: 0.28;
+  padding: 0;
+  position: absolute;
+  right: 7px;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
+  width: 24px;
+  z-index: 12;
+}
+
+.code-node-card:hover .node-hide-button,
+.code-container-node:hover .node-hide-button,
+.node-hide-button:focus-visible {
+  opacity: 1;
+}
+
+.node-hide-button:hover,
+.node-hide-button:focus-visible {
+  background: rgba(190, 86, 68, 0.18);
+  border-color: rgba(190, 86, 68, 0.48);
+  color: #f0a08c;
+  outline: none;
+  transform: translateY(-1px);
+}
+
 .code-container-node {
   background:
     linear-gradient(180deg, rgba(212, 165, 116, 0.055), rgba(255, 255, 255, 0.015)),
