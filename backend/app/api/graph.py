@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.app.schemas.graph import GraphResponse
+from backend.app.database import get_store
+from backend.app.schemas.graph import CodeEdge, CodeNode, GraphResponse
 
 router = APIRouter()
 
@@ -13,12 +14,58 @@ class RetrieveRequest(BaseModel):
 
 @router.get("/{repo_id}/graph")
 async def get_graph(repo_id: str) -> GraphResponse:
-    return GraphResponse(repo_id=repo_id, nodes=[], edges=[])
+    store = get_store()
+    if store.get_repo(repo_id) is None:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+    nodes, edges = store.get_graph(repo_id)
+    return GraphResponse(
+        repo_id=repo_id,
+        nodes=[
+            CodeNode(
+                id=node.id,
+                type=node.type,
+                name=node.name,
+                file_path=node.file_path,
+                start_line=node.start_line,
+                end_line=node.end_line,
+                language=node.language,
+                symbol_id=node.symbol_id,
+                metadata=node.metadata,
+            )
+            for node in nodes
+        ],
+        edges=[
+            CodeEdge(
+                id=edge.id,
+                source=edge.source_id,
+                target=edge.target_id,
+                type=edge.type,
+                confidence=edge.confidence,
+                is_inferred=edge.is_inferred,
+                metadata=edge.metadata,
+            )
+            for edge in edges
+        ],
+    )
 
 
 @router.get("/{repo_id}/graph/nodes/{node_id}")
 async def get_node(repo_id: str, node_id: str) -> dict[str, str]:
-    return {"repo_id": repo_id, "node_id": node_id}
+    nodes, edges = get_store().get_graph(repo_id)
+    node = next((item for item in nodes if item.id == node_id), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Node not found: {node_id}")
+    adjacent_edges = [
+        edge for edge in edges if edge.source_id == node_id or edge.target_id == node_id
+    ]
+    return {
+        "repo_id": repo_id,
+        "node_id": node_id,
+        "type": node.type,
+        "name": node.name,
+        "file_path": node.file_path,
+        "adjacent_edge_count": str(len(adjacent_edges)),
+    }
 
 
 @router.get("/{repo_id}/communities")
