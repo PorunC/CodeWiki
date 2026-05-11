@@ -133,6 +133,18 @@ type NodeStats = {
   imports: number;
 };
 
+type FileDetailSymbolSlot = {
+  node: CodeNode;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: string;
+  pathLabel: string;
+  summary: string;
+  countLabel: string;
+};
+
 const flowNodeTypes: NodeTypes = {
   code: memo(CodeFlowNode),
   container: memo(ContainerFlowNode)
@@ -1013,9 +1025,15 @@ function buildFileDetailGraph(
     .filter((node) => filtered.nodeIds.has(node.id))
     .filter((node) => node.type === "class" || node.type === "function" || node.type === "method")
     .sort(compareBySourceOrder);
+  const symbolSlots = layoutFileDetailSymbols(visibleSymbols, fileNode.id, containment);
 
   const fileContainerId = `file-detail:${fileNode.id}`;
-  const fileHeight = Math.max(320, GROUP_HEADER_HEIGHT + 36 + visibleSymbols.length * (SYMBOL_NODE_HEIGHT + 16));
+  const fileHeight = Math.max(
+    320,
+    GROUP_HEADER_HEIGHT +
+      38 +
+      Math.max(0, ...symbolSlots.map((slot) => slot.y + slot.height - GROUP_HEADER_HEIGHT))
+  );
   const stats = computeStatsForNodeIds([fileNode.id, ...descendantIds], filtered.edges);
   const nodes: FlowNode[] = [
     {
@@ -1046,28 +1064,30 @@ function buildFileDetailGraph(
     }
   ];
 
-  visibleSymbols.forEach((node, index) => {
-    const depth = symbolDepth(node.id, fileNode.id, containment);
+  symbolSlots.forEach((slot) => {
+    const node = slot.node;
     nodes.push({
       id: node.id,
       type: "code",
       parentId: fileContainerId,
       extent: "parent",
       position: {
-        x: 32 + Math.min(depth, 2) * 34,
-        y: GROUP_HEADER_HEIGHT + 26 + index * (SYMBOL_NODE_HEIGHT + 16)
+        x: slot.x,
+        y: slot.y
       },
       data: toCodeVisualData(node, {
         containment,
+        label: slot.label,
         fileId: fileNode.id,
         rawNodeIds: [node.id],
-        summary: nodeSummary(node),
-        countLabel: formatLineRange(node),
+        summary: slot.summary,
+        countLabel: slot.countLabel,
+        pathLabel: slot.pathLabel,
         stats: computeStatsByRawNode(graph.edges).get(node.id),
         isContained: true,
         isExternal: false
       }),
-      ...nodeSize(SYMBOL_NODE_WIDTH, SYMBOL_NODE_HEIGHT),
+      ...nodeSize(slot.width, slot.height),
       selectable: true,
       draggable: false,
       zIndex: 6
@@ -1191,6 +1211,142 @@ function buildFocusGraph(
   const edges = aggregateEdges(rawEdges, rawToVisual, { skipSelfEdges: true }).map((bucket) => toFlowEdge(bucket));
 
   return applyVisualState(nodes, edges, selectedVisualId, "focus");
+}
+
+function layoutFileDetailSymbols(
+  symbols: CodeNode[],
+  fileId: string,
+  containment: ContainmentIndex
+): FileDetailSymbolSlot[] {
+  const slots: FileDetailSymbolSlot[] = [];
+  const processed = new Set<string>();
+  const visibleById = new Set(symbols.map((node) => node.id));
+  const methodsByClass = new Map<string, CodeNode[]>();
+
+  symbols.forEach((node) => {
+    if (node.type !== "method") {
+      return;
+    }
+    const classId = nearestAncestorOfType(node.id, "class", containment);
+    if (!classId || !visibleById.has(classId)) {
+      return;
+    }
+    const methods = methodsByClass.get(classId) ?? [];
+    methods.push(node);
+    methodsByClass.set(classId, methods);
+  });
+
+  methodsByClass.forEach((methods) => {
+    methods.sort(compareBySourceOrder);
+  });
+
+  let y = GROUP_HEADER_HEIGHT + 26;
+  const classX = 32;
+  const methodX = 330;
+  const methodGap = 12;
+  const sectionGap = 22;
+
+  symbols.forEach((node) => {
+    if (processed.has(node.id)) {
+      return;
+    }
+
+    if (node.type === "class") {
+      const methods = methodsByClass.get(node.id) ?? [];
+      const className = classDisplayName(node);
+      const methodStackHeight =
+        methods.length === 0 ? 0 : methods.length * SYMBOL_NODE_HEIGHT + (methods.length - 1) * methodGap;
+      const sectionHeight = Math.max(SYMBOL_NODE_HEIGHT, methodStackHeight);
+
+      slots.push({
+        node,
+        x: classX,
+        y,
+        width: SYMBOL_NODE_WIDTH,
+        height: SYMBOL_NODE_HEIGHT,
+        label: className,
+        pathLabel: "class",
+        summary: methods.length > 0 ? `class ${className} · ${methods.length} methods` : `class ${className}`,
+        countLabel: formatLineRange(node)
+      });
+      processed.add(node.id);
+
+      methods.forEach((method, index) => {
+        slots.push({
+          node: method,
+          x: methodX,
+          y: y + index * (SYMBOL_NODE_HEIGHT + methodGap),
+          width: SYMBOL_NODE_WIDTH,
+          height: SYMBOL_NODE_HEIGHT,
+          label: methodDisplayName(method),
+          pathLabel: className,
+          summary: `Method of ${className}`,
+          countLabel: formatLineRange(method)
+        });
+        processed.add(method.id);
+      });
+
+      y += sectionHeight + sectionGap;
+      return;
+    }
+
+    if (node.type === "method") {
+      const classId = nearestAncestorOfType(node.id, "class", containment);
+      const classNode = classId ? containment.nodeById.get(classId) : null;
+      const className = classNode ? classDisplayName(classNode) : "method";
+
+      slots.push({
+        node,
+        x: classNode ? methodX : classX + 34,
+        y,
+        width: SYMBOL_NODE_WIDTH,
+        height: SYMBOL_NODE_HEIGHT,
+        label: methodDisplayName(node),
+        pathLabel: className,
+        summary: classNode ? `Method of ${className}` : "Method",
+        countLabel: formatLineRange(node)
+      });
+      processed.add(node.id);
+      y += SYMBOL_NODE_HEIGHT + sectionGap;
+      return;
+    }
+
+    slots.push({
+      node,
+      x: classX,
+      y,
+      width: SYMBOL_NODE_WIDTH,
+      height: SYMBOL_NODE_HEIGHT,
+      label: compactSymbolName(node),
+      pathLabel: node.type === "function" ? "function" : node.type,
+      summary: symbolSummary(node, node.type === "function" ? "Top-level function" : nodeSummary(node)),
+      countLabel: formatLineRange(node)
+    });
+    processed.add(node.id);
+    y += SYMBOL_NODE_HEIGHT + sectionGap;
+  });
+
+  return slots;
+}
+
+function nearestAncestorOfType(
+  nodeId: string,
+  type: string,
+  containment: ContainmentIndex
+): string | null {
+  const visited = new Set<string>();
+  let current = containment.parentByChild.get(nodeId);
+
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    const node = containment.nodeById.get(current);
+    if (node?.type === type) {
+      return node.id;
+    }
+    current = containment.parentByChild.get(current);
+  }
+
+  return null;
 }
 
 function deriveContainment(graph: GraphResponse | null): ContainmentIndex {
@@ -1671,10 +1827,13 @@ function toCodeVisualData(
   node: CodeNode,
   options: {
     containment: ContainmentIndex;
+    label?: string;
     fileId?: string;
     rawNodeIds: string[];
     summary: string;
     countLabel?: string;
+    pathLabel?: string;
+    lineLabel?: string;
     stats?: NodeStats;
     statsLabel?: string;
     isContained: boolean;
@@ -1688,11 +1847,11 @@ function toCodeVisualData(
 
   return {
     kind: "code",
-    label: node.name,
+    label: options.label ?? node.name,
     nodeType: node.type,
     summary: options.summary,
-    pathLabel: compactFilePath(node.file_path ?? node.name),
-    lineLabel: formatLineRange(node),
+    pathLabel: options.pathLabel ?? compactFilePath(node.file_path ?? node.name),
+    lineLabel: options.lineLabel ?? formatLineRange(node),
     countLabel: options.countLabel,
     statsLabel,
     accentColor: tone.border,
@@ -2092,6 +2251,68 @@ function nodeSummary(node: CodeNode): string {
     return "External dependency";
   }
   return compactFilePath(node.file_path ?? node.name);
+}
+
+function symbolSummary(node: CodeNode, fallback: string): string {
+  const signature = typeof node.metadata.signature === "string" ? node.metadata.signature : "";
+  const docstring = typeof node.metadata.docstring === "string" ? node.metadata.docstring : "";
+  if (signature) {
+    return signature;
+  }
+  if (docstring) {
+    return docstring;
+  }
+  return fallback;
+}
+
+function compactSymbolName(node: CodeNode): string {
+  const rawName = node.name || node.symbol_id || "unnamed";
+  if (node.type === "class") {
+    return classDisplayName(node);
+  }
+  if (node.type === "method") {
+    return methodDisplayName(node);
+  }
+  const withoutParens = rawName.split("(")[0] || rawName;
+  const separators = ["::", "."];
+
+  for (const separator of separators) {
+    const index = withoutParens.lastIndexOf(separator);
+    if (index >= 0 && index < withoutParens.length - separator.length) {
+      return withoutParens.slice(index + separator.length);
+    }
+  }
+
+  return withoutParens;
+}
+
+function classDisplayName(node: CodeNode): string {
+  const signature = typeof node.metadata.signature === "string" ? node.metadata.signature : "";
+  const fromSignature = signature.match(/\bclass\s+([A-Za-z_$][\w$]*)/)?.[1];
+  return compactQualifiedName(fromSignature || node.name || node.symbol_id || "unnamed");
+}
+
+function methodDisplayName(node: CodeNode): string {
+  const signature = typeof node.metadata.signature === "string" ? node.metadata.signature : "";
+  const fromSignature =
+    signature.match(/\bdef\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1] ??
+    signature.match(/\basync\s+def\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1];
+  return compactQualifiedName(fromSignature || node.name || node.symbol_id || "unnamed");
+}
+
+function compactQualifiedName(value: string): string {
+  const withoutKeyword = value.replace(/^(class|def|async\s+def)\s+/, "");
+  const withoutParens = withoutKeyword.split("(")[0] || withoutKeyword;
+  const separators = ["::", "."];
+
+  for (const separator of separators) {
+    const index = withoutParens.lastIndexOf(separator);
+    if (index >= 0 && index < withoutParens.length - separator.length) {
+      return withoutParens.slice(index + separator.length);
+    }
+  }
+
+  return withoutParens;
 }
 
 function modeHint(mode: GraphViewMode): string {
