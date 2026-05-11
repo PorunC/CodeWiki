@@ -34,6 +34,7 @@ export function GraphPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedVisualId, setSelectedVisualId] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [selectedNodeTypes, setSelectedNodeTypes] = useState<Set<string>>(new Set());
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(new Set());
   const [showInferredCalls, setShowInferredCalls] = useState(true);
@@ -75,6 +76,7 @@ export function GraphPage() {
       setSelectedNodeId(null);
       setSelectedVisualId(null);
       setSelectedFileId(null);
+      setFocusNodeId(null);
       setHiddenVisualIds(new Set());
       return;
     }
@@ -95,6 +97,7 @@ export function GraphPage() {
         setSelectedNodeId(firstFile?.id ?? null);
         setSelectedVisualId(null);
         setSelectedFileId(firstFile?.type === "file" ? firstFile.id : null);
+        setFocusNodeId(firstFile?.id ?? null);
         setHiddenVisualIds(new Set());
         setViewMode("overview");
       })
@@ -104,6 +107,7 @@ export function GraphPage() {
           setSelectedNodeId(null);
           setSelectedVisualId(null);
           setSelectedFileId(null);
+          setFocusNodeId(null);
           setHiddenVisualIds(new Set());
           setError(apiError instanceof Error ? apiError.message : "Failed to load repository graph");
         }
@@ -163,7 +167,7 @@ export function GraphPage() {
     containment,
     viewMode,
     selectedFileId,
-    selectedNodeId,
+    selectedNodeId: viewMode === "focus" ? focusNodeId : selectedNodeId,
     selectedVisualId,
     hiddenVisualIds
   });
@@ -241,6 +245,7 @@ export function GraphPage() {
     setSelectedVisualId(`file-detail:${fileId}`);
     setSelectedNodeId(fileId);
     setSelectedFileId(fileId);
+    setFocusNodeId(fileId);
     setViewMode("file");
   }, []);
 
@@ -295,9 +300,17 @@ export function GraphPage() {
       const data = node.data;
       if (data.kind === "code" && data.nodeType === "file" && data.fileId) {
         openFileDetail(data.fileId);
+        return;
+      }
+
+      const primaryNodeId = data.kind === "container" ? data.primaryNodeId ?? null : data.codeNode.id;
+      if (viewMode === "focus" && primaryNodeId) {
+        setFocusNodeId(primaryNodeId);
+        setSelectedNodeId(primaryNodeId);
+        setSelectedVisualId(primaryNodeId);
       }
     },
-    [openFileDetail]
+    [openFileDetail, viewMode]
   );
 
   const selectMode = useCallback(
@@ -312,6 +325,7 @@ export function GraphPage() {
         setSelectedNodeId(selectedFileId);
       }
       if (mode === "focus" && selectedNodeId) {
+        setFocusNodeId(selectedNodeId);
         setSelectedVisualId(selectedNodeId);
       }
     },
@@ -319,7 +333,8 @@ export function GraphPage() {
   );
 
   const isLoading = repoLoading || graphLoading;
-  const layoutKey = viewMode === "file" ? selectedFileId ?? "none" : "stable";
+  const layoutKey =
+    viewMode === "file" ? selectedFileId ?? "none" : viewMode === "focus" ? focusNodeId ?? "none" : "stable";
   const flowKey = `${selectedRepoId}:${viewMode}:${layoutKey}:${filterKey(selectedNodeTypes)}:${filterKey(
     selectedEdgeTypes
   )}:${showInferredCalls}`;

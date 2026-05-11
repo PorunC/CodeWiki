@@ -1,5 +1,6 @@
 export const FILE_NODE_WIDTH = 244;
 export const FILE_NODE_HEIGHT = 126;
+export const FOCUS_NODE_HEIGHT = 148;
 export const SYMBOL_NODE_WIDTH = 244;
 export const SYMBOL_NODE_HEIGHT = 112;
 export const GROUP_GAP_X = 112;

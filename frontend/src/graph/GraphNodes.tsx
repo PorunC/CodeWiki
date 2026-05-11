@@ -20,6 +20,7 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
   const className = [
     "code-node-card",
     isFileNode ? "is-file" : "",
+    data.isFocusMode ? "is-focus-mode" : "",
     data.isContained ? "is-contained" : "",
     data.isExternal ? "is-external" : "",
     data.isSelected ? "is-selected" : "",

@@ -1,5 +1,5 @@
 import type { GraphResponse } from "../../api/client";
-import { FILE_NODE_HEIGHT, FILE_NODE_WIDTH, SYMBOL_NODE_HEIGHT, SYMBOL_NODE_WIDTH } from "../constants";
+import { FILE_NODE_WIDTH, FOCUS_NODE_HEIGHT } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
 import { formatLineRange, nodeSummary } from "../formatters";
 import { layoutBoxes, nodeSize } from "../layout";
@@ -52,8 +52,8 @@ export function buildFocusGraph(
   const positions = layoutBoxes(
     rawNodes.map((node) => ({
       id: node.id,
-      width: node.type === "file" ? FILE_NODE_WIDTH : SYMBOL_NODE_WIDTH,
-      height: node.type === "file" ? FILE_NODE_HEIGHT : SYMBOL_NODE_HEIGHT
+      width: FILE_NODE_WIDTH,
+      height: FOCUS_NODE_HEIGHT
     })),
     rawEdges.map((edge) => ({
       id: edge.id,
@@ -64,7 +64,14 @@ export function buildFocusGraph(
       rawEdgeIds: [edge.id],
       hasInferred: edge.is_inferred
     })),
-    "LR"
+    "LR",
+    {
+      edgesep: 32,
+      marginx: 64,
+      marginy: 64,
+      nodesep: 138,
+      ranksep: 176
+    }
   );
   const statsByRawNode = computeStatsByRawNode(graph.edges);
 
@@ -80,12 +87,10 @@ export function buildFocusGraph(
       countLabel: node.type === "file" ? `${containment.descendantsByFile.get(node.id)?.length ?? 0}` : formatLineRange(node),
       stats: statsByRawNode.get(node.id),
       isContained: false,
-      isExternal: node.type === "module"
+      isExternal: node.type === "module",
+      isFocusMode: true
     }),
-    ...nodeSize(
-      node.type === "file" ? FILE_NODE_WIDTH : SYMBOL_NODE_WIDTH,
-      node.type === "file" ? FILE_NODE_HEIGHT : SYMBOL_NODE_HEIGHT
-    ),
+    ...nodeSize(FILE_NODE_WIDTH, FOCUS_NODE_HEIGHT),
     selectable: true,
     draggable: false
   }));

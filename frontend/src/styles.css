@@ -630,6 +630,24 @@ select:disabled {
   width: 220px;
 }
 
+.code-node-card.is-focus-mode {
+  height: 148px;
+}
+
+.code-node-card.is-focus-mode .code-node-body {
+  gap: 7px;
+  padding-bottom: 10px;
+}
+
+.code-node-card.is-focus-mode .code-node-title {
+  line-height: 1.35;
+  min-height: 19px;
+}
+
+.code-node-card.is-focus-mode .code-node-summary {
+  min-height: 32px;
+}
+
 .code-node-card.is-external {
   background:
     linear-gradient(180deg, rgba(110, 158, 232, 0.08), rgba(255, 255, 255, 0.018)),

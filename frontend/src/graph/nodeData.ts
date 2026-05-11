@@ -18,6 +18,7 @@ export function toCodeVisualData(
     statsLabel?: string;
     isContained: boolean;
     isExternal: boolean;
+    isFocusMode?: boolean;
   }
 ): CodeVisualData {
   const tone = nodeTone(node.type);
@@ -42,6 +43,7 @@ export function toCodeVisualData(
     isNeighbor: false,
     isFaded: false,
     isContained: options.isContained,
-    isExternal: options.isExternal
+    isExternal: options.isExternal,
+    isFocusMode: options.isFocusMode
   };
 }

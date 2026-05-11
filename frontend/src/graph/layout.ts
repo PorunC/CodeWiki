@@ -22,17 +22,18 @@ export function nodeSize(
 export function layoutBoxes(
   nodes: Array<{ id: string; width: number; height: number }>,
   edges: Array<{ source: string; target: string }>,
-  direction: "LR" | "TB"
+  direction: "LR" | "TB",
+  options: { edgesep?: number; marginx?: number; marginy?: number; nodesep?: number; ranksep?: number } = {}
 ): Map<string, { x: number; y: number }> {
   const graph = new dagre.graphlib.Graph();
   graph.setDefaultEdgeLabel(() => ({}));
   graph.setGraph({
-    edgesep: 18,
-    marginx: 32,
-    marginy: 32,
-    nodesep: direction === "LR" ? GROUP_GAP_Y : GROUP_GAP_X,
+    edgesep: options.edgesep ?? 18,
+    marginx: options.marginx ?? 32,
+    marginy: options.marginy ?? 32,
+    nodesep: options.nodesep ?? (direction === "LR" ? GROUP_GAP_Y : GROUP_GAP_X),
     rankdir: direction,
-    ranksep: direction === "LR" ? GROUP_GAP_X : GROUP_GAP_Y
+    ranksep: options.ranksep ?? (direction === "LR" ? GROUP_GAP_X : GROUP_GAP_Y)
   });
 
   nodes.forEach((node) => {

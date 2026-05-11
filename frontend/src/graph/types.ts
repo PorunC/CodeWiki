@@ -39,6 +39,7 @@ export type CodeVisualData = {
   isFaded: boolean;
   isContained: boolean;
   isExternal: boolean;
+  isFocusMode?: boolean;
 };
 
 export type ContainerVisualData = {
