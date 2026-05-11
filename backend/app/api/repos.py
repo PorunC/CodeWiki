@@ -1,7 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.app.services.repo_scanner import RepoDescriptor, RepoScanner
+from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner
 
 router = APIRouter()
 
@@ -12,10 +12,26 @@ class CreateRepoRequest(BaseModel):
     source_type: str = "local"
 
 
+class ScanRepoRequest(CreateRepoRequest):
+    pass
+
+
 @router.post("")
 async def create_repo(payload: CreateRepoRequest) -> RepoDescriptor:
     scanner = RepoScanner()
-    return scanner.describe(payload.path, name=payload.name, source_type=payload.source_type)
+    try:
+        return scanner.describe(payload.path, name=payload.name, source_type=payload.source_type)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/scan")
+async def scan_repo(payload: ScanRepoRequest) -> RepoScanResult:
+    scanner = RepoScanner()
+    try:
+        return scanner.scan(payload.path, name=payload.name, source_type=payload.source_type)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("")
@@ -26,4 +42,3 @@ async def list_repos() -> list[dict[str, str]]:
 @router.get("/{repo_id}")
 async def get_repo(repo_id: str) -> dict[str, str]:
     return {"id": repo_id, "status": "not_persisted_yet"}
-
