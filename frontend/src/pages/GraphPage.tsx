@@ -1,8 +1,10 @@
 import dagre from "@dagrejs/dagre";
 import {
   Background,
+  BackgroundVariant,
   Controls,
   MarkerType,
+  MiniMap,
   Position,
   ReactFlow,
   type Edge,
@@ -183,11 +185,11 @@ export function GraphPage() {
   const isLoading = repoLoading || graphLoading;
 
   return (
-    <section id="graph" className="panel graph-panel">
+    <section id="graph" className="graph-panel">
       <header className="graph-header">
         <div>
           <span className="eyebrow">Graph</span>
-          <h2>Code Structure</h2>
+          <h1>Code Structure</h1>
         </div>
         <button
           className="icon-button"
@@ -218,7 +220,9 @@ export function GraphPage() {
         </label>
         {selectedRepo ? <span className="repo-path">{selectedRepo.path}</span> : null}
         <div className="graph-counts" aria-live="polite">
-          {graph ? `${visibleGraph.nodes.length}/${graph.nodes.length} nodes · ${visibleGraph.edges.length}/${graph.edges.length} edges` : "No graph loaded"}
+          {graph
+            ? `${visibleGraph.nodes.length}/${graph.nodes.length} nodes / ${visibleGraph.edges.length}/${graph.edges.length} edges`
+            : "No graph loaded"}
         </div>
       </div>
 
@@ -266,10 +270,27 @@ export function GraphPage() {
               edges={flowEdges}
               fitView
               fitViewOptions={{ padding: 0.2 }}
+              minZoom={0.05}
+              maxZoom={2}
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              proOptions={{ hideAttribution: true }}
             >
-              <Background />
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={22}
+                size={1}
+                color="rgba(212, 165, 116, 0.14)"
+              />
               <Controls />
+              <MiniMap
+                maskColor="rgba(8, 9, 10, 0.72)"
+                nodeColor={(node) => {
+                  const codeNode = (node.data as { codeNode?: CodeNode }).codeNode;
+                  return nodeTone(codeNode?.type ?? "").border;
+                }}
+                pannable
+                zoomable
+              />
             </ReactFlow>
           ) : null}
         </div>
@@ -454,10 +475,10 @@ function layoutNodes(nodes: CodeNode[], edges: CodeEdge[], selectedNodeId: strin
       targetPosition: Position.Left,
       style: {
         background: tone.background,
-        border: `1px solid ${selectedNodeId === node.id ? "#1f6f5b" : tone.border}`,
+        border: `1px solid ${selectedNodeId === node.id ? "#d4a574" : tone.border}`,
         borderRadius: 8,
-        boxShadow: selectedNodeId === node.id ? "0 0 0 3px rgba(31, 111, 91, 0.18)" : "none",
-        color: "#172026",
+        boxShadow: selectedNodeId === node.id ? "0 0 0 3px rgba(212, 165, 116, 0.18)" : "none",
+        color: "#f5f0eb",
         fontSize: 12,
         fontWeight: 700,
         minHeight: NODE_HEIGHT,
@@ -477,6 +498,10 @@ function toFlowEdge(edge: CodeEdge): FlowEdge {
     target: edge.target,
     data: { codeEdge: edge },
     label: edge.type,
+    labelBgBorderRadius: 4,
+    labelBgPadding: [6, 3],
+    labelBgStyle: { fill: "rgba(17, 17, 17, 0.92)" },
+    labelStyle: { fill: "#a39787", fontSize: 10, fontWeight: 700 },
     markerEnd: { type: MarkerType.ArrowClosed },
     style: {
       stroke: tone,
@@ -551,32 +576,32 @@ function formatUnknown(value: unknown): string {
 function nodeTone(type: string): { background: string; border: string } {
   switch (type) {
     case "repository":
-      return { background: "#eef7f1", border: "#8fc6a5" };
+      return { background: "#17251f", border: "#6fb07a" };
     case "directory":
-      return { background: "#f3f5f7", border: "#b9c4ca" };
+      return { background: "#181a1d", border: "#5f6b73" };
     case "file":
-      return { background: "#edf5ff", border: "#9ebfe8" };
+      return { background: "#14202a", border: "#4a7c9b" };
     case "module":
-      return { background: "#fff6df", border: "#e2bd63" };
+      return { background: "#272015", border: "#c9a06c" };
     case "class":
-      return { background: "#f5efff", border: "#bba2e6" };
+      return { background: "#201a2a", border: "#8b6fb0" };
     case "function":
     case "method":
-      return { background: "#eef8f8", border: "#8bc8c4" };
+      return { background: "#14251d", border: "#5a9e6f" };
     default:
-      return { background: "#f7f8f7", border: "#cbd4cf" };
+      return { background: "#171717", border: "#6b5f53" };
   }
 }
 
 function edgeTone(type: string): string {
   switch (type) {
     case "contains":
-      return "#8a9690";
+      return "rgba(212, 165, 116, 0.28)";
     case "imports":
-      return "#b98419";
+      return "#c9a06c";
     case "calls":
-      return "#1f6f8b";
+      return "#5a9e6f";
     default:
-      return "#65717a";
+      return "rgba(163, 151, 135, 0.45)";
   }
 }
