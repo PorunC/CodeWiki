@@ -1,5 +1,5 @@
 import type { CodeNode } from "../api/client";
-import { compactFilePath, formatLineRange } from "./formatters";
+import { compactFilePath, fileDisplayName, filePathLabel, formatLineRange } from "./formatters";
 import { nodeTone } from "./styles";
 import type { CodeVisualData, ContainmentIndex, NodeStats } from "./types";
 
@@ -27,10 +27,10 @@ export function toCodeVisualData(
 
   return {
     kind: "code",
-    label: options.label ?? node.name,
+    label: options.label ?? (node.type === "file" ? fileDisplayName(node) : node.name),
     nodeType: node.type,
     summary: options.summary,
-    pathLabel: options.pathLabel ?? compactFilePath(node.file_path ?? node.name),
+    pathLabel: options.pathLabel ?? (node.type === "file" ? filePathLabel(node) : compactFilePath(node.file_path ?? node.name)),
     lineLabel: options.lineLabel ?? formatLineRange(node),
     countLabel: options.countLabel,
     statsLabel,

@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { CodeEdge, CodeNode, GraphResponse } from "../api/client";
 import {
   collectEdgeMetadata,
+  fileDisplayName,
   computeStatsForNodeIds,
   formatLineRange,
   formatUnknown,
@@ -78,7 +79,7 @@ export function NodeDetails({
     <aside className="node-details">
       <div className="detail-heading">
         <span className="node-type-pill">{detailNode.type}</span>
-        <h3>{detailNode.name}</h3>
+        <h3>{detailNode.type === "file" ? fileDisplayName(detailNode) : detailNode.name}</h3>
       </div>
 
       <dl className="detail-list">

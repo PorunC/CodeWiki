@@ -1,5 +1,6 @@
 import type { CodeEdge, CodeNode, GraphResponse } from "../api/client";
 import { FILE_NODE_HEIGHT, FILE_NODE_WIDTH } from "./constants";
+import { filePathLabel } from "./formatters";
 import { nodeSize } from "./layout";
 import { toCodeVisualData } from "./nodeData";
 import { nodeTone } from "./styles";
@@ -119,7 +120,8 @@ export function portalToNode(
       containment,
       fileId: portal.node.id,
       rawNodeIds: [portal.node.id, ...descendants],
-      summary: `${portal.bucket.count} ${portal.bucket.type} ${portal.direction === "out" ? "from this file" : "into this file"}`,
+      summary: filePathLabel(portal.node),
+      pathLabel: filePathLabel(portal.node),
       countLabel: `${descendants.length}`,
       statsLabel: `${portal.direction === "out" ? "outgoing" : "incoming"} edge group`,
       isContained: false,

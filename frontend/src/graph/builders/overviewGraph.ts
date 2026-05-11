@@ -1,7 +1,7 @@
 import type { CodeNode, GraphResponse } from "../../api/client";
 import { FILE_NODE_HEIGHT, FILE_NODE_WIDTH, GROUP_HEADER_HEIGHT, GROUP_PADDING_X } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
-import { compactFilePath } from "../formatters";
+import { filePathLabel } from "../formatters";
 import { layoutBoxes, nodeSize } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { computeStatsByRawNode, computeStatsForNodeIds } from "../stats";
@@ -120,7 +120,8 @@ export function buildOverviewGraph(
           containment,
           fileId: file.id,
           rawNodeIds: [file.id, ...descendants],
-          summary: `${descendants.length} symbols in ${compactFilePath(file.file_path ?? file.name)}`,
+          summary: filePathLabel(file),
+          pathLabel: filePathLabel(file),
           countLabel: `${descendants.length}`,
           statsLabel: `${stats.calls} calls / ${stats.imports} imports`,
           isContained: true,

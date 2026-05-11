@@ -6,7 +6,7 @@ import {
   type GraphResponse,
   type RepoSummary
 } from "../api/client";
-import { GraphFiltersPanel } from "../graph/GraphFiltersPanel";
+import { GraphFiltersPanel, type HiddenVisualNodeOption } from "../graph/GraphFiltersPanel";
 import { GraphFlowCanvas } from "../graph/GraphFlowCanvas";
 import { GraphHeader } from "../graph/GraphHeader";
 import { GraphToolbar } from "../graph/GraphToolbar";
@@ -157,7 +157,7 @@ export function GraphPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const { visualGraph, selectedVisualData } = useVisualGraph({
+  const { baseVisualGraph, visualGraph, selectedVisualData } = useVisualGraph({
     graph,
     filteredGraph,
     containment,
@@ -167,6 +167,30 @@ export function GraphPage() {
     selectedVisualId,
     hiddenVisualIds
   });
+
+  const hiddenNodes = useMemo<HiddenVisualNodeOption[]>(() => {
+    const nodeById = new Map(baseVisualGraph.nodes.map((node) => [node.id, node]));
+    return [...hiddenVisualIds]
+      .map((nodeId) => {
+        const node = nodeById.get(nodeId);
+        if (!node) {
+          return {
+            id: nodeId,
+            label: nodeId,
+            type: "hidden",
+            meta: "not in current view"
+          };
+        }
+        const data = node.data;
+        return {
+          id: node.id,
+          label: data.kind === "container" ? data.title : data.label,
+          type: data.kind === "container" ? data.containerType : data.nodeType,
+          meta: data.pathLabel
+        };
+      })
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [baseVisualGraph.nodes, hiddenVisualIds]);
 
   const selectedNode = useMemo(
     () => graph?.nodes.find((node) => node.id === selectedNodeId) ?? null,
@@ -204,6 +228,14 @@ export function GraphPage() {
     setSelectedEdgeTypes(new Set(edgeTypes));
     setShowInferredCalls(true);
   }, [edgeTypes, nodeTypes]);
+
+  const showHiddenNode = useCallback((nodeId: string) => {
+    setHiddenVisualIds((current) => {
+      const next = new Set(current);
+      next.delete(nodeId);
+      return next;
+    });
+  }, []);
 
   const openFileDetail = useCallback((fileId: string) => {
     setSelectedVisualId(`file-detail:${fileId}`);
@@ -327,12 +359,13 @@ export function GraphPage() {
           selectedEdgeTypes={selectedEdgeTypes}
           showInferredCalls={showInferredCalls}
           graphLoaded={Boolean(graph)}
-          hiddenCount={hiddenVisualIds.size}
+          hiddenNodes={hiddenNodes}
           onNodeTypeToggle={toggleNodeType}
           onEdgeTypeToggle={toggleEdgeType}
           onShowInferredCallsChange={setShowInferredCalls}
           onResetFilters={resetFilters}
-          onShowHiddenNodes={() => setHiddenVisualIds(new Set())}
+          onShowHiddenNode={showHiddenNode}
+          onShowAllHiddenNodes={() => setHiddenVisualIds(new Set())}
         />
 
         <GraphFlowCanvas

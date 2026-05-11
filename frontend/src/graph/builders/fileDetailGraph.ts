@@ -6,6 +6,7 @@ import {
   MAX_PORTAL_NODES
 } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
+import { fileDisplayName, filePathLabel } from "../formatters";
 import { nodeSize } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { collectFilePortals, portalToNode } from "../portals";
@@ -57,10 +58,10 @@ export function buildFileDetailGraph(
       position: { x: 0, y: 0 },
       data: {
         kind: "container",
-        title: fileNode.name,
+        title: fileDisplayName(fileNode),
         subtitle: "file detail",
         containerType: "file",
-        pathLabel: fileNode.file_path ?? fileNode.name,
+        pathLabel: filePathLabel(fileNode),
         countLabel: `${visibleSymbols.length}`,
         statsLabel: `${stats.calls} calls / ${stats.imports} imports`,
         accentColor: nodeTone("file").border,

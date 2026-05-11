@@ -1,7 +1,14 @@
-import { FolderTree } from "lucide-react";
+import { Eye, FolderTree } from "lucide-react";
 
 import { FilterGroup } from "./GraphControls";
 import { modeHint, type GraphViewMode } from "./graphModel";
+
+export type HiddenVisualNodeOption = {
+  id: string;
+  label: string;
+  type: string;
+  meta: string;
+};
 
 export function GraphFiltersPanel({
   viewMode,
@@ -11,12 +18,13 @@ export function GraphFiltersPanel({
   selectedEdgeTypes,
   showInferredCalls,
   graphLoaded,
-  hiddenCount,
+  hiddenNodes,
   onNodeTypeToggle,
   onEdgeTypeToggle,
   onShowInferredCallsChange,
   onResetFilters,
-  onShowHiddenNodes
+  onShowHiddenNode,
+  onShowAllHiddenNodes
 }: {
   viewMode: GraphViewMode;
   nodeTypes: string[];
@@ -25,12 +33,13 @@ export function GraphFiltersPanel({
   selectedEdgeTypes: Set<string>;
   showInferredCalls: boolean;
   graphLoaded: boolean;
-  hiddenCount: number;
+  hiddenNodes: HiddenVisualNodeOption[];
   onNodeTypeToggle: (type: string) => void;
   onEdgeTypeToggle: (type: string) => void;
   onShowInferredCallsChange: (show: boolean) => void;
   onResetFilters: () => void;
-  onShowHiddenNodes: () => void;
+  onShowHiddenNode: (nodeId: string) => void;
+  onShowAllHiddenNodes: () => void;
 }) {
   return (
     <aside className="graph-filters">
@@ -61,10 +70,32 @@ export function GraphFiltersPanel({
       <button className="secondary-button" type="button" onClick={onResetFilters} disabled={!graphLoaded}>
         Reset filters
       </button>
-      {hiddenCount > 0 ? (
-        <button className="secondary-button" type="button" onClick={onShowHiddenNodes}>
-          Show hidden nodes ({hiddenCount})
-        </button>
+      {hiddenNodes.length > 0 ? (
+        <section className="hidden-node-picker">
+          <div className="filter-title">Hidden nodes</div>
+          <div className="hidden-node-list">
+            {hiddenNodes.map((node) => (
+              <button
+                className="hidden-node-row"
+                type="button"
+                key={node.id}
+                title={`Show ${node.label}`}
+                onClick={() => onShowHiddenNode(node.id)}
+              >
+                <Eye size={13} />
+                <span className="hidden-node-copy">
+                  <strong>{node.label}</strong>
+                  <small>{node.meta ? `${node.type} / ${node.meta}` : node.type}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+          {hiddenNodes.length > 1 ? (
+            <button className="secondary-button" type="button" onClick={onShowAllHiddenNodes}>
+              Show all hidden ({hiddenNodes.length})
+            </button>
+          ) : null}
+        </section>
       ) : null}
     </aside>
   );

@@ -436,6 +436,62 @@ select:disabled {
   padding: 8px 10px;
 }
 
+.hidden-node-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.hidden-node-list {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.hidden-node-row {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  text-align: left;
+}
+
+.hidden-node-row svg {
+  color: var(--color-accent);
+  flex: 0 0 auto;
+}
+
+.hidden-node-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hidden-node-copy strong,
+.hidden-node-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hidden-node-copy strong {
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.hidden-node-copy small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
 .flow-frame {
   background: #080909;
   min-height: 0;
@@ -686,6 +742,23 @@ select:disabled {
   -webkit-line-clamp: 2;
 }
 
+.code-node-card.is-file .code-node-body {
+  gap: 7px;
+}
+
+.code-node-card.is-file .code-node-summary {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  min-height: 0;
+  -webkit-line-clamp: 1;
+}
+
+.code-node-file-symbols {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .code-node-meta {
   color: var(--color-text-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
@@ -916,6 +989,11 @@ select:disabled {
   right: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.code-container-node.is-directory .code-container-body {
+  bottom: auto;
+  top: 76px;
 }
 
 .detail-empty {

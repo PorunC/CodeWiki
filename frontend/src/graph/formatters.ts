@@ -53,6 +53,17 @@ export function compactFilePath(path: string): string {
   return `${parts[0]}/.../${parts.slice(-2).join("/")}`;
 }
 
+export function fileDisplayName(node: CodeNode): string {
+  const rawPath = node.file_path || node.name || node.symbol_id || "unnamed";
+  const normalized = rawPath.replaceAll("\\", "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.at(-1) || node.name || "unnamed";
+}
+
+export function filePathLabel(node: CodeNode): string {
+  return (node.file_path || node.name || "source file").replaceAll("\\", "/");
+}
+
 export function nodeSummary(node: CodeNode): string {
   const signature = typeof node.metadata.signature === "string" ? node.metadata.signature : "";
   const docstring = typeof node.metadata.docstring === "string" ? node.metadata.docstring : "";
@@ -64,6 +75,9 @@ export function nodeSummary(node: CodeNode): string {
   }
   if (node.type === "module") {
     return "External dependency";
+  }
+  if (node.type === "file") {
+    return filePathLabel(node);
   }
   return compactFilePath(node.file_path ?? node.name);
 }

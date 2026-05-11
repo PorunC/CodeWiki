@@ -15,8 +15,11 @@ export const flowNodeTypes: NodeTypes = {
 };
 
 function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
+  const isFileNode = data.nodeType === "file";
+  const symbolCountLabel = formatSymbolCount(data.countLabel);
   const className = [
     "code-node-card",
+    isFileNode ? "is-file" : "",
     data.isContained ? "is-contained" : "",
     data.isExternal ? "is-external" : "",
     data.isSelected ? "is-selected" : "",
@@ -25,6 +28,7 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
   ]
     .filter(Boolean)
     .join(" ");
+  const title = isFileNode ? `${data.label}\n${data.summary}\n${symbolCountLabel}` : data.label;
 
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
     if (data.nodeType !== "file" || !data.fileId) {
@@ -48,23 +52,29 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
   };
 
   return (
-    <div className={className} title={data.label} onDoubleClick={handleDoubleClick}>
+    <div className={className} title={title} onDoubleClick={handleDoubleClick}>
       <div className="code-node-accent" style={{ background: data.accentColor }} />
       <Handle id={TARGET_HANDLE_ID} type="target" position={Position.Left} className="code-node-handle" />
       <Handle id={SOURCE_HANDLE_ID} type="source" position={Position.Right} className="code-node-handle" />
       <div className="code-node-body">
-        <div className="code-node-topline">
-          <span className="code-node-type" style={{ color: data.accentColor }}>
-            {data.nodeType}
-          </span>
-          {data.countLabel ? <span className="code-node-count">{data.countLabel}</span> : null}
-        </div>
+        {!isFileNode ? (
+          <div className="code-node-topline">
+            <span className="code-node-type" style={{ color: data.accentColor }}>
+              {data.nodeType}
+            </span>
+            {data.countLabel ? <span className="code-node-count">{data.countLabel}</span> : null}
+          </div>
+        ) : null}
         <div className="code-node-title">{data.label}</div>
         <div className="code-node-summary">{data.summary}</div>
-        <div className="code-node-meta">
-          <span>{data.pathLabel}</span>
-          <span>{data.lineLabel}</span>
-        </div>
+        {isFileNode ? (
+          <div className="code-node-file-symbols">{symbolCountLabel}</div>
+        ) : (
+          <div className="code-node-meta">
+            <span>{data.pathLabel}</span>
+            <span>{data.lineLabel}</span>
+          </div>
+        )}
       </div>
       <div className="code-node-stats">
         <span>{data.statsLabel || "No visible edges"}</span>
@@ -83,9 +93,18 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
   );
 }
 
+function formatSymbolCount(value?: string): string {
+  if (!value) {
+    return "0 symbols";
+  }
+  return value.includes("symbol") ? value : `${value} symbols`;
+}
+
 function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<ContainerVisualData, "container">>) {
   const className = [
     "code-container-node",
+    data.containerType === "directory" ? "is-directory" : "",
+    data.containerType === "file" ? "is-file-container" : "",
     data.isCompact ? "is-compact" : "",
     data.containerType === "dependency" ? "is-dependency" : "",
     data.isSelected ? "is-selected" : "",
