@@ -1,10 +1,13 @@
 import { BookOpenText, GitBranch, MessageCircleQuestion, Network } from "lucide-react";
+import { useState } from "react";
 
 import { AskPage } from "./pages/AskPage";
 import { GraphPage } from "./pages/GraphPage";
 import { WikiPage } from "./pages/WikiPage";
 
 export function App() {
+  const [selectedRepoId, setSelectedRepoId] = useState("");
+
   return (
     <main className="app-shell noise-overlay">
       <header className="app-header">
@@ -40,10 +43,10 @@ export function App() {
       </header>
 
       <section className="workspace">
-        <GraphPage />
+        <GraphPage selectedRepoId={selectedRepoId} onSelectedRepoChange={setSelectedRepoId} />
         <aside className="assistant-rail">
           <WikiPage />
-          <AskPage />
+          <AskPage selectedRepoId={selectedRepoId} onRepoChange={setSelectedRepoId} />
         </aside>
       </section>
     </main>

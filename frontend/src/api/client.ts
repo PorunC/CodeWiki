@@ -35,6 +35,20 @@ export type GraphResponse = {
   edges: CodeEdge[];
 };
 
+export type SourceRef = {
+  file_path: string;
+  start_line: number;
+  end_line: number;
+};
+
+export type AskResponse = {
+  answer: string;
+  sources: SourceRef[];
+  related_nodes: Array<Record<string, unknown> & { id?: string; name?: string; type?: string }>;
+  related_edges: Array<Record<string, unknown> & { id?: string; type?: string; source_id?: string; target_id?: string }>;
+  trace_id: string;
+};
+
 export async function getHealth(): Promise<{ status: string }> {
   const response = await fetch(`${API_BASE}/health`);
   return readJson(response, "Health check");
@@ -48,6 +62,23 @@ export async function getRepos(): Promise<RepoSummary[]> {
 export async function getRepoGraph(repoId: string): Promise<GraphResponse> {
   const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/graph`);
   return readJson(response, "Repository graph");
+}
+
+export async function askRepo(repoId: string, question: string): Promise<AskResponse> {
+  const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/ask`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      question,
+      mode: "graph_rag",
+      max_hops: 2,
+      include_sources: true,
+      include_graph: true
+    })
+  });
+  return readJson(response, "Ask");
 }
 
 async function readJson<T>(response: Response, label: string): Promise<T> {

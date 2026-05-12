@@ -5,6 +5,7 @@ import {
   buildFileDetailGraph,
   buildFocusGraph,
   buildOverviewGraph,
+  applyRelatedHighlights,
   pruneHiddenVisualGraph,
   type ContainmentIndex,
   type FilteredGraph,
@@ -21,7 +22,8 @@ export function useVisualGraph({
   selectedFileId,
   selectedNodeId,
   selectedVisualId,
-  hiddenVisualIds
+  hiddenVisualIds,
+  highlightedRawNodeIds
 }: {
   graph: GraphResponse | null;
   filteredGraph: FilteredGraph;
@@ -31,6 +33,7 @@ export function useVisualGraph({
   selectedNodeId: string | null;
   selectedVisualId: string | null;
   hiddenVisualIds: Set<string>;
+  highlightedRawNodeIds: Set<string>;
 }) {
   const baseVisualGraph = useMemo(() => {
     if (!graph) {
@@ -49,8 +52,8 @@ export function useVisualGraph({
   }, [containment, filteredGraph, graph, selectedFileId, selectedNodeId, selectedVisualId, viewMode]);
 
   const visualGraph = useMemo(
-    () => pruneHiddenVisualGraph(baseVisualGraph, hiddenVisualIds),
-    [baseVisualGraph, hiddenVisualIds]
+    () => applyRelatedHighlights(pruneHiddenVisualGraph(baseVisualGraph, hiddenVisualIds), highlightedRawNodeIds),
+    [baseVisualGraph, hiddenVisualIds, highlightedRawNodeIds]
   );
 
   const selectedVisualData = useMemo(

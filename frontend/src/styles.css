@@ -686,6 +686,14 @@ select:disabled {
     0 0 18px rgba(212, 165, 116, 0.1);
 }
 
+.code-node-card.is-ask-related {
+  border-color: rgba(124, 188, 155, 0.72);
+  box-shadow:
+    0 0 0 2px rgba(124, 188, 155, 0.2),
+    0 0 24px rgba(124, 188, 155, 0.16),
+    0 14px 34px rgba(0, 0, 0, 0.4);
+}
+
 .code-node-card.is-faded {
   filter: saturate(0.38) brightness(0.72);
   opacity: 0.16;
@@ -929,6 +937,14 @@ select:disabled {
     0 0 18px rgba(212, 165, 116, 0.08);
 }
 
+.code-container-node.is-ask-related {
+  border-color: rgba(124, 188, 155, 0.72);
+  box-shadow:
+    0 0 0 2px rgba(124, 188, 155, 0.16),
+    0 0 24px rgba(124, 188, 155, 0.12),
+    0 18px 48px rgba(0, 0, 0, 0.36);
+}
+
 .code-container-node.is-faded {
   filter: saturate(0.34) brightness(0.72);
   opacity: 0.16;
@@ -1135,6 +1151,25 @@ select:disabled {
   color: #f0a08c;
 }
 
+.ask-highlight-banner {
+  align-items: center;
+  background: rgba(124, 188, 155, 0.12);
+  border-color: rgba(124, 188, 155, 0.28);
+  color: #a6d8bd;
+  display: flex;
+  justify-content: space-between;
+}
+
+.ask-highlight-banner button {
+  background: rgba(124, 188, 155, 0.12);
+  border: 1px solid rgba(124, 188, 155, 0.28);
+  border-radius: 8px;
+  color: #c6efd6;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 5px 9px;
+}
+
 .side-panel {
   border-bottom: 1px solid var(--color-border-subtle);
   display: grid;
@@ -1180,19 +1215,151 @@ select:disabled {
   gap: 10px;
 }
 
+.ask-form input,
+.ask-form select {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  font: inherit;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
 .ask-form button {
+  align-items: center;
   background: var(--color-accent);
   border: 0;
   border-radius: 8px;
   color: #17120c;
   cursor: pointer;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
   font-weight: 900;
   min-height: 38px;
   padding: 9px 14px;
 }
 
+.ask-form button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.4);
+  opacity: 0.58;
+}
+
 .ask-form button:hover {
   background: var(--color-accent-strong);
+}
+
+.ask-repo-path,
+.ask-error {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ask-error {
+  color: #f0a08c;
+  font-weight: 800;
+}
+
+.ask-result {
+  display: grid;
+  gap: 12px;
+}
+
+.ask-answer {
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.ask-highlight-button {
+  align-items: center;
+  background: rgba(124, 188, 155, 0.12);
+  border: 1px solid rgba(124, 188, 155, 0.26);
+  border-radius: 8px;
+  color: #bde6cd;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 7px;
+  justify-content: center;
+  min-height: 34px;
+}
+
+.ask-highlight-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ask-section {
+  display: grid;
+  gap: 8px;
+}
+
+.ask-section h3 {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.ask-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask-chip {
+  background: rgba(74, 124, 155, 0.12);
+  border: 1px solid rgba(74, 124, 155, 0.24);
+  border-radius: 999px;
+  color: #9cc2db;
+  font-size: 11px;
+  font-weight: 800;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 4px 7px;
+}
+
+.ask-node-list {
+  display: grid;
+  gap: 6px;
+}
+
+.ask-node-row {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.026);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 32px;
+  padding: 6px 8px;
+}
+
+.ask-node-row span {
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-node-row strong {
+  color: #a6d8bd;
+  font-size: 11px;
+  text-transform: uppercase;
 }
 
 @keyframes edgeFlow {

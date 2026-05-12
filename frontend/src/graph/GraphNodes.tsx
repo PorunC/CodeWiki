@@ -25,6 +25,7 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
     data.isExternal ? "is-external" : "",
     data.isSelected ? "is-selected" : "",
     data.isNeighbor ? "is-neighbor" : "",
+    data.isAskRelated ? "is-ask-related" : "",
     data.isFaded ? "is-faded" : ""
   ]
     .filter(Boolean)
@@ -110,6 +111,7 @@ function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<Container
     data.containerType === "dependency" ? "is-dependency" : "",
     data.isSelected ? "is-selected" : "",
     data.isNeighbor ? "is-neighbor" : "",
+    data.isAskRelated ? "is-ask-related" : "",
     data.isFaded ? "is-faded" : "",
     data.isFocusedViaChild ? "is-focused-via-child" : ""
   ]

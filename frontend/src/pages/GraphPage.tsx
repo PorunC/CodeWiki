@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import {
   getRepoGraph,
@@ -23,9 +23,14 @@ import {
   type GraphViewMode
 } from "../graph/graphModel";
 
-export function GraphPage() {
+export function GraphPage({
+  selectedRepoId,
+  onSelectedRepoChange
+}: {
+  selectedRepoId: string;
+  onSelectedRepoChange: (repoId: string) => void;
+}) {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
-  const [selectedRepoId, setSelectedRepoId] = useState("");
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [repoLoading, setRepoLoading] = useState(true);
   const [graphLoading, setGraphLoading] = useState(false);
@@ -39,7 +44,28 @@ export function GraphPage() {
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(new Set());
   const [showInferredCalls, setShowInferredCalls] = useState(true);
   const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
+  const [highlightedRawNodeIds, setHighlightedRawNodeIds] = useState<Set<string>>(new Set());
+  const pendingRelatedNodeIdsRef = useRef<string[]>([]);
   const [refreshNonce, setRefreshNonce] = useState(0);
+
+  const applyRelatedNodeHighlight = useCallback((repoGraph: GraphResponse, nodeIds: string[]) => {
+    const graphNodeIds = new Set(repoGraph.nodes.map((node) => node.id));
+    const validNodeIds = nodeIds.filter((nodeId) => graphNodeIds.has(nodeId));
+    setHighlightedRawNodeIds(new Set(validNodeIds));
+    if (validNodeIds.length === 0) {
+      return;
+    }
+
+    const firstNodeId = validNodeIds[0];
+    const firstNode = repoGraph.nodes.find((node) => node.id === firstNodeId) ?? null;
+    const visualId = findOverviewVisualIdForRawNode(repoGraph, firstNodeId);
+    const visualNode = repoGraph.nodes.find((node) => node.id === visualId) ?? null;
+    setSelectedNodeId(firstNodeId);
+    setSelectedVisualId(visualId);
+    setSelectedFileId(firstNode?.type === "file" ? firstNode.id : visualNode?.type === "file" ? visualNode.id : null);
+    setFocusNodeId(firstNodeId);
+    setViewMode("overview");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +78,9 @@ export function GraphPage() {
           return;
         }
         setRepos(repoList);
-        setSelectedRepoId((current) => current || repoList[0]?.id || "");
+        if (!selectedRepoId && repoList[0]) {
+          onSelectedRepoChange(repoList[0].id);
+        }
       })
       .catch((apiError: unknown) => {
         if (!cancelled) {
@@ -68,7 +96,7 @@ export function GraphPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onSelectedRepoChange, selectedRepoId]);
 
   useEffect(() => {
     if (!selectedRepoId) {
@@ -78,6 +106,7 @@ export function GraphPage() {
       setSelectedFileId(null);
       setFocusNodeId(null);
       setHiddenVisualIds(new Set());
+      setHighlightedRawNodeIds(new Set());
       return;
     }
 
@@ -100,6 +129,12 @@ export function GraphPage() {
         setFocusNodeId(firstFile?.id ?? null);
         setHiddenVisualIds(new Set());
         setViewMode("overview");
+        if (pendingRelatedNodeIdsRef.current.length > 0) {
+          applyRelatedNodeHighlight(repoGraph, pendingRelatedNodeIdsRef.current);
+          pendingRelatedNodeIdsRef.current = [];
+        } else {
+          setHighlightedRawNodeIds(new Set());
+        }
       })
       .catch((apiError: unknown) => {
         if (!cancelled) {
@@ -109,6 +144,7 @@ export function GraphPage() {
           setSelectedFileId(null);
           setFocusNodeId(null);
           setHiddenVisualIds(new Set());
+          setHighlightedRawNodeIds(new Set());
           setError(apiError instanceof Error ? apiError.message : "Failed to load repository graph");
         }
       })
@@ -121,7 +157,7 @@ export function GraphPage() {
     return () => {
       cancelled = true;
     };
-  }, [refreshNonce, selectedRepoId]);
+  }, [applyRelatedNodeHighlight, refreshNonce, selectedRepoId]);
 
   const selectedRepo = useMemo(
     () => repos.find((repo) => repo.id === selectedRepoId) ?? null,
@@ -169,7 +205,8 @@ export function GraphPage() {
     selectedFileId,
     selectedNodeId: viewMode === "focus" ? focusNodeId : selectedNodeId,
     selectedVisualId,
-    hiddenVisualIds
+    hiddenVisualIds,
+    highlightedRawNodeIds
   });
 
   const hiddenNodes = useMemo<HiddenVisualNodeOption[]>(() => {
@@ -280,6 +317,27 @@ export function GraphPage() {
     return () => window.removeEventListener("codewiki:hide-visual-node", handleHideNode);
   }, []);
 
+  useEffect(() => {
+    const handleHighlightRelatedNodes = (event: Event) => {
+      const detail = (event as CustomEvent<{ repoId?: string; nodeIds?: string[] }>).detail;
+      const repoId = detail?.repoId;
+      const nodeIds = detail?.nodeIds?.filter(Boolean) ?? [];
+      if (repoId && repoId !== selectedRepoId) {
+        pendingRelatedNodeIdsRef.current = nodeIds;
+        onSelectedRepoChange(repoId);
+        return;
+      }
+      if (!graph) {
+        pendingRelatedNodeIdsRef.current = nodeIds;
+        return;
+      }
+      applyRelatedNodeHighlight(graph, nodeIds);
+    };
+
+    window.addEventListener("codewiki:highlight-related-nodes", handleHighlightRelatedNodes);
+    return () => window.removeEventListener("codewiki:highlight-related-nodes", handleHighlightRelatedNodes);
+  }, [applyRelatedNodeHighlight, graph, onSelectedRepoChange, selectedRepoId]);
+
   const handleNodeClick = useCallback(
     (_: MouseEvent, node: FlowNode) => {
       const data = node.data;
@@ -356,11 +414,19 @@ export function GraphPage() {
         selectedFileId={selectedFileId}
         selectedNodeId={selectedNodeId}
         graphStats={graphStats}
-        onRepoChange={setSelectedRepoId}
+        onRepoChange={onSelectedRepoChange}
         onModeSelect={selectMode}
       />
 
       {error ? <div className="state-banner error-banner">{error}</div> : null}
+      {highlightedRawNodeIds.size > 0 ? (
+        <div className="state-banner ask-highlight-banner">
+          <span>{highlightedRawNodeIds.size} Ask-related nodes highlighted.</span>
+          <button type="button" onClick={() => setHighlightedRawNodeIds(new Set())}>
+            Clear
+          </button>
+        </div>
+      ) : null}
       {!isLoading && repos.length === 0 ? (
         <div className="state-banner">No repositories registered yet.</div>
       ) : null}
@@ -403,4 +469,33 @@ export function GraphPage() {
       </div>
     </section>
   );
+}
+
+function findOverviewVisualIdForRawNode(graph: GraphResponse, rawNodeId: string): string | null {
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const node = nodeById.get(rawNodeId);
+  if (!node) {
+    return null;
+  }
+  if (node.type === "module") {
+    return "dependency:external";
+  }
+  if (node.type === "file" || node.type === "directory" || node.type === "repository") {
+    return node.id;
+  }
+
+  const parentByChild = new Map(
+    graph.edges
+      .filter((edge) => edge.type === "contains")
+      .map((edge) => [edge.target, edge.source])
+  );
+  let currentId: string | undefined = rawNodeId;
+  while (currentId) {
+    const currentNode = nodeById.get(currentId);
+    if (currentNode?.type === "file") {
+      return currentNode.id;
+    }
+    currentId = parentByChild.get(currentId);
+  }
+  return rawNodeId;
 }

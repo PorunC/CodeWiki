@@ -91,3 +91,27 @@ export function pruneHiddenVisualGraph(graph: VisualGraph, hiddenVisualIds: Set<
 
   return { nodes, edges };
 }
+
+export function applyRelatedHighlights(graph: VisualGraph, highlightedRawNodeIds: Set<string>): VisualGraph {
+  if (highlightedRawNodeIds.size === 0) {
+    return graph;
+  }
+
+  return {
+    nodes: graph.nodes.map((node) => {
+      const isAskRelated = node.data.rawNodeIds.some((rawId) => highlightedRawNodeIds.has(rawId));
+      if (!isAskRelated) {
+        return node;
+      }
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isAskRelated,
+          isFaded: false
+        }
+      };
+    }),
+    edges: graph.edges
+  };
+}

@@ -15,7 +15,7 @@ class WikiPage(BaseModel):
     markdown: str
     source_refs: list[SourceRef] = Field(default_factory=list)
     graph_refs: list[str] = Field(default_factory=list)
+    status: str = "draft"
 
 
 WikiCatalogItem.model_rebuild()
-

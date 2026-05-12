@@ -37,6 +37,7 @@ export type CodeVisualData = {
   isSelected: boolean;
   isNeighbor: boolean;
   isFaded: boolean;
+  isAskRelated?: boolean;
   isContained: boolean;
   isExternal: boolean;
   isFocusMode?: boolean;
@@ -57,6 +58,7 @@ export type ContainerVisualData = {
   isSelected: boolean;
   isNeighbor: boolean;
   isFaded: boolean;
+  isAskRelated?: boolean;
   isFocusedViaChild: boolean;
   isCompact: boolean;
 };
