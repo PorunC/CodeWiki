@@ -39,7 +39,7 @@ class LLMGateway:
 
         profile = self.router.profile_for(task_type)
         kwargs: dict[str, Any] = {
-            "model": profile.model,
+            "model": _litellm_model(profile.model, self.settings.llm_base_url),
             "messages": messages,
             "temperature": profile.temperature,
             "timeout": self.settings.llm_timeout_seconds,
@@ -48,8 +48,9 @@ class LLMGateway:
             kwargs["max_tokens"] = profile.max_tokens
         if response_format:
             kwargs["response_format"] = {"type": response_format}
-        if self.settings.llm_mode == "proxy" and self.settings.litellm_proxy_base_url:
-            kwargs["api_base"] = self.settings.litellm_proxy_base_url
+        api_base = _api_base(self.settings)
+        if api_base:
+            kwargs["api_base"] = api_base
         if self.settings.llm_api_key:
             kwargs["api_key"] = self.settings.llm_api_key
 
@@ -70,14 +71,15 @@ class LLMGateway:
 
         profile = self.router.profile_for(task_type)
         kwargs: dict[str, Any] = {
-            "model": profile.model,
+            "model": _litellm_model(profile.model, self.settings.llm_base_url),
             "messages": messages,
             "temperature": profile.temperature,
             "stream": True,
             "timeout": self.settings.llm_timeout_seconds,
         }
-        if self.settings.llm_mode == "proxy" and self.settings.litellm_proxy_base_url:
-            kwargs["api_base"] = self.settings.litellm_proxy_base_url
+        api_base = _api_base(self.settings)
+        if api_base:
+            kwargs["api_base"] = api_base
         if self.settings.llm_api_key:
             kwargs["api_key"] = self.settings.llm_api_key
         response = await acompletion(**kwargs)
@@ -91,9 +93,13 @@ class LLMGateway:
         from litellm import aembedding
 
         profile = self.router.profile_for(task_type)
-        kwargs: dict[str, Any] = {"model": profile.model, "input": texts}
-        if self.settings.llm_mode == "proxy" and self.settings.litellm_proxy_base_url:
-            kwargs["api_base"] = self.settings.litellm_proxy_base_url
+        kwargs: dict[str, Any] = {
+            "model": _litellm_model(profile.model, self.settings.llm_base_url),
+            "input": texts,
+        }
+        api_base = _api_base(self.settings)
+        if api_base:
+            kwargs["api_base"] = api_base
         if self.settings.llm_api_key:
             kwargs["api_key"] = self.settings.llm_api_key
         response = await aembedding(**kwargs)
@@ -101,3 +107,17 @@ class LLMGateway:
             item["embedding"] if isinstance(item, dict) else item.embedding
             for item in response.data
         ]
+
+
+def _api_base(settings: Settings) -> str | None:
+    if settings.llm_base_url:
+        return settings.llm_base_url
+    if settings.llm_mode == "proxy" and settings.litellm_proxy_base_url:
+        return settings.litellm_proxy_base_url
+    return None
+
+
+def _litellm_model(model: str, api_base: str | None) -> str:
+    if api_base and "/" not in model:
+        return f"openai/{model}"
+    return model

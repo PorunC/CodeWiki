@@ -8,7 +8,13 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
-from backend.app.services.wiki_generator import WikiGenerator
+from backend.app.services.wiki_generator import (
+    WikiGenerator,
+    _replace_citation_markers,
+    _source_url,
+    _source_url_base,
+    _validate_source_refs,
+)
 
 
 @pytest.mark.asyncio
@@ -20,6 +26,8 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
             "markdown": "\n".join(
                 [
                     "# Request Handler",
+                    "",
+                    "## Purpose and Scope",
                     "",
                     "The handler delegates to answer().",
                     "",
@@ -64,7 +72,7 @@ async def test_wiki_generator_marks_page_draft_when_source_refs_are_invalid(
     llm = _FakeWikiLLM(
         page_payload={
             "title": "Request Handler",
-            "markdown": "# Request Handler\n\nUnsupported generated claim.",
+            "markdown": "# Request Handler\n\n## Purpose and Scope\n\nUnsupported generated claim.",
             "source_refs": [{"file_path": "missing.py", "start_line": 1, "end_line": 1}],
         }
     )
@@ -80,6 +88,94 @@ async def test_wiki_generator_marks_page_draft_when_source_refs_are_invalid(
     assert "Unsupported generated claim" not in result.page.markdown
     assert "Validation Errors" in result.page.markdown
     assert result.validation_errors
+
+
+@pytest.mark.asyncio
+async def test_wiki_generator_generates_leaf_pages_for_category_catalog(
+    tmp_path: Path,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    llm = _FakeWikiLLM(
+        catalog_payload={
+            "title": "Repo Wiki",
+            "items": [
+                {
+                    "title": "Core Runtime",
+                    "slug": "core-runtime",
+                    "path": "core-runtime",
+                    "order": 0,
+                    "kind": "category",
+                    "topic": "runtime",
+                    "children": [
+                        {
+                            "title": "Request Handler",
+                            "slug": "request-handler",
+                            "path": "core-runtime/request-handler",
+                            "order": 0,
+                            "kind": "page",
+                            "topic": "handler answer",
+                            "children": [],
+                        }
+                    ],
+                }
+            ],
+        },
+        page_payload={
+            "title": "Request Handler",
+            "markdown": "# Request Handler\n\n## Purpose and Scope\n\nThe handler delegates to answer().",
+            "source_refs": [{"file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+    )
+    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+
+    await generator.generate_catalog(repo.id)
+    results = await generator.generate_all_pages(repo.id)
+
+    assert [result.page.slug for result in results] == ["request-handler"]
+    assert results[0].page.parent_slug == "core-runtime"
+
+
+def test_source_refs_accept_citation_ids_and_replace_markers(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "api.py").write_text("def handler():\n    return 42\n")
+    source_chunks = [
+        {
+            "id": "chunk-1",
+            "file_path": "api.py",
+            "start_line": 1,
+            "end_line": 2,
+            "content": "def handler():\n    return 42\n",
+        }
+    ]
+    allowed_source_refs = [
+        {
+            "citation_id": "S1",
+            "file_path": "api.py",
+            "start_line": 1,
+            "end_line": 2,
+            "chunk_id": "chunk-1",
+        }
+    ]
+
+    refs, errors = _validate_source_refs(
+        repo_path=str(repo_dir),
+        requested_refs=[{"citation_id": "S1"}],
+        source_chunks=source_chunks,
+        allowed_source_refs=allowed_source_refs,
+    )
+    markdown = _replace_citation_markers("The handler returns a constant. [[S1]]", refs)
+
+    assert errors == []
+    assert refs[0]["citation_id"] == "S1"
+    assert "[api.py:L1-L2](source-link)" in markdown
+
+
+def test_source_urls_normalize_git_remotes_and_quote_paths() -> None:
+    base = _source_url_base("git@github.com:owner/repo.git", "abc123")
+
+    assert base == "https://github.com/owner/repo/blob/abc123"
+    assert _source_url(base, "src/has space.py", 4, 6).endswith("src/has%20space.py#L4-L6")
 
 
 def _analyzed_repo(tmp_path: Path):
@@ -104,8 +200,14 @@ def _analyzed_repo(tmp_path: Path):
 
 
 class _FakeWikiLLM:
-    def __init__(self, *, page_payload: dict[str, object]) -> None:
+    def __init__(
+        self,
+        *,
+        page_payload: dict[str, object],
+        catalog_payload: dict[str, object] | None = None,
+    ) -> None:
         self.page_payload = page_payload
+        self.catalog_payload = catalog_payload
 
     async def complete(
         self,
@@ -117,7 +219,7 @@ class _FakeWikiLLM:
         assert response_format == "json_object"
         assert messages
         if task_type == "catalog":
-            payload = {
+            payload = self.catalog_payload or {
                 "title": "Repo Wiki",
                 "items": [
                     {

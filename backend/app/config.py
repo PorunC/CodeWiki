@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("./storage")
 
     llm_mode: str = Field(default="sdk", pattern="^(sdk|proxy)$")
+    llm_base_url: str | None = None
     litellm_proxy_base_url: str | None = None
     llm_default_model: str = "provider/strong-coding-model"
     llm_embedding_model: str = "provider/embedding-model"

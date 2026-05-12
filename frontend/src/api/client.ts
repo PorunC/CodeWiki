@@ -5,6 +5,8 @@ export type RepoSummary = {
   name: string;
   path: string;
   source_type: string;
+  git_url?: string;
+  commit_hash?: string;
 };
 
 export type CodeNode = {
@@ -36,9 +38,11 @@ export type GraphResponse = {
 };
 
 export type SourceRef = {
+  citation_id?: string;
   file_path: string;
   start_line: number;
   end_line: number;
+  source_url?: string;
 };
 
 export type AskResponse = {
@@ -52,7 +56,11 @@ export type AskResponse = {
 export type WikiCatalogItem = {
   title: string;
   slug: string;
+  path?: string;
+  order?: number;
+  kind?: "page" | "category";
   topic?: string;
+  source_hints?: string[];
   children?: WikiCatalogItem[];
 };
 

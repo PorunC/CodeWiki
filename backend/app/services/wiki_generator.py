@@ -1,20 +1,26 @@
 import json
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from importlib import resources
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore, get_store
 from backend.app.services.graph_rag import GraphRAGRetriever, RetrievalTrace
 from backend.app.services.llm_gateway import LLMGateway, LLMResult
+from backend.app.services.repo_context import RepositoryContextBuilder
 
 MERMAID_FENCE_RE = re.compile(r"```mermaid.*?```", re.DOTALL | re.IGNORECASE)
+CITATION_MARKER_RE = re.compile(r"\[\[(S\d+)\]\]")
 SOURCE_EDGE_TYPES = {"calls", "imports", "contains"}
 MAX_CATALOG_ITEMS = 14
 MAX_MERMAID_EDGES = 28
+MAX_SOURCE_HINT_CHUNKS = 6
+PAGE_GENERATION_ATTEMPTS = 2
+REQUIRED_PAGE_HEADINGS = ("## Purpose and Scope",)
 
 
 @dataclass(frozen=True)
@@ -30,10 +36,12 @@ class WikiGenerator:
         llm: LLMGateway,
         *,
         store: SQLiteStore | None = None,
+        context_builder: RepositoryContextBuilder | None = None,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
         self.store = store or get_store()
+        self.context_builder = context_builder or RepositoryContextBuilder()
 
     async def generate_catalog(self, repo_id: str) -> DocCatalogRecord:
         repo = self.store.get_repo(repo_id)
@@ -41,9 +49,24 @@ class WikiGenerator:
             raise ValueError(f"Repository not found: {repo_id}")
 
         trace = await self.retriever.retrieve(repo_id, "repository overview", max_hops=2)
+        repo_context = self.context_builder.build(repo.path)
         prompt = _load_prompt("catalog.md")
         user_payload = {
-            "repo": {"id": repo.id, "name": repo.name},
+            "repo": {
+                "id": repo.id,
+                "name": repo.name,
+                "path": repo.path,
+                "git_url": repo.git_url,
+                "commit_hash": repo.commit_hash,
+            },
+            "documentation_style": {
+                "name": "DeepWiki",
+                "shape": (
+                    "hierarchical developer wiki with Overview first, subsystem pages, "
+                    "workflow drill-downs, and source-grounded topics"
+                ),
+            },
+            "repository_context": repo_context.as_dict(),
             "context_pack": trace.context_pack,
             "seed_nodes": trace.seed_nodes,
             "expanded_nodes": trace.expanded_nodes[:40],
@@ -54,8 +77,23 @@ class WikiGenerator:
                     {
                         "title": "Overview",
                         "slug": "overview",
+                        "path": "overview",
+                        "order": 0,
+                        "kind": "page",
                         "topic": "repository overview",
-                        "children": [],
+                        "source_hints": ["README.md"],
+                        "children": [
+                            {
+                                "title": "Architecture",
+                                "slug": "architecture",
+                                "path": "architecture",
+                                "order": 1,
+                                "kind": "page",
+                                "topic": "repository architecture and core components",
+                                "source_hints": [],
+                                "children": [],
+                            }
+                        ],
                     }
                 ],
             },
@@ -90,7 +128,7 @@ class WikiGenerator:
         if catalog is None:
             catalog = await self.generate_catalog(repo_id)
         results: list[PageGenerationResult] = []
-        for item, parent_slug in _flatten_catalog_items(catalog.structure.get("items", [])):
+        for item, parent_slug in _catalog_items_for_generation(catalog.structure.get("items", [])):
             results.append(await self.generate_page(repo_id, item, parent_slug=parent_slug))
         return results
 
@@ -106,9 +144,11 @@ class WikiGenerator:
             raise ValueError(f"Repository not found: {repo_id}")
 
         title = str(item.get("title") or "Untitled")
-        slug = _slugify(str(item.get("slug") or title))
+        slug = _slugify(str(item.get("slug") or item.get("path") or title))
         topic = str(item.get("topic") or title)
+        source_hints = _source_hints_from_item(item)
         trace = await self.retriever.retrieve(repo_id, topic, max_hops=2)
+        trace = _trace_with_source_hint_chunks(trace, self.store, repo_id, source_hints)
         graph_markdown = _mermaid_from_trace(trace)
         graph_refs = _graph_refs_from_trace(trace)
         allowed_source_refs = _source_refs_from_chunks(trace.source_chunks)
@@ -116,7 +156,33 @@ class WikiGenerator:
         user_payload = {
             "title": title,
             "slug": slug,
+            "path": item.get("path") or slug,
             "topic": topic,
+            "source_hints": source_hints,
+            "source_linking": {
+                "source_refs": "Use only file_path/start_line/end_line values from allowed_source_refs.",
+                "source_urls": (
+                    "The server will convert validated source refs into clickable source URLs "
+                    "when repository git metadata is available."
+                ),
+                "inline_citations": (
+                    "Use [[S1]] style markers from allowed_source_refs after source-grounded "
+                    "sentences. The server validates and converts markers to source links."
+                ),
+            },
+            "documentation_style": {
+                "name": "DeepWiki",
+                "required_sections": [
+                    "Purpose and Scope",
+                    "source-grounded subsystem explanation",
+                    "compact tables for components or flows when useful",
+                ],
+                "server_injected_sections": [
+                    "Relevant source files",
+                    "Graph",
+                    "Sources",
+                ],
+            },
             "context_pack": trace.context_pack,
             "source_chunks": trace.source_chunks,
             "allowed_source_refs": allowed_source_refs,
@@ -132,46 +198,70 @@ class WikiGenerator:
             ][:MAX_MERMAID_EDGES],
             "required_json_shape": {
                 "title": title,
-                "markdown": "# Page title\n\nGrounded Markdown without Mermaid fences.",
-                "source_refs": [{"file_path": "path.py", "start_line": 1, "end_line": 5}],
+                "markdown": (
+                    "# Page title\n\n## Purpose and Scope\n\n"
+                    "Grounded Markdown with inline [[S1]] citations and no Mermaid fences."
+                ),
+                "source_refs": [
+                    {
+                        "citation_id": "S1",
+                        "file_path": "path.py",
+                        "start_line": 1,
+                        "end_line": 5,
+                    }
+                ],
             },
         }
-        result = await self.llm.complete(
-            "page",
-            [
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        "Return only a JSON object. Do not include Mermaid blocks; the server "
-                        "will generate diagrams from graph_edges_for_mermaid. source_refs must "
-                        "be selected from allowed_source_refs.\n"
-                        f"{json.dumps(user_payload, ensure_ascii=False)}"
-                    ),
-                },
-            ],
-            response_format="json_object",
-        )
-        self._record_llm_run(
-            repo_id,
-            task_type="page",
-            result=result,
-            input_payload=user_payload,
-            cache_key=f"page:{slug}:{trace.trace_id}",
-        )
 
-        payload = _json_object(result.content)
-        markdown = _strip_llm_mermaid(str(payload.get("markdown") or ""))
-        source_refs, validation_errors = _validate_source_refs(
-            repo_path=repo.path,
-            requested_refs=payload.get("source_refs"),
-            source_chunks=trace.source_chunks,
-        )
-        if not source_refs:
-            validation_errors.append("At least one valid source_ref is required.")
+        payload: dict[str, Any] = {}
+        markdown = ""
+        source_refs: list[dict[str, Any]] = []
+        validation_errors: list[str] = []
+        attempt_payload = user_payload
+        for attempt in range(PAGE_GENERATION_ATTEMPTS):
+            result = await self.llm.complete(
+                "page",
+                _page_messages(prompt, attempt_payload, validation_errors if attempt else []),
+                response_format="json_object",
+            )
+            self._record_llm_run(
+                repo_id,
+                task_type="page",
+                result=result,
+                input_payload=attempt_payload,
+                cache_key=f"page:{slug}:{trace.trace_id}:attempt:{attempt + 1}",
+            )
+
+            payload = _json_object(result.content)
+            markdown = _strip_llm_mermaid(str(payload.get("markdown") or ""))
+            source_refs, validation_errors = _validate_source_refs(
+                repo_path=repo.path,
+                requested_refs=payload.get("source_refs"),
+                source_chunks=trace.source_chunks,
+                allowed_source_refs=allowed_source_refs,
+                source_url_base=_source_url_base(repo.git_url, repo.commit_hash),
+            )
+            if not source_refs:
+                validation_errors.append("At least one valid source_ref is required.")
+
+            validation_errors.extend(_validate_page_markdown(markdown, title))
+            validation_errors.extend(_validate_citation_markers(markdown, source_refs))
+            if not validation_errors:
+                break
+            attempt_payload = {
+                **user_payload,
+                "previous_response": payload,
+                "validation_errors": validation_errors,
+                "repair_instructions": (
+                    "Repair the page so it validates. Keep the same title, include the required "
+                    "Purpose and Scope section, choose source_refs from allowed_source_refs, and "
+                    "only use [[S#]] markers for source_refs you return."
+                ),
+            }
 
         status = "generated" if not validation_errors else "draft"
         if status == "generated":
+            markdown = _replace_citation_markers(markdown, source_refs)
             markdown = _compose_page_markdown(markdown, graph_markdown, source_refs)
         else:
             markdown = _draft_markdown(title, validation_errors)
@@ -197,8 +287,8 @@ class WikiGenerator:
         catalog = self.store.get_latest_doc_catalog(repo_id)
         if catalog is None:
             raise ValueError("Generate a catalog before regenerating pages.")
-        for item, parent_slug in _flatten_catalog_items(catalog.structure.get("items", [])):
-            if _slugify(str(item.get("slug") or item.get("title") or "")) == slug:
+        for item, parent_slug in _catalog_items_for_generation(catalog.structure.get("items", [])):
+            if _slugify(str(item.get("slug") or item.get("path") or item.get("title") or "")) == slug:
                 return await self.generate_page(repo_id, item, parent_slug=parent_slug)
         raise ValueError(f"Catalog page not found: {slug}")
 
@@ -218,12 +308,37 @@ class WikiGenerator:
             provider=result.model.split("/", 1)[0] if "/" in result.model else None,
             model=result.model,
             model_alias=task_type,
-            prompt_version=f"{task_type}:v1",
+            prompt_version=f"{task_type}:deepwiki:v1",
             input_hash=sha256(json.dumps(input_payload, sort_keys=True).encode("utf-8")).hexdigest(),
             cache_key=cache_key,
             tokens_in=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
             tokens_out=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
         )
+
+
+def _page_messages(
+    prompt: str,
+    user_payload: dict[str, Any],
+    validation_errors: list[str],
+) -> list[dict[str, str]]:
+    instruction = (
+        "Return only a JSON object. Do not include Mermaid blocks; the server "
+        "will generate diagrams from graph_edges_for_mermaid. source_refs must "
+        "be selected from allowed_source_refs. Use [[S#]] citation markers only "
+        "for source refs you return."
+    )
+    if validation_errors:
+        instruction = (
+            f"{instruction}\nRepair the previous response. Validation errors: "
+            f"{json.dumps(validation_errors, ensure_ascii=False)}"
+        )
+    return [
+        {"role": "system", "content": prompt},
+        {
+            "role": "user",
+            "content": f"{instruction}\n{json.dumps(user_payload, ensure_ascii=False)}",
+        },
+    ]
 
 
 def _load_prompt(name: str) -> str:
@@ -263,10 +378,14 @@ def _normalize_catalog_payload(payload: dict[str, Any], repo_name: str) -> tuple
             {
                 "title": "Overview",
                 "slug": "overview",
+                "path": "overview",
+                "order": 0,
+                "kind": "page",
                 "topic": "repository overview",
                 "children": [],
             }
         ]
+    items = _sort_catalog_items(items)
     return title, items
 
 
@@ -276,8 +395,14 @@ def _normalize_catalog_item(raw_item: Any, used_slugs: set[str]) -> dict[str, An
     title = str(raw_item.get("title") or "").strip()
     if not title:
         return None
-    slug = _unique_slug(_slugify(str(raw_item.get("slug") or title)), used_slugs)
+    slug = _unique_slug(_slugify(str(raw_item.get("slug") or raw_item.get("path") or title)), used_slugs)
+    path = str(raw_item.get("path") or slug).strip().strip("/") or slug
     topic = str(raw_item.get("topic") or title)
+    raw_kind = str(raw_item.get("kind") or "").strip().lower()
+    kind = raw_kind if raw_kind in {"page", "category"} else "page"
+    raw_order = raw_item.get("order")
+    order = raw_order if isinstance(raw_order, int) and raw_order >= 0 else len(used_slugs) - 1
+    source_hints = raw_item.get("source_hints") if isinstance(raw_item.get("source_hints"), list) else []
     raw_children = raw_item.get("children") or []
     children = []
     if isinstance(raw_children, list):
@@ -286,7 +411,24 @@ def _normalize_catalog_item(raw_item: Any, used_slugs: set[str]) -> dict[str, An
             for child in (_normalize_catalog_item(child, used_slugs) for child in raw_children[:8])
             if child is not None
         ]
-    return {"title": title, "slug": slug, "topic": topic, "children": children}
+    return {
+        "title": title,
+        "slug": slug,
+        "path": path,
+        "order": order,
+        "kind": kind,
+        "topic": topic,
+        "source_hints": [str(hint) for hint in source_hints[:8]],
+        "children": children,
+    }
+
+
+def _sort_catalog_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for item in items:
+        children = item.get("children")
+        if isinstance(children, list):
+            item["children"] = _sort_catalog_items(children)
+    return sorted(items, key=lambda item: (int(item.get("order") or 0), str(item.get("title") or "")))
 
 
 def _flatten_catalog_items(
@@ -298,10 +440,31 @@ def _flatten_catalog_items(
         if not isinstance(item, dict):
             continue
         yield item, parent_slug
-        slug = _slugify(str(item.get("slug") or item.get("title") or ""))
+        slug = _catalog_slug(item)
         children = item.get("children") or []
         if isinstance(children, list):
             yield from _flatten_catalog_items(children, parent_slug=slug)
+
+
+def _catalog_items_for_generation(
+    items: list[Any],
+    *,
+    parent_slug: str | None = None,
+):
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        children = item.get("children") or []
+        has_children = isinstance(children, list) and bool(children)
+        kind = str(item.get("kind") or "").lower()
+        if kind == "page" or not has_children:
+            yield item, parent_slug
+        if isinstance(children, list):
+            yield from _catalog_items_for_generation(children, parent_slug=_catalog_slug(item))
+
+
+def _catalog_slug(item: dict[str, Any]) -> str:
+    return _slugify(str(item.get("slug") or item.get("path") or item.get("title") or ""))
 
 
 def _source_chunk_summaries(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -318,15 +481,89 @@ def _source_chunk_summaries(chunks: list[dict[str, object]]) -> list[dict[str, o
     ]
 
 
+def _source_hints_from_item(item: dict[str, Any]) -> list[str]:
+    hints = item.get("source_hints")
+    if not isinstance(hints, list):
+        return []
+    return [
+        hint.strip().strip("/")
+        for hint in (str(value) for value in hints)
+        if hint.strip().strip("/")
+    ][:8]
+
+
+def _trace_with_source_hint_chunks(
+    trace: RetrievalTrace,
+    store: SQLiteStore,
+    repo_id: str,
+    source_hints: list[str],
+) -> RetrievalTrace:
+    if not source_hints:
+        return trace
+
+    hinted_chunks: list[dict[str, object]] = []
+    per_file_counts: dict[str, int] = {}
+    for chunk in store.list_code_chunks(repo_id):
+        if not _matches_source_hint(chunk.file_path, source_hints):
+            continue
+        if per_file_counts.get(chunk.file_path, 0) >= 2:
+            continue
+        per_file_counts[chunk.file_path] = per_file_counts.get(chunk.file_path, 0) + 1
+        hinted_chunks.append(
+            {
+                "id": chunk.id,
+                "node_id": chunk.node_id,
+                "file_path": chunk.file_path,
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+                "content": chunk.content,
+                "content_hash": chunk.content_hash,
+                "token_count": chunk.token_count,
+                "score": 0.45,
+                "reasons": ["source_hint"],
+            }
+        )
+        if len(hinted_chunks) >= MAX_SOURCE_HINT_CHUNKS:
+            break
+
+    if not hinted_chunks:
+        return trace
+    return replace(
+        trace,
+        source_chunks=_dedupe_source_chunks([*trace.source_chunks, *hinted_chunks]),
+    )
+
+
+def _matches_source_hint(file_path: str, source_hints: list[str]) -> bool:
+    normalized = file_path.strip("/")
+    return any(normalized == hint or normalized.startswith(f"{hint.rstrip('/')}/") for hint in source_hints)
+
+
+def _dedupe_source_chunks(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, object]] = []
+    for chunk in chunks:
+        chunk_id = str(chunk.get("id") or "")
+        key = chunk_id or (
+            f"{chunk.get('file_path')}:{chunk.get('start_line')}:{chunk.get('end_line')}"
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(chunk)
+    return deduped
+
+
 def _source_refs_from_chunks(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
     return [
         {
+            "citation_id": f"S{index + 1}",
             "file_path": chunk["file_path"],
             "start_line": chunk["start_line"],
             "end_line": chunk["end_line"],
             "chunk_id": chunk["id"],
         }
-        for chunk in chunks
+        for index, chunk in enumerate(chunks)
         if isinstance(chunk.get("file_path"), str)
         and isinstance(chunk.get("start_line"), int)
         and isinstance(chunk.get("end_line"), int)
@@ -338,12 +575,15 @@ def _validate_source_refs(
     repo_path: str,
     requested_refs: Any,
     source_chunks: list[dict[str, object]],
+    allowed_source_refs: list[dict[str, object]],
+    source_url_base: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     if not isinstance(requested_refs, list):
         return [], ["source_refs must be an array."]
 
     repo_root = Path(repo_path).resolve()
     chunk_ranges = _chunk_ranges(source_chunks)
+    allowed_by_citation_id = _allowed_refs_by_citation_id(allowed_source_refs)
     valid_refs: list[dict[str, Any]] = []
     errors: list[str] = []
     seen: set[tuple[str, int, int]] = set()
@@ -352,9 +592,19 @@ def _validate_source_refs(
         if not isinstance(raw_ref, dict):
             errors.append(f"source_refs[{index}] must be an object.")
             continue
-        file_path = str(raw_ref.get("file_path") or "").strip()
-        start_line = raw_ref.get("start_line")
-        end_line = raw_ref.get("end_line")
+        citation_id = str(raw_ref.get("citation_id") or "").strip()
+        if citation_id:
+            allowed_ref = allowed_by_citation_id.get(citation_id)
+            if allowed_ref is None:
+                errors.append(f"source_refs[{index}] uses unknown citation_id: {citation_id}.")
+                continue
+            file_path = str(raw_ref.get("file_path") or allowed_ref.get("file_path") or "").strip()
+            start_line = raw_ref.get("start_line", allowed_ref.get("start_line"))
+            end_line = raw_ref.get("end_line", allowed_ref.get("end_line"))
+        else:
+            file_path = str(raw_ref.get("file_path") or "").strip()
+            start_line = raw_ref.get("start_line")
+            end_line = raw_ref.get("end_line")
         if not file_path or not isinstance(start_line, int) or not isinstance(end_line, int):
             errors.append(f"source_refs[{index}] must include file_path, start_line, end_line.")
             continue
@@ -394,15 +644,52 @@ def _validate_source_refs(
         if key in seen:
             continue
         seen.add(key)
-        valid_refs.append(
-            {
-                "file_path": file_path,
-                "start_line": start_line,
-                "end_line": end_line,
-                "chunk_id": matching_chunk["id"],
-            }
+        citation_id = citation_id or _citation_id_for_range(
+            allowed_source_refs,
+            file_path,
+            start_line,
+            end_line,
         )
+        ref = {
+            "file_path": file_path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "chunk_id": matching_chunk["id"],
+        }
+        if citation_id:
+            ref["citation_id"] = citation_id
+        if source_url_base:
+            ref["source_url"] = _source_url(source_url_base, file_path, start_line, end_line)
+        valid_refs.append(ref)
     return valid_refs, errors
+
+
+def _allowed_refs_by_citation_id(
+    allowed_source_refs: list[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    refs: dict[str, dict[str, object]] = {}
+    for ref in allowed_source_refs:
+        citation_id = ref.get("citation_id")
+        if isinstance(citation_id, str) and citation_id:
+            refs[citation_id] = ref
+    return refs
+
+
+def _citation_id_for_range(
+    allowed_source_refs: list[dict[str, object]],
+    file_path: str,
+    start_line: int,
+    end_line: int,
+) -> str | None:
+    for ref in allowed_source_refs:
+        if (
+            ref.get("file_path") == file_path
+            and ref.get("start_line") == start_line
+            and ref.get("end_line") == end_line
+            and isinstance(ref.get("citation_id"), str)
+        ):
+            return str(ref["citation_id"])
+    return None
 
 
 def _chunk_ranges(chunks: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
@@ -433,25 +720,129 @@ def _strip_llm_mermaid(markdown: str) -> str:
     return MERMAID_FENCE_RE.sub("", markdown).strip()
 
 
+def _validate_page_markdown(markdown: str, expected_title: str) -> list[str]:
+    errors: list[str] = []
+    stripped = markdown.strip()
+    if not stripped.startswith("# "):
+        errors.append("markdown must start with an H1 title.")
+    if expected_title and f"# {expected_title}" not in stripped.splitlines()[:3]:
+        errors.append(f"markdown H1 must match page title: {expected_title}.")
+    for heading in REQUIRED_PAGE_HEADINGS:
+        if heading not in stripped:
+            errors.append(f"markdown must include required heading: {heading}.")
+    return errors
+
+
+def _validate_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) -> list[str]:
+    markers = set(CITATION_MARKER_RE.findall(markdown))
+    if not markers:
+        return []
+    valid_markers = {
+        citation_id
+        for ref in source_refs
+        if isinstance((citation_id := ref.get("citation_id")), str)
+    }
+    unknown = sorted(markers - valid_markers)
+    return [f"markdown contains citation markers not present in source_refs: {', '.join(unknown)}."] if unknown else []
+
+
+def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) -> str:
+    refs_by_citation_id = {
+        citation_id: ref
+        for ref in source_refs
+        if isinstance((citation_id := ref.get("citation_id")), str)
+    }
+
+    def replace_marker(match: re.Match[str]) -> str:
+        citation_id = match.group(1)
+        ref = refs_by_citation_id.get(citation_id)
+        if ref is None:
+            return match.group(0)
+        return f"[{_source_ref_label(ref)}]({_source_ref_href(ref)})"
+
+    return CITATION_MARKER_RE.sub(replace_marker, markdown)
+
+
 def _compose_page_markdown(
     markdown: str,
     mermaid: str,
     source_refs: list[dict[str, Any]],
 ) -> str:
-    sections = [markdown.strip()]
+    sections = [_insert_relevant_source_files(markdown.strip(), source_refs)]
     if mermaid:
         sections.append(mermaid.strip())
     sections.append(_sources_markdown(source_refs))
     return "\n\n".join(section for section in sections if section)
 
 
+def _insert_relevant_source_files(markdown: str, source_refs: list[dict[str, Any]]) -> str:
+    if "## Relevant source files" in markdown:
+        return markdown
+
+    relevant = _relevant_source_files_markdown(source_refs)
+    lines = markdown.splitlines()
+    if lines and lines[0].startswith("# "):
+        rest = "\n".join(lines[1:]).strip()
+        return "\n\n".join(section for section in [lines[0], relevant, rest] if section)
+    return "\n\n".join(section for section in [relevant, markdown] if section)
+
+
+def _relevant_source_files_markdown(source_refs: list[dict[str, Any]]) -> str:
+    lines = ["## Relevant source files"]
+    seen: set[tuple[str, int, int]] = set()
+    for ref in source_refs:
+        key = (ref["file_path"], ref["start_line"], ref["end_line"])
+        if key in seen:
+            continue
+        seen.add(key)
+        href = _source_ref_href(ref)
+        lines.append(
+            f"- [{_source_ref_label(ref)}]({href})"
+        )
+    return "\n".join(lines)
+
+
 def _sources_markdown(source_refs: list[dict[str, Any]]) -> str:
     lines = ["## Sources"]
     for ref in source_refs:
+        href = _source_ref_href(ref)
+        prefix = f"{ref['citation_id']} " if isinstance(ref.get("citation_id"), str) else ""
         lines.append(
-            f"- [{ref['file_path']}:L{ref['start_line']}-L{ref['end_line']}](source-link)"
+            f"- {prefix}[{_source_ref_label(ref)}]({href})"
         )
     return "\n".join(lines)
+
+
+def _source_ref_label(ref: dict[str, Any]) -> str:
+    return f"{ref['file_path']}:L{ref['start_line']}-L{ref['end_line']}"
+
+
+def _source_ref_href(ref: dict[str, Any]) -> str:
+    source_url = ref.get("source_url")
+    return source_url if isinstance(source_url, str) and source_url else "source-link"
+
+
+def _source_url_base(git_url: str | None, commit_hash: str | None) -> str | None:
+    if not git_url:
+        return None
+    normalized = git_url.strip().rstrip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized.removesuffix(".git")
+    if normalized.startswith("git@"):
+        host_and_path = normalized.removeprefix("git@")
+        host, _, repo_path = host_and_path.partition(":")
+        if host and repo_path:
+            normalized = f"https://{host}/{repo_path}"
+    ref = commit_hash or "HEAD"
+    if "gitlab" in normalized:
+        return f"{normalized}/-/blob/{ref}"
+    if "bitbucket.org" in normalized:
+        return f"{normalized}/src/{ref}"
+    return f"{normalized}/blob/{ref}"
+
+
+def _source_url(source_url_base: str, file_path: str, start_line: int, end_line: int) -> str:
+    return f"{source_url_base}/{quote(file_path, safe='/')}#L{start_line}-L{end_line}"
 
 
 def _draft_markdown(title: str, errors: list[str]) -> str:

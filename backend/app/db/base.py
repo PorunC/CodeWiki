@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from typing import Mapping
 
 from backend.app.db.schema import SCHEMA_SQL
 from backend.app.db.utils import sqlite_path_from_url
@@ -24,4 +25,25 @@ class BaseSQLiteStore:
     def ensure_schema(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA_SQL)
+            self._ensure_columns(
+                connection,
+                "repo",
+                {
+                    "git_url": "TEXT",
+                    "commit_hash": "TEXT",
+                },
+            )
 
+    def _ensure_columns(
+        self,
+        connection: sqlite3.Connection,
+        table_name: str,
+        columns: Mapping[str, str],
+    ) -> None:
+        existing = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
+        for column_name, column_type in columns.items():
+            if column_name not in existing:
+                connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")

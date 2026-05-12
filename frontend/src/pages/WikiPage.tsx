@@ -18,8 +18,9 @@ const markdownComponents: Components = {
     if (href === "source-link") {
       return <>{children}</>;
     }
+    const isExternal = href?.startsWith("http://") || href?.startsWith("https://");
     return (
-      <a href={href} {...props}>
+      <a {...props} href={href} target={isExternal ? "_blank" : props.target} rel={isExternal ? "noreferrer" : props.rel}>
         {children}
       </a>
     );
@@ -101,7 +102,8 @@ export function WikiPage({
           if (current && response.pages.some((page) => page.slug === current)) {
             return current;
           }
-          return response.items[0]?.slug ?? response.pages[0]?.slug ?? null;
+          const pageBySlug = new Map(response.pages.map((page) => [page.slug, page]));
+          return firstPageSlugFromItems(response.items, pageBySlug) ?? response.pages[0]?.slug ?? null;
         });
       })
       .catch((apiError: unknown) => {
@@ -225,23 +227,31 @@ function CatalogItems({
   onSelect: (slug: string) => void;
   depth?: number;
 }) {
+  const orderedItems = useMemo(() => sortCatalogItems(items), [items]);
   return (
     <div className="wiki-catalog-level">
-      {items.map((item) => {
+      {orderedItems.map((item) => {
         const page = pageBySlug.get(item.slug);
         const children = item.children ?? [];
+        const targetSlug = page?.slug ?? firstPageSlugFromItems(children, pageBySlug);
+        const status = page?.status ?? (children.length > 0 ? "group" : "missing");
         return (
           <div key={item.slug} className="wiki-catalog-group">
             <button
               className={`wiki-catalog-item${selectedSlug === item.slug ? " is-active" : ""}`}
               style={{ paddingLeft: 8 + depth * 14 }}
               type="button"
-              onClick={() => onSelect(item.slug)}
+              disabled={!targetSlug}
+              onClick={() => {
+                if (targetSlug) {
+                  onSelect(targetSlug);
+                }
+              }}
             >
               <FileText size={13} />
               <span>{item.title}</span>
               <strong className={page?.status === "generated" ? "is-generated" : "is-draft"}>
-                {page?.status ?? "missing"}
+                {status}
               </strong>
             </button>
             {children.length > 0 ? (
@@ -258,6 +268,17 @@ function CatalogItems({
       })}
     </div>
   );
+}
+
+function sortCatalogItems(items: WikiCatalogItem[]): WikiCatalogItem[] {
+  return [...items].sort((left, right) => {
+    const leftOrder = typeof left.order === "number" ? left.order : Number.MAX_SAFE_INTEGER;
+    const rightOrder = typeof right.order === "number" ? right.order : Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return left.title.localeCompare(right.title);
+  });
 }
 
 function WikiArticle({ page }: { page: WikiPageRecord }) {
@@ -402,6 +423,22 @@ function stripMarkdownSourcesSection(markdown: string): string {
 
 function formatSourceRef(source: SourceRef): string {
   return `${source.file_path}:L${source.start_line}-L${source.end_line}`;
+}
+
+function firstPageSlugFromItems(
+  items: WikiCatalogItem[],
+  pageBySlug: Map<string, WikiPageRecord>
+): string | null {
+  for (const item of sortCatalogItems(items)) {
+    if (pageBySlug.has(item.slug)) {
+      return item.slug;
+    }
+    const childSlug = firstPageSlugFromItems(item.children ?? [], pageBySlug);
+    if (childSlug) {
+      return childSlug;
+    }
+  }
+  return null;
 }
 
 function openSourceInGraph(repoId: string, source: SourceRef) {

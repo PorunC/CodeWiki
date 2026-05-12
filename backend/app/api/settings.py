@@ -16,6 +16,7 @@ async def get_llm_models() -> dict[str, str]:
     settings = get_settings()
     return {
         "mode": settings.llm_mode,
+        "base_url": settings.llm_base_url or settings.litellm_proxy_base_url or "",
         "default_model": settings.llm_default_model,
         "embedding_model": settings.llm_embedding_model,
     }

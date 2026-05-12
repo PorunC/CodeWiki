@@ -30,7 +30,7 @@ def test_scan_respects_gitignore_and_detects_language(tmp_path: Path) -> None:
     assert "node_modules/package.js" not in files
     assert files["main.py"].language == "python"
     assert files["main.py"].is_source is True
-    assert files["main.py"].sha256 == hashlib.sha256(b"print('hello')\n").hexdigest()
+    assert files["main.py"].sha256 == hashlib.sha256((tmp_path / "main.py").read_bytes()).hexdigest()
 
 
 def test_scan_respects_nested_gitignore(tmp_path: Path) -> None:

@@ -56,6 +56,8 @@ class RepoDescriptor:
     name: str
     path: str
     source_type: str
+    git_url: str | None = None
+    commit_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,11 +140,14 @@ class RepoScanner:
             raise FileNotFoundError(f"Repository path does not exist: {repo_path}")
         if not repo_path.is_dir():
             raise NotADirectoryError(f"Repository path is not a directory: {repo_path}")
+        git_url, commit_hash = _git_metadata(repo_path)
         return RepoDescriptor(
             id=hashlib.sha1(str(repo_path).encode("utf-8")).hexdigest()[:16],
             name=name or repo_path.name,
             path=str(repo_path),
             source_type=source_type,
+            git_url=git_url,
+            commit_hash=commit_hash,
         )
 
     def scan(self, path: str, *, name: str | None = None, source_type: str = "local") -> RepoScanResult:
@@ -216,3 +221,52 @@ class RepoScanner:
         with file_path.open("rb") as handle:
             sample = handle.read(4096)
         return b"\0" in sample
+
+
+def _git_metadata(repo_path: Path) -> tuple[str | None, str | None]:
+    git_dir = repo_path / ".git"
+    if not git_dir.is_dir():
+        return None, None
+    return _git_origin_url(git_dir), _git_head_commit(git_dir)
+
+
+def _git_origin_url(git_dir: Path) -> str | None:
+    config_path = git_dir / "config"
+    if not config_path.is_file():
+        return None
+    current_section = ""
+    for raw_line in config_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current_section = line
+            continue
+        if current_section == '[remote "origin"]' and line.startswith("url"):
+            _, _, value = line.partition("=")
+            return value.strip() or None
+    return None
+
+
+def _git_head_commit(git_dir: Path) -> str | None:
+    head_path = git_dir / "HEAD"
+    if not head_path.is_file():
+        return None
+    head = head_path.read_text(encoding="utf-8", errors="replace").strip()
+    if not head:
+        return None
+    if not head.startswith("ref:"):
+        return head
+    ref_name = head.removeprefix("ref:").strip()
+    ref_path = git_dir / ref_name
+    if ref_path.is_file():
+        return ref_path.read_text(encoding="utf-8", errors="replace").strip() or None
+    packed_refs = git_dir / "packed-refs"
+    if packed_refs.is_file():
+        for raw_line in packed_refs.read_text(encoding="utf-8", errors="replace").splitlines():
+            if raw_line.startswith("#") or not raw_line.strip():
+                continue
+            commit, _, ref = raw_line.partition(" ")
+            if ref.strip() == ref_name:
+                return commit.strip() or None
+    return None

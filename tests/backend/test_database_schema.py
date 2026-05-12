@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 from backend.app.database import (
@@ -31,6 +32,33 @@ def test_schema_contains_graphrag_wiki_and_llm_tables(tmp_path: Path) -> None:
         "doc_page",
         "llm_run",
     } <= tables
+
+
+def test_schema_migrates_existing_repo_git_metadata_columns(tmp_path: Path) -> None:
+    database_path = tmp_path / "codewiki.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE repo (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              path TEXT NOT NULL,
+              source_type TEXT NOT NULL DEFAULT 'local',
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+    store = SQLiteStore(database_path)
+
+    with store.connect() as connection:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(repo)").fetchall()
+        }
+
+    assert {"git_url", "commit_hash"} <= columns
 
 
 def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:

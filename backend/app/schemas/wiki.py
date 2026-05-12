@@ -6,6 +6,9 @@ from backend.app.schemas.ask import SourceRef
 class WikiCatalogItem(BaseModel):
     title: str
     slug: str
+    path: str | None = None
+    order: int | None = None
+    kind: str = "page"
     children: list["WikiCatalogItem"] = Field(default_factory=list)
 
 

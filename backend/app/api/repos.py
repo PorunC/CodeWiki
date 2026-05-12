@@ -44,6 +44,8 @@ async def list_repos() -> list[dict[str, str]]:
             "name": repo.name,
             "path": repo.path,
             "source_type": repo.source_type,
+            "git_url": repo.git_url or "",
+            "commit_hash": repo.commit_hash or "",
         }
         for repo in get_store().list_repos()
     ]
@@ -59,4 +61,6 @@ async def get_repo(repo_id: str) -> dict[str, str]:
         "name": repo.name,
         "path": repo.path,
         "source_type": repo.source_type,
+        "git_url": repo.git_url or "",
+        "commit_hash": repo.commit_hash or "",
     }

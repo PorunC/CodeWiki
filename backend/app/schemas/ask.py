@@ -2,9 +2,11 @@ from pydantic import BaseModel, Field
 
 
 class SourceRef(BaseModel):
+    citation_id: str | None = None
     file_path: str
     start_line: int
     end_line: int
+    source_url: str | None = None
 
 
 class AskRequest(BaseModel):
@@ -21,4 +23,3 @@ class AskResponse(BaseModel):
     related_nodes: list[dict[str, object]]
     related_edges: list[dict[str, object]]
     trace_id: str
-
