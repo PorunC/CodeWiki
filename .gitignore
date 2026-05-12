@@ -25,3 +25,4 @@ storage/
 
 coverage/
 .coverage
+graphify-out/

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from backend.app.database import (
+    CodeChunkEmbeddingRecord,
     CodeChunkRecord,
     DocPageRecord,
     GraphCommunityRecord,
@@ -23,6 +24,8 @@ def test_schema_contains_graphrag_wiki_and_llm_tables(tmp_path: Path) -> None:
 
     assert {
         "code_chunk",
+        "code_chunk_embedding",
+        "code_chunk_fts",
         "graph_community",
         "doc_catalog",
         "doc_page",
@@ -54,6 +57,27 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
     )
     store.replace_code_chunks(repo.id, [chunk])
     assert store.list_code_chunks(repo.id) == [chunk]
+    fts_hits = store.search_code_chunks_fts(repo.id, '"main"', limit=5)
+    assert fts_hits[0].chunk.id == chunk.id
+
+    embedding = CodeChunkEmbeddingRecord(
+        id="embedding-1",
+        repo_id=repo.id,
+        chunk_id=chunk.id,
+        model="fake/embed",
+        dimensions=2,
+        embedding=[1.0, 0.0],
+        content_hash=chunk.content_hash,
+        created_at=None,
+    )
+    store.replace_code_chunk_embeddings(repo.id, model="fake/embed", embeddings=[embedding])
+    vector_hits = store.search_code_chunk_embeddings(
+        repo.id,
+        model="fake/embed",
+        query_embedding=[1.0, 0.1],
+        limit=5,
+    )
+    assert vector_hits[0].chunk.id == chunk.id
 
     community = GraphCommunityRecord(
         id="community-1",

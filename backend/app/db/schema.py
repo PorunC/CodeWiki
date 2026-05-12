@@ -71,6 +71,32 @@ CREATE INDEX IF NOT EXISTS idx_code_chunk_node ON code_chunk(node_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_code_chunk_hash
   ON code_chunk(repo_id, content_hash, file_path, start_line, end_line);
 
+CREATE VIRTUAL TABLE IF NOT EXISTS code_chunk_fts USING fts5(
+  id UNINDEXED,
+  repo_id UNINDEXED,
+  node_id UNINDEXED,
+  file_path,
+  start_line UNINDEXED,
+  end_line UNINDEXED,
+  content,
+  tokenize = 'unicode61'
+);
+
+CREATE TABLE IF NOT EXISTS code_chunk_embedding (
+  id TEXT PRIMARY KEY,
+  repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+  chunk_id TEXT NOT NULL REFERENCES code_chunk(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  dimensions INTEGER NOT NULL,
+  embedding_json TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_code_chunk_embedding_repo
+  ON code_chunk_embedding(repo_id, model);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_code_chunk_embedding_chunk_model
+  ON code_chunk_embedding(repo_id, chunk_id, model);
+
 CREATE TABLE IF NOT EXISTS graph_community (
   id TEXT PRIMARY KEY,
   repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
@@ -130,4 +156,3 @@ CREATE TABLE IF NOT EXISTS llm_run (
 CREATE INDEX IF NOT EXISTS idx_llm_run_task ON llm_run(repo_id, task_type, cache_key);
 CREATE INDEX IF NOT EXISTS idx_llm_run_created ON llm_run(repo_id, created_at);
 """
-

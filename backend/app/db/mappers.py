@@ -3,6 +3,7 @@ import sqlite3
 
 from backend.app.db.records import (
     AnalysisRunRecord,
+    CodeChunkEmbeddingRecord,
     CodeChunkRecord,
     DocCatalogRecord,
     DocPageRecord,
@@ -69,6 +70,19 @@ def code_chunk_from_row(row: sqlite3.Row) -> CodeChunkRecord:
     )
 
 
+def code_chunk_embedding_from_row(row: sqlite3.Row) -> CodeChunkEmbeddingRecord:
+    return CodeChunkEmbeddingRecord(
+        id=row["id"],
+        repo_id=row["repo_id"],
+        chunk_id=row["chunk_id"],
+        model=row["model"],
+        dimensions=row["dimensions"],
+        embedding=json.loads(row["embedding_json"] or "[]"),
+        content_hash=row["content_hash"],
+        created_at=row["created_at"],
+    )
+
+
 def graph_community_from_row(row: sqlite3.Row) -> GraphCommunityRecord:
     return GraphCommunityRecord(
         id=row["id"],
@@ -127,4 +141,3 @@ def llm_run_from_row(row: sqlite3.Row) -> LLMRunRecord:
         error=row["error"],
         created_at=row["created_at"],
     )
-

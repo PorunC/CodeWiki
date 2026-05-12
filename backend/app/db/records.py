@@ -27,6 +27,25 @@ class CodeChunkRecord:
 
 
 @dataclass(frozen=True)
+class CodeChunkSearchHit:
+    chunk: CodeChunkRecord
+    score: float
+    match_type: str
+
+
+@dataclass(frozen=True)
+class CodeChunkEmbeddingRecord:
+    id: str
+    repo_id: str
+    chunk_id: str
+    model: str
+    dimensions: int
+    embedding: list[float]
+    content_hash: str
+    created_at: str | None
+
+
+@dataclass(frozen=True)
 class GraphCommunityRecord:
     id: str
     repo_id: str
@@ -80,4 +99,3 @@ class LLMRunRecord:
     status: str
     error: str | None
     created_at: str | None
-

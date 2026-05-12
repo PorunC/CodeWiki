@@ -1,15 +1,23 @@
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.app.database import get_store
 from backend.app.schemas.graph import CodeEdge, CodeNode, GraphResponse
+from backend.app.services.graph_rag import GraphRAGRetriever
 
 router = APIRouter()
+
+
+class BuildGraphRAGRequest(BaseModel):
+    include_embeddings: bool = False
 
 
 class RetrieveRequest(BaseModel):
     query: str
     max_hops: int = 2
+    include_embeddings: bool = False
 
 
 @router.get("/{repo_id}/graph")
@@ -70,25 +78,47 @@ async def get_node(repo_id: str, node_id: str) -> dict[str, str]:
 
 @router.get("/{repo_id}/communities")
 async def get_communities(repo_id: str) -> list[dict[str, str]]:
-    return []
+    return [
+        {
+            "id": community.id,
+            "name": community.name,
+            "level": str(community.level),
+            "summary": community.summary or "",
+        }
+        for community in get_store().list_graph_communities(repo_id)
+    ]
 
 
 @router.post("/{repo_id}/graphrag/build")
-async def build_graphrag(repo_id: str) -> dict[str, str]:
-    return {"repo_id": repo_id, "status": "queued"}
+async def build_graphrag(
+    repo_id: str,
+    payload: BuildGraphRAGRequest | None = None,
+) -> dict[str, object]:
+    request = payload or BuildGraphRAGRequest()
+    try:
+        result = await GraphRAGRetriever().build_index(
+            repo_id,
+            include_embeddings=request.include_embeddings,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return asdict(result)
 
 
 @router.post("/{repo_id}/graphrag/retrieve")
 async def retrieve_context(repo_id: str, payload: RetrieveRequest) -> dict[str, object]:
-    return {
-        "repo_id": repo_id,
-        "query": payload.query,
-        "max_hops": payload.max_hops,
-        "seed_nodes": [],
-        "expanded_nodes": [],
-        "source_chunks": [],
-        "trace_id": f"{repo_id}:{hash(payload.query)}",
-    }
+    try:
+        trace = await GraphRAGRetriever().retrieve(
+            repo_id,
+            payload.query,
+            max_hops=payload.max_hops,
+            include_embeddings=payload.include_embeddings,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if message.startswith("Repository not found") else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    return asdict(trace)
 
 
 @router.get("/{repo_id}/graphrag/traces/{trace_id}")

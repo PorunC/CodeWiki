@@ -1,6 +1,8 @@
 from backend.app.db import (
     AnalysisRunRecord,
+    CodeChunkEmbeddingRecord,
     CodeChunkRecord,
+    CodeChunkSearchHit,
     DocCatalogRecord,
     DocPageRecord,
     GraphCommunityRecord,
@@ -11,7 +13,9 @@ from backend.app.db import (
 
 __all__ = [
     "AnalysisRunRecord",
+    "CodeChunkEmbeddingRecord",
     "CodeChunkRecord",
+    "CodeChunkSearchHit",
     "DocCatalogRecord",
     "DocPageRecord",
     "GraphCommunityRecord",
@@ -19,4 +23,3 @@ __all__ = [
     "SQLiteStore",
     "get_store",
 ]
-
