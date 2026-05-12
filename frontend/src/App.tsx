@@ -83,22 +83,24 @@ export function App() {
           onSelectedRepoChange={setSelectedRepoId}
           isActiveSection={activeSection === "graph"}
         />
-        <aside className="assistant-rail">
-          {activeSection === "wiki" ? (
-            <WikiPage
-              selectedRepoId={selectedRepoId}
-              onRepoChange={setSelectedRepoId}
-              isActiveSection
-            />
-          ) : null}
-          {activeSection !== "wiki" ? (
-            <AskPage
-              selectedRepoId={selectedRepoId}
-              onRepoChange={setSelectedRepoId}
-              isActiveSection={activeSection === "ask"}
-            />
-          ) : null}
-        </aside>
+        {activeSection !== "graph" ? (
+          <aside className="assistant-rail">
+            {activeSection === "wiki" ? (
+              <WikiPage
+                selectedRepoId={selectedRepoId}
+                onRepoChange={setSelectedRepoId}
+                isActiveSection
+              />
+            ) : null}
+            {activeSection === "ask" ? (
+              <AskPage
+                selectedRepoId={selectedRepoId}
+                onRepoChange={setSelectedRepoId}
+                isActiveSection={activeSection === "ask"}
+              />
+            ) : null}
+          </aside>
+        ) : null}
       </section>
     </main>
   );

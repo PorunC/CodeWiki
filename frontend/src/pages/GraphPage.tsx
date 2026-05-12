@@ -9,7 +9,6 @@ import {
 } from "../api/client";
 import { GraphFiltersPanel, type HiddenVisualNodeOption } from "../graph/GraphFiltersPanel";
 import { GraphFlowCanvas } from "../graph/GraphFlowCanvas";
-import { GraphHeader } from "../graph/GraphHeader";
 import { GraphToolbar } from "../graph/GraphToolbar";
 import { NodeDetails } from "../graph/NodeDetails";
 import { useVisualGraph } from "../graph/useVisualGraph";
@@ -51,7 +50,6 @@ export function GraphPage({
   const [highlightLabel, setHighlightLabel] = useState("Ask-related");
   const pendingRelatedNodeIdsRef = useRef<string[]>([]);
   const pendingSourceRefRef = useRef<SourceRefNavigationDetail | null>(null);
-  const [refreshNonce, setRefreshNonce] = useState(0);
 
   const applyRelatedNodeHighlight = useCallback((repoGraph: GraphResponse, nodeIds: string[]) => {
     const graphNodeIds = new Set(repoGraph.nodes.map((node) => node.id));
@@ -194,7 +192,7 @@ export function GraphPage({
     return () => {
       cancelled = true;
     };
-  }, [applyRelatedNodeHighlight, applySourceRefNavigation, refreshNonce, selectedRepoId]);
+  }, [applyRelatedNodeHighlight, applySourceRefNavigation, selectedRepoId]);
 
   const selectedRepo = useMemo(
     () => repos.find((repo) => repo.id === selectedRepoId) ?? null,
@@ -245,6 +243,74 @@ export function GraphPage({
     hiddenVisualIds,
     highlightedRawNodeIds
   });
+
+  const handleNavigateToNode = useCallback(
+    (nodeId: string, edgeType?: string) => {
+      if (!graph) {
+        return;
+      }
+      const targetNode = graph.nodes.find((candidate) => candidate.id === nodeId);
+      if (!targetNode) {
+        setError(`Node not found: ${nodeId}`);
+        return;
+      }
+
+      const targetFileId = targetNode.type === "file" ? targetNode.id : containment.fileByNode.get(targetNode.id) ?? null;
+      const showInFileDetail = Boolean(targetFileId && canShowInFileDetail(targetNode));
+      const nextVisualId = showInFileDetail
+        ? targetNode.type === "file"
+          ? `file-detail:${targetFileId}`
+          : targetNode.id
+        : targetNode.id;
+
+      setError(null);
+      setHighlightLabel("Reference");
+      setHighlightedRawNodeIds(new Set([targetNode.id]));
+      setSelectedNodeTypes((current) => {
+        const next = new Set(current);
+        next.add(targetNode.type);
+        if (targetFileId) {
+          next.add("file");
+        }
+        return next;
+      });
+      if (edgeType) {
+        setSelectedEdgeTypes((current) => new Set([...current, edgeType]));
+      }
+      setHiddenVisualIds((current) => {
+        const next = new Set(current);
+        const revealRawIds = new Set([targetNode.id]);
+        if (targetFileId) {
+          revealRawIds.add(targetFileId);
+        }
+
+        baseVisualGraph.nodes.forEach((visualNode) => {
+          const shouldReveal =
+            visualNode.id === targetNode.id ||
+            visualNode.id === targetFileId ||
+            visualNode.id === `file-detail:${targetFileId}` ||
+            visualNode.id === nextVisualId ||
+            visualNode.data.rawNodeIds.some((rawId) => revealRawIds.has(rawId));
+          if (shouldReveal) {
+            next.delete(visualNode.id);
+          }
+        });
+        next.delete(targetNode.id);
+        if (targetFileId) {
+          next.delete(targetFileId);
+          next.delete(`file-detail:${targetFileId}`);
+        }
+        next.delete(nextVisualId);
+        return next;
+      });
+      setSelectedFileId(targetFileId);
+      setSelectedNodeId(targetNode.id);
+      setFocusNodeId(targetNode.id);
+      setSelectedVisualId(nextVisualId);
+      setViewMode(showInFileDetail ? "file" : "focus");
+    },
+    [baseVisualGraph.nodes, containment.fileByNode, graph]
+  );
 
   const hiddenNodes = useMemo<HiddenVisualNodeOption[]>(() => {
     const nodeById = new Map(baseVisualGraph.nodes.map((node) => [node.id, node]));
@@ -460,12 +526,6 @@ export function GraphPage({
 
   return (
     <section id="graph" className={`graph-panel${isActiveSection ? " is-nav-target" : ""}`}>
-      <GraphHeader
-        selectedRepoId={selectedRepoId}
-        graphLoading={graphLoading}
-        onRefresh={() => setRefreshNonce((nonce) => nonce + 1)}
-      />
-
       <GraphToolbar
         repos={repos}
         selectedRepo={selectedRepo}
@@ -529,6 +589,7 @@ export function GraphPage({
           edges={selectedNodeEdges}
           graph={graph}
           containment={containment}
+          onNavigateToNode={handleNavigateToNode}
         />
       </div>
     </section>
@@ -676,4 +737,8 @@ function findOverviewVisualIdForRawNode(graph: GraphResponse, rawNodeId: string)
     currentId = parentByChild.get(currentId);
   }
   return rawNodeId;
+}
+
+function canShowInFileDetail(node: CodeNode): boolean {
+  return node.type === "file" || node.type === "class" || node.type === "function" || node.type === "method";
 }
