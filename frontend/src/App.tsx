@@ -1,12 +1,35 @@
 import { BookOpenText, GitBranch, MessageCircleQuestion, Network } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState, type MouseEvent } from "react";
 
 import { AskPage } from "./pages/AskPage";
 import { GraphPage } from "./pages/GraphPage";
 import { WikiPage } from "./pages/WikiPage";
 
+type WorkspaceSection = "graph" | "wiki" | "ask";
+
 export function App() {
   const [selectedRepoId, setSelectedRepoId] = useState("");
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>(() => sectionFromHash());
+
+  useEffect(() => {
+    const syncSectionFromUrl = () => setActiveSection(sectionFromHash());
+
+    window.addEventListener("hashchange", syncSectionFromUrl);
+    window.addEventListener("popstate", syncSectionFromUrl);
+    return () => {
+      window.removeEventListener("hashchange", syncSectionFromUrl);
+      window.removeEventListener("popstate", syncSectionFromUrl);
+    };
+  }, []);
+
+  const navigateToSection = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>, sectionId: WorkspaceSection) => {
+      event.preventDefault();
+      setActiveSection(sectionId);
+      window.history.pushState(null, "", `#${sectionId}`);
+    },
+    []
+  );
 
   return (
     <main className="app-shell noise-overlay">
@@ -22,15 +45,27 @@ export function App() {
         </div>
 
         <nav className="top-nav" aria-label="Workspace">
-          <a href="#graph">
+          <a
+            className={activeSection === "graph" ? "is-active" : undefined}
+            href="#graph"
+            onClick={(event) => navigateToSection(event, "graph")}
+          >
             <GitBranch size={15} />
             Graph
           </a>
-          <a href="#wiki">
+          <a
+            className={activeSection === "wiki" ? "is-active" : undefined}
+            href="#wiki"
+            onClick={(event) => navigateToSection(event, "wiki")}
+          >
             <BookOpenText size={15} />
             Wiki
           </a>
-          <a href="#ask">
+          <a
+            className={activeSection === "ask" ? "is-active" : undefined}
+            href="#ask"
+            onClick={(event) => navigateToSection(event, "ask")}
+          >
             <MessageCircleQuestion size={15} />
             Ask
           </a>
@@ -42,13 +77,34 @@ export function App() {
         </div>
       </header>
 
-      <section className="workspace">
-        <GraphPage selectedRepoId={selectedRepoId} onSelectedRepoChange={setSelectedRepoId} />
+      <section className={`workspace is-section-${activeSection}`}>
+        <GraphPage
+          selectedRepoId={selectedRepoId}
+          onSelectedRepoChange={setSelectedRepoId}
+          isActiveSection={activeSection === "graph"}
+        />
         <aside className="assistant-rail">
-          <WikiPage />
-          <AskPage selectedRepoId={selectedRepoId} onRepoChange={setSelectedRepoId} />
+          {activeSection === "wiki" ? (
+            <WikiPage
+              selectedRepoId={selectedRepoId}
+              onRepoChange={setSelectedRepoId}
+              isActiveSection
+            />
+          ) : null}
+          {activeSection !== "wiki" ? (
+            <AskPage
+              selectedRepoId={selectedRepoId}
+              onRepoChange={setSelectedRepoId}
+              isActiveSection={activeSection === "ask"}
+            />
+          ) : null}
         </aside>
       </section>
     </main>
   );
+}
+
+function sectionFromHash(): WorkspaceSection {
+  const hash = window.location.hash.replace("#", "");
+  return hash === "wiki" || hash === "ask" || hash === "graph" ? hash : "graph";
 }

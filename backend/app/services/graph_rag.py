@@ -29,8 +29,8 @@ EDGE_WEIGHTS = {
 MAX_SEED_NODES = 12
 MAX_EXPANDED_NODES = 60
 MAX_RELATED_EDGES = 140
-MAX_SOURCE_CHUNKS = 20
-MAX_CONTEXT_TOKENS = 8000
+DEFAULT_MAX_SOURCE_CHUNKS = 20
+DEFAULT_CONTEXT_TOKENS = 8000
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
 
 
@@ -321,7 +321,11 @@ class GraphRAGRetriever:
         fts_query = _fts_query(query)
         if not fts_query:
             return []
-        return self.store.search_code_chunks_fts(repo_id, fts_query, limit=MAX_SOURCE_CHUNKS)
+        return self.store.search_code_chunks_fts(
+            repo_id,
+            fts_query,
+            limit=self._max_source_chunks(),
+        )
 
     async def _search_vectors(
         self,
@@ -340,7 +344,7 @@ class GraphRAGRetriever:
             repo_id,
             model=model,
             query_embedding=vectors[0],
-            limit=MAX_SOURCE_CHUNKS,
+                limit=self._max_source_chunks(),
         )
 
     def _merge_chunk_hits_into_seeds(
@@ -490,9 +494,9 @@ class GraphRAGRetriever:
         packed: list[_ChunkHit] = []
         token_total = 0
         for hit in selected_chunks:
-            if len(packed) >= MAX_SOURCE_CHUNKS:
+            if len(packed) >= self._max_source_chunks():
                 break
-            if packed and token_total + hit.chunk.token_count > MAX_CONTEXT_TOKENS:
+            if packed and token_total + hit.chunk.token_count > self._context_token_budget():
                 continue
             packed.append(hit)
             token_total += hit.chunk.token_count
@@ -623,6 +627,12 @@ class GraphRAGRetriever:
         if self.llm is None:
             self.llm = LLMGateway(self.settings)
         return self.llm
+
+    def _max_source_chunks(self) -> int:
+        return max(1, self.settings.graphrag_max_source_chunks or DEFAULT_MAX_SOURCE_CHUNKS)
+
+    def _context_token_budget(self) -> int:
+        return max(1, self.settings.graphrag_context_token_budget or DEFAULT_CONTEXT_TOKENS)
 
 
 def _node_haystack(node: CodeGraphNode) -> str:

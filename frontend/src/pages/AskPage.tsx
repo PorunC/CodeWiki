@@ -11,10 +11,12 @@ import {
 
 export function AskPage({
   selectedRepoId,
-  onRepoChange
+  onRepoChange,
+  isActiveSection
 }: {
   selectedRepoId: string;
   onRepoChange: (repoId: string) => void;
+  isActiveSection: boolean;
 }) {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [question, setQuestion] = useState("");
@@ -85,7 +87,7 @@ export function AskPage({
   };
 
   return (
-    <section id="ask" className="side-panel ask-panel">
+    <section id="ask" className={`side-panel ask-panel${isActiveSection ? " is-nav-target" : ""}`}>
       <header>
         <span className="eyebrow">Ask</span>
         <h2>GraphRAG</h2>

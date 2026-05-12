@@ -20,12 +20,15 @@ class Settings(BaseSettings):
     litellm_proxy_base_url: str | None = None
     llm_default_model: str = "provider/strong-coding-model"
     llm_embedding_model: str = "provider/embedding-model"
+    llm_api_key: str | None = None
     llm_timeout_seconds: int = 120
     llm_max_retries: int = 3
     llm_cache_enabled: bool = True
+
+    graphrag_context_token_budget: int = 8000
+    graphrag_max_source_chunks: int = 20
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

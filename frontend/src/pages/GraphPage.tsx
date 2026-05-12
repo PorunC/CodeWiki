@@ -25,10 +25,12 @@ import {
 
 export function GraphPage({
   selectedRepoId,
-  onSelectedRepoChange
+  onSelectedRepoChange,
+  isActiveSection
 }: {
   selectedRepoId: string;
   onSelectedRepoChange: (repoId: string) => void;
+  isActiveSection: boolean;
 }) {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [graph, setGraph] = useState<GraphResponse | null>(null);
@@ -398,7 +400,7 @@ export function GraphPage({
   )}:${showInferredCalls}`;
 
   return (
-    <section id="graph" className="graph-panel">
+    <section id="graph" className={`graph-panel${isActiveSection ? " is-nav-target" : ""}`}>
       <GraphHeader
         selectedRepoId={selectedRepoId}
         graphLoading={graphLoading}

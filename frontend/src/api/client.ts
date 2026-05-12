@@ -49,6 +49,43 @@ export type AskResponse = {
   trace_id: string;
 };
 
+export type WikiCatalogItem = {
+  title: string;
+  slug: string;
+  topic?: string;
+  children?: WikiCatalogItem[];
+};
+
+export type WikiCatalog = {
+  id: string;
+  repo_id: string;
+  title: string;
+  structure: {
+    items: WikiCatalogItem[];
+  };
+  generated_at: string | null;
+};
+
+export type WikiPageRecord = {
+  id: string;
+  repo_id: string;
+  slug: string;
+  title: string;
+  parent_slug: string | null;
+  markdown: string;
+  source_refs: SourceRef[];
+  graph_refs: string[];
+  status: string;
+  updated_at: string | null;
+};
+
+export type WikiResponse = {
+  repo_id: string;
+  catalog: WikiCatalog | null;
+  items: WikiCatalogItem[];
+  pages: WikiPageRecord[];
+};
+
 export async function getHealth(): Promise<{ status: string }> {
   const response = await fetch(`${API_BASE}/health`);
   return readJson(response, "Health check");
@@ -79,6 +116,11 @@ export async function askRepo(repoId: string, question: string): Promise<AskResp
     })
   });
   return readJson(response, "Ask");
+}
+
+export async function getRepoWiki(repoId: string): Promise<WikiResponse> {
+  const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki`);
+  return readJson(response, "Repository wiki");
 }
 
 async function readJson<T>(response: Response, label: string): Promise<T> {

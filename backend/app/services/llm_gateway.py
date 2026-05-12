@@ -50,6 +50,8 @@ class LLMGateway:
             kwargs["response_format"] = {"type": response_format}
         if self.settings.llm_mode == "proxy" and self.settings.litellm_proxy_base_url:
             kwargs["api_base"] = self.settings.litellm_proxy_base_url
+        if self.settings.llm_api_key:
+            kwargs["api_key"] = self.settings.llm_api_key
 
         response = await acompletion(**kwargs)
         choice = response.choices[0]
@@ -76,6 +78,8 @@ class LLMGateway:
         }
         if self.settings.llm_mode == "proxy" and self.settings.litellm_proxy_base_url:
             kwargs["api_base"] = self.settings.litellm_proxy_base_url
+        if self.settings.llm_api_key:
+            kwargs["api_key"] = self.settings.llm_api_key
         response = await acompletion(**kwargs)
         async for chunk in response:
             delta = chunk.choices[0].delta
@@ -90,6 +94,8 @@ class LLMGateway:
         kwargs: dict[str, Any] = {"model": profile.model, "input": texts}
         if self.settings.llm_mode == "proxy" and self.settings.litellm_proxy_base_url:
             kwargs["api_base"] = self.settings.litellm_proxy_base_url
+        if self.settings.llm_api_key:
+            kwargs["api_key"] = self.settings.llm_api_key
         response = await aembedding(**kwargs)
         return [
             item["embedding"] if isinstance(item, dict) else item.embedding
