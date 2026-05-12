@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import {
+  type CodeNode,
   getRepoGraph,
   getRepos,
   type GraphResponse,
@@ -47,12 +48,15 @@ export function GraphPage({
   const [showInferredCalls, setShowInferredCalls] = useState(true);
   const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
   const [highlightedRawNodeIds, setHighlightedRawNodeIds] = useState<Set<string>>(new Set());
+  const [highlightLabel, setHighlightLabel] = useState("Ask-related");
   const pendingRelatedNodeIdsRef = useRef<string[]>([]);
+  const pendingSourceRefRef = useRef<SourceRefNavigationDetail | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const applyRelatedNodeHighlight = useCallback((repoGraph: GraphResponse, nodeIds: string[]) => {
     const graphNodeIds = new Set(repoGraph.nodes.map((node) => node.id));
     const validNodeIds = nodeIds.filter((nodeId) => graphNodeIds.has(nodeId));
+    setHighlightLabel("Ask-related");
     setHighlightedRawNodeIds(new Set(validNodeIds));
     if (validNodeIds.length === 0) {
       return;
@@ -67,6 +71,34 @@ export function GraphPage({
     setSelectedFileId(firstNode?.type === "file" ? firstNode.id : visualNode?.type === "file" ? visualNode.id : null);
     setFocusNodeId(firstNodeId);
     setViewMode("overview");
+  }, []);
+
+  const applySourceRefNavigation = useCallback((repoGraph: GraphResponse, detail: SourceRefNavigationDetail) => {
+    const match = findBestNodeForSourceRef(repoGraph, detail);
+    if (!match) {
+      setHighlightLabel("Wiki source");
+      setHighlightedRawNodeIds(new Set());
+      setError(`No graph node matched ${detail.filePath}`);
+      return;
+    }
+
+    const { fileNode, targetNode } = match;
+    setError(null);
+    setHighlightLabel("Wiki source");
+    setHighlightedRawNodeIds(new Set([targetNode.id]));
+    setSelectedNodeTypes((current) => new Set([...current, "file", targetNode.type]));
+    setHiddenVisualIds((current) => {
+      const next = new Set(current);
+      next.delete(fileNode.id);
+      next.delete(`file-detail:${fileNode.id}`);
+      next.delete(targetNode.id);
+      return next;
+    });
+    setSelectedFileId(fileNode.id);
+    setSelectedNodeId(targetNode.id);
+    setSelectedVisualId(targetNode.type === "file" ? `file-detail:${fileNode.id}` : targetNode.id);
+    setFocusNodeId(targetNode.id);
+    setViewMode("file");
   }, []);
 
   useEffect(() => {
@@ -134,6 +166,9 @@ export function GraphPage({
         if (pendingRelatedNodeIdsRef.current.length > 0) {
           applyRelatedNodeHighlight(repoGraph, pendingRelatedNodeIdsRef.current);
           pendingRelatedNodeIdsRef.current = [];
+        } else if (pendingSourceRefRef.current) {
+          applySourceRefNavigation(repoGraph, pendingSourceRefRef.current);
+          pendingSourceRefRef.current = null;
         } else {
           setHighlightedRawNodeIds(new Set());
         }
@@ -159,7 +194,7 @@ export function GraphPage({
     return () => {
       cancelled = true;
     };
-  }, [applyRelatedNodeHighlight, refreshNonce, selectedRepoId]);
+  }, [applyRelatedNodeHighlight, applySourceRefNavigation, refreshNonce, selectedRepoId]);
 
   const selectedRepo = useMemo(
     () => repos.find((repo) => repo.id === selectedRepoId) ?? null,
@@ -340,6 +375,30 @@ export function GraphPage({
     return () => window.removeEventListener("codewiki:highlight-related-nodes", handleHighlightRelatedNodes);
   }, [applyRelatedNodeHighlight, graph, onSelectedRepoChange, selectedRepoId]);
 
+  useEffect(() => {
+    const handleOpenSourceRef = (event: Event) => {
+      const detail = normalizeSourceRefDetail(
+        (event as CustomEvent<Partial<SourceRefNavigationDetail>>).detail
+      );
+      if (!detail) {
+        return;
+      }
+      if (detail.repoId && detail.repoId !== selectedRepoId) {
+        pendingSourceRefRef.current = detail;
+        onSelectedRepoChange(detail.repoId);
+        return;
+      }
+      if (!graph) {
+        pendingSourceRefRef.current = detail;
+        return;
+      }
+      applySourceRefNavigation(graph, detail);
+    };
+
+    window.addEventListener("codewiki:open-source-ref", handleOpenSourceRef);
+    return () => window.removeEventListener("codewiki:open-source-ref", handleOpenSourceRef);
+  }, [applySourceRefNavigation, graph, onSelectedRepoChange, selectedRepoId]);
+
   const handleNodeClick = useCallback(
     (_: MouseEvent, node: FlowNode) => {
       const data = node.data;
@@ -423,7 +482,10 @@ export function GraphPage({
       {error ? <div className="state-banner error-banner">{error}</div> : null}
       {highlightedRawNodeIds.size > 0 ? (
         <div className="state-banner ask-highlight-banner">
-          <span>{highlightedRawNodeIds.size} Ask-related nodes highlighted.</span>
+          <span>
+            {highlightedRawNodeIds.size} {highlightLabel} node
+            {highlightedRawNodeIds.size === 1 ? "" : "s"} highlighted.
+          </span>
           <button type="button" onClick={() => setHighlightedRawNodeIds(new Set())}>
             Clear
           </button>
@@ -471,6 +533,120 @@ export function GraphPage({
       </div>
     </section>
   );
+}
+
+type SourceRefNavigationDetail = {
+  repoId?: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+};
+
+function normalizeSourceRefDetail(
+  detail: Partial<SourceRefNavigationDetail> | undefined
+): SourceRefNavigationDetail | null {
+  if (!detail?.filePath) {
+    return null;
+  }
+  const startLine = Number.isFinite(detail.startLine) ? Number(detail.startLine) : 1;
+  const endLine = Number.isFinite(detail.endLine) ? Number(detail.endLine) : startLine;
+  return {
+    repoId: detail.repoId,
+    filePath: detail.filePath,
+    startLine: Math.max(1, Math.min(startLine, endLine)),
+    endLine: Math.max(1, Math.max(startLine, endLine))
+  };
+}
+
+function findBestNodeForSourceRef(
+  graph: GraphResponse,
+  detail: SourceRefNavigationDetail
+): { fileNode: CodeNode; targetNode: CodeNode } | null {
+  const fileNode = graph.nodes
+    .filter((node) => node.type === "file")
+    .find((node) => pathsMatch(node.file_path ?? node.name, detail.filePath));
+  if (!fileNode) {
+    return null;
+  }
+
+  const sourceSpan = detail.endLine - detail.startLine + 1;
+  const symbols = graph.nodes
+    .filter((node) => node.id !== fileNode.id)
+    .filter((node) => pathsMatch(node.file_path, detail.filePath))
+    .filter((node) => node.start_line != null)
+    .map((node) => ({
+      node,
+      start: node.start_line ?? 1,
+      end: node.end_line ?? node.start_line ?? 1
+    }));
+
+  const containing = symbols
+    .filter(({ start, end }) => start <= detail.startLine && end >= detail.endLine)
+    .sort(compareSourceCandidates);
+  if (containing[0]) {
+    return { fileNode, targetNode: containing[0].node };
+  }
+
+  if (sourceSpan <= 80) {
+    const overlapping = symbols
+      .map((candidate) => ({
+        ...candidate,
+        overlap: overlapScore(candidate, detail),
+        sourceCoverage: overlapScore(candidate, detail) / sourceSpan,
+        nodeCoverage: overlapScore(candidate, detail) / Math.max(1, candidate.end - candidate.start + 1)
+      }))
+      .filter((candidate) => candidate.overlap >= 3)
+      .filter((candidate) => candidate.sourceCoverage >= 0.5 || candidate.nodeCoverage >= 0.75)
+      .sort(compareOverlapCandidates);
+    if (overlapping[0]) {
+      return { fileNode, targetNode: overlapping[0].node };
+    }
+  }
+
+  return { fileNode, targetNode: fileNode };
+}
+
+function compareSourceCandidates(
+  left: { start: number; end: number },
+  right: { start: number; end: number }
+): number {
+  const leftSpan = left.end - left.start;
+  const rightSpan = right.end - right.start;
+  return leftSpan - rightSpan || left.start - right.start;
+}
+
+function overlapScore(
+  candidate: { start: number; end: number },
+  detail: SourceRefNavigationDetail
+): number {
+  const overlapStart = Math.max(candidate.start, detail.startLine);
+  const overlapEnd = Math.min(candidate.end, detail.endLine);
+  return Math.max(0, overlapEnd - overlapStart + 1);
+}
+
+function compareOverlapCandidates(
+  left: { start: number; end: number; overlap: number; sourceCoverage: number; nodeCoverage: number },
+  right: { start: number; end: number; overlap: number; sourceCoverage: number; nodeCoverage: number }
+): number {
+  return (
+    right.sourceCoverage - left.sourceCoverage ||
+    right.nodeCoverage - left.nodeCoverage ||
+    right.overlap - left.overlap ||
+    compareSourceCandidates(left, right)
+  );
+}
+
+function pathsMatch(nodePath: string | null | undefined, sourcePath: string): boolean {
+  if (!nodePath) {
+    return false;
+  }
+  const left = normalizePath(nodePath);
+  const right = normalizePath(sourcePath);
+  return left === right || left.endsWith(`/${right}`) || right.endsWith(`/${left}`);
+}
+
+function normalizePath(path: string): string {
+  return path.replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/+/g, "/");
 }
 
 function findOverviewVisualIdForRawNode(graph: GraphResponse, rawNodeId: string): string | null {

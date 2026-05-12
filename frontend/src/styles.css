@@ -1628,17 +1628,26 @@ select:disabled {
   text-transform: uppercase;
 }
 
-.wiki-source-list span {
+.wiki-source-list button {
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.24);
   border-radius: 999px;
   color: #9cc2db;
+  cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
   font-weight: 800;
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 5px 8px;
+}
+
+.wiki-source-list button:hover,
+.wiki-source-list button:focus-visible {
+  background: rgba(74, 124, 155, 0.18);
+  border-color: rgba(74, 124, 155, 0.38);
+  color: #c4ddf0;
+  outline: none;
 }
 
 .workspace.is-section-wiki .wiki-panel {

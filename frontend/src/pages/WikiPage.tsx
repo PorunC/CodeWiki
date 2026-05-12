@@ -6,12 +6,23 @@ import {
   getRepos,
   getRepoWiki,
   type RepoSummary,
+  type SourceRef,
   type WikiCatalogItem,
   type WikiPageRecord,
   type WikiResponse
 } from "../api/client";
 
 const markdownComponents: Components = {
+  a({ href, children, ...props }) {
+    if (href === "source-link") {
+      return <>{children}</>;
+    }
+    return (
+      <a href={href} {...props}>
+        {children}
+      </a>
+    );
+  },
   code({ className, children, ...props }) {
     const language = /language-(\w+)/.exec(className ?? "")?.[1];
     const code = String(children).replace(/\n$/, "");
@@ -249,6 +260,8 @@ function CatalogItems({
 }
 
 function WikiArticle({ page }: { page: WikiPageRecord }) {
+  const markdown = useMemo(() => stripMarkdownSourcesSection(page.markdown), [page.markdown]);
+
   return (
     <article className="wiki-article">
       <div className="wiki-article-meta">
@@ -260,7 +273,7 @@ function WikiArticle({ page }: { page: WikiPageRecord }) {
       </div>
 
       <div className="wiki-markdown">
-        <ReactMarkdown components={markdownComponents}>{page.markdown}</ReactMarkdown>
+        <ReactMarkdown components={markdownComponents}>{markdown}</ReactMarkdown>
       </div>
 
       {page.source_refs.length > 0 ? (
@@ -270,9 +283,14 @@ function WikiArticle({ page }: { page: WikiPageRecord }) {
             Sources
           </h3>
           {page.source_refs.slice(0, 12).map((source) => (
-            <span key={`${source.file_path}:${source.start_line}:${source.end_line}`}>
-              {source.file_path}:L{source.start_line}-L{source.end_line}
-            </span>
+            <button
+              key={`${source.file_path}:${source.start_line}:${source.end_line}`}
+              type="button"
+              title="Open source in graph"
+              onClick={() => openSourceInGraph(page.repo_id, source)}
+            >
+              {formatSourceRef(source)}
+            </button>
           ))}
         </div>
       ) : null}
@@ -357,4 +375,46 @@ function hashString(value: string): string {
     hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
   }
   return hash.toString(36);
+}
+
+function stripMarkdownSourcesSection(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  let inFence = false;
+  let sourcesHeadingIndex = -1;
+
+  lines.forEach((line, index) => {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      return;
+    }
+    if (!inFence && /^#{2,6}\s+Sources\s*$/i.test(line.trim())) {
+      sourcesHeadingIndex = index;
+    }
+  });
+
+  if (sourcesHeadingIndex < 0) {
+    return markdown;
+  }
+
+  return lines.slice(0, sourcesHeadingIndex).join("\n").trimEnd();
+}
+
+function formatSourceRef(source: SourceRef): string {
+  return `${source.file_path}:L${source.start_line}-L${source.end_line}`;
+}
+
+function openSourceInGraph(repoId: string, source: SourceRef) {
+  window.dispatchEvent(
+    new CustomEvent("codewiki:open-source-ref", {
+      detail: {
+        repoId,
+        filePath: source.file_path,
+        startLine: source.start_line,
+        endLine: source.end_line
+      }
+    })
+  );
+  if (window.location.hash !== "#graph") {
+    window.location.hash = "graph";
+  }
 }
