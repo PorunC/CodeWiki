@@ -643,10 +643,14 @@ def _node_haystack(node: CodeGraphNode) -> str:
         node.symbol_id or "",
         node.language or "",
     ]
-    for key in ("signature", "docstring", "route_method", "route_path"):
+    for key in ("signature", "docstring", "route_method", "route_path", "handler"):
         value = node.metadata.get(key)
         if isinstance(value, str):
             values.append(value)
+    for key in ("fields", "bases", "decorators", "exports", "calls"):
+        value = node.metadata.get(key)
+        if isinstance(value, list):
+            values.extend(str(item) for item in value if item is not None)
     return " ".join(values).lower()
 
 

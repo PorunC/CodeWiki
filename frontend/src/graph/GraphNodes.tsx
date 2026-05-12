@@ -8,6 +8,7 @@ import {
   type CodeVisualData,
   type ContainerVisualData
 } from "./graphModel";
+import { dispatchHideVisualNode, dispatchOpenFileDetail } from "./navigationEvents";
 
 export const flowNodeTypes: NodeTypes = {
   code: memo(CodeFlowNode),
@@ -37,20 +38,12 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
       return;
     }
     event.stopPropagation();
-    window.dispatchEvent(
-      new CustomEvent("codewiki:open-file-detail", {
-        detail: { fileId: data.fileId }
-      })
-    );
+    dispatchOpenFileDetail(data.fileId);
   };
 
   const handleHideClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    window.dispatchEvent(
-      new CustomEvent("codewiki:hide-visual-node", {
-        detail: { nodeId: id }
-      })
-    );
+    dispatchHideVisualNode(id);
   };
 
   return (
@@ -120,11 +113,7 @@ function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<Container
 
   const handleHideClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    window.dispatchEvent(
-      new CustomEvent("codewiki:hide-visual-node", {
-        detail: { nodeId: id }
-      })
-    );
+    dispatchHideVisualNode(id);
   };
 
   return (

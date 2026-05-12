@@ -109,7 +109,8 @@ class WikiGenerator:
         slug = _slugify(str(item.get("slug") or title))
         topic = str(item.get("topic") or title)
         trace = await self.retriever.retrieve(repo_id, topic, max_hops=2)
-        graph_markdown, graph_refs = _mermaid_from_trace(trace)
+        graph_markdown = _mermaid_from_trace(trace)
+        graph_refs = _graph_refs_from_trace(trace)
         allowed_source_refs = _source_refs_from_chunks(trace.source_chunks)
         prompt = _load_prompt("page.md")
         user_payload = {
@@ -119,6 +120,11 @@ class WikiGenerator:
             "context_pack": trace.context_pack,
             "source_chunks": trace.source_chunks,
             "allowed_source_refs": allowed_source_refs,
+            "graph_facts": {
+                "seed_nodes": trace.seed_nodes,
+                "expanded_nodes": trace.expanded_nodes,
+                "related_edges": trace.related_edges,
+            },
             "graph_edges_for_mermaid": [
                 edge
                 for edge in trace.related_edges
@@ -460,7 +466,21 @@ def _draft_markdown(title: str, errors: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _mermaid_from_trace(trace: RetrievalTrace) -> tuple[str, set[str]]:
+def _graph_refs_from_trace(trace: RetrievalTrace) -> set[str]:
+    refs: set[str] = set()
+    for node in [*trace.seed_nodes, *trace.expanded_nodes]:
+        node_id = node.get("id")
+        if isinstance(node_id, str) and node_id:
+            refs.add(node_id)
+    for edge in trace.related_edges:
+        for key in ("id", "source_id", "target_id", "source", "target"):
+            value = edge.get(key)
+            if isinstance(value, str) and value:
+                refs.add(value)
+    return refs
+
+
+def _mermaid_from_trace(trace: RetrievalTrace) -> str:
     nodes = {
         str(node["id"]): node
         for node in [*trace.seed_nodes, *trace.expanded_nodes]
@@ -474,11 +494,10 @@ def _mermaid_from_trace(trace: RetrievalTrace) -> tuple[str, set[str]]:
         and edge.get("target_id") in nodes
     ][:MAX_MERMAID_EDGES]
     if not edges:
-        return "", set()
+        return ""
 
     node_aliases: dict[str, str] = {}
     lines = ["## Graph", "", "```mermaid", "flowchart TD"]
-    graph_refs: set[str] = set()
     for edge in edges:
         source_id = str(edge["source_id"])
         target_id = str(edge["target_id"])
@@ -488,9 +507,8 @@ def _mermaid_from_trace(trace: RetrievalTrace) -> tuple[str, set[str]]:
         target_label = _mermaid_label(nodes[target_id])
         edge_type = _mermaid_text(str(edge["type"]))
         lines.append(f'  {source_alias}["{source_label}"] -->|{edge_type}| {target_alias}["{target_label}"]')
-        graph_refs.update({str(edge["id"]), source_id, target_id})
     lines.append("```")
-    return "\n".join(lines), graph_refs
+    return "\n".join(lines)
 
 
 def _mermaid_label(node: dict[str, object]) -> str:

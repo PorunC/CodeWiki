@@ -30,6 +30,7 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
                 ]
             ),
             "source_refs": [{"file_path": "api.py", "start_line": 3, "end_line": 4}],
+            "graph_refs": ["llm-invented-node", "llm-invented-edge"],
         }
     )
     generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
@@ -46,6 +47,9 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     assert "-->|calls|" in page.markdown
     assert "[api.py:L3-L4](source-link)" in page.markdown
     assert page.graph_refs
+    assert "llm-invented-node" not in page.graph_refs
+    assert any(":edge:" in graph_ref for graph_ref in page.graph_refs)
+    assert any(graph_ref.endswith("api.py::handler") for graph_ref in page.graph_refs)
     assert store.get_latest_doc_catalog(repo.id) is not None
     assert store.get_doc_page(repo.id, "request-handler") == page
     assert store.list_llm_runs(repo.id, task_type="catalog")

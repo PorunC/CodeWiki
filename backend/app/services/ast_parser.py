@@ -301,6 +301,8 @@ class _TreeSitterEcmaParser:
         symbols: list[AstSymbol] = []
         for node in root.named_children:
             exported = node.type == "export_statement"
+            if exported:
+                exported_names.update(_exported_names_from_statement(node, source))
             declaration = node.child_by_field_name("declaration") if exported else node
             if declaration is None and exported:
                 declaration = _first_named_child(node)
@@ -505,13 +507,17 @@ class _TreeSitterEcmaParser:
 
     def _imports(self, root, source: bytes) -> list[str]:
         imports: set[str] = set()
-        for node in _descendants_of_type(root, {"import_statement"}):
-            string_node = _first_descendant_of_type(node, {"string"})
+        for node in _descendants_of_type(root, {"import_statement", "export_statement"}):
+            string_node = node.child_by_field_name("source")
+            if string_node is None and node.type == "import_statement":
+                string_node = _first_descendant_of_type(node, {"string"})
+            if string_node is None and node.type == "export_statement" and " from " in _node_text(node, source):
+                string_node = _first_descendant_of_type(node, {"string"})
             if string_node is not None:
                 imports.add(_strip_quotes(_node_text(string_node, source)))
         for node in _descendants_of_type(root, {"call_expression"}):
             function_node = node.child_by_field_name("function")
-            if function_node is None or _node_text(function_node, source) != "require":
+            if function_node is None or _node_text(function_node, source) not in {"require", "import"}:
                 continue
             arguments = node.child_by_field_name("arguments")
             string_node = _first_descendant_of_type(arguments, {"string"}) if arguments else None
@@ -643,6 +649,25 @@ def _schema_fields(node, source: bytes) -> list[str]:
     return fields
 
 
+def _exported_names_from_statement(node, source: bytes) -> set[str]:
+    names: set[str] = set()
+    for specifier in _descendants_of_type(node, {"export_specifier"}):
+        alias = _field_text(specifier, "alias", source)
+        name = _field_text(specifier, "name", source)
+        exported_name = alias or name
+        if exported_name:
+            names.add(exported_name)
+            continue
+        identifiers = [
+            _node_text(child, source)
+            for child in specifier.named_children
+            if child.type in {"identifier", "type_identifier"}
+        ]
+        if identifiers:
+            names.add(identifiers[-1])
+    return names
+
+
 def _route_call(node, source: bytes) -> dict[str, str] | None:
     function_node = node.child_by_field_name("function")
     if function_node is None or function_node.type != "member_expression":
@@ -661,8 +686,18 @@ def _route_call(node, source: bytes) -> dict[str, str] | None:
     args = [child for child in arguments.named_children]
     if not args or args[0].type != "string":
         return None
-    handler = _node_text(args[1], source) if len(args) > 1 and args[1].type == "identifier" else ""
+    handler = _route_handler_name(args[1], source) if len(args) > 1 else ""
     return {"object": route_object, "method": method.upper(), "path": _strip_quotes(_node_text(args[0], source)), "handler": handler}
+
+
+def _route_handler_name(node, source: bytes) -> str:
+    if node.type == "identifier":
+        return _node_text(node, source)
+    if node.type == "member_expression":
+        property_node = node.child_by_field_name("property")
+        if property_node is not None:
+            return _node_text(property_node, source)
+    return ""
 
 
 def _descendants_of_type(node, types: set[str]):

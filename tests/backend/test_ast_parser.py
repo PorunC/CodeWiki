@@ -49,6 +49,8 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
                 "}",
                 "const parseConfig = (input: string) => JSON.parse(input);",
                 "router.get('/users/:id', loadConfig);",
+                "export { parseConfig as parse } from './parse';",
+                "router.post('/teams/:id', controller.getTeam);",
             ]
         )
         + "\n"
@@ -57,8 +59,8 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
     symbols = AstParser().parse_file(source, repo_root=tmp_path)
     by_id = {symbol.id: symbol for symbol in symbols}
 
-    assert by_id["file:app.ts"].imports == ["node:fs/promises"]
-    assert by_id["file:app.ts"].exports == ["Loader", "Status", "UserDto", "loadConfig"]
+    assert by_id["file:app.ts"].imports == ["./parse", "node:fs/promises"]
+    assert by_id["file:app.ts"].exports == ["Loader", "Status", "UserDto", "loadConfig", "parse"]
     assert by_id["app.ts::UserDto"].type == "schema"
     assert by_id["app.ts::UserDto"].metadata["schema_kind"] == "interface"
     assert by_id["app.ts::Status"].type == "schema"
@@ -69,6 +71,9 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
     endpoint = by_id["app.ts::endpoint:GET:/users/:id:9"]
     assert endpoint.type == "endpoint"
     assert endpoint.metadata["route_path"] == "/users/:id"
+    member_endpoint = by_id["app.ts::endpoint:POST:/teams/:id:11"]
+    assert member_endpoint.metadata["handler"] == "getTeam"
+    assert member_endpoint.calls == ["getTeam"]
 
 
 def test_registry_reports_supported_languages() -> None:

@@ -8,6 +8,7 @@ import {
   type RepoSummary,
   type SourceRef
 } from "../api/client";
+import { dispatchHighlightRelatedNodes } from "../graph/navigationEvents";
 
 export function AskPage({
   selectedRepoId,
@@ -184,9 +185,5 @@ function highlightRelatedNodes(repoId: string, response: AskResponse) {
   const nodeIds = response.related_nodes
     .map((node) => node.id)
     .filter((nodeId): nodeId is string => typeof nodeId === "string");
-  window.dispatchEvent(
-    new CustomEvent("codewiki:highlight-related-nodes", {
-      detail: { repoId, nodeIds }
-    })
-  );
+  dispatchHighlightRelatedNodes({ repoId, nodeIds });
 }

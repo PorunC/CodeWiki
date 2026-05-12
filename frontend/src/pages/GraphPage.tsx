@@ -22,6 +22,13 @@ import {
   type FlowNode,
   type GraphViewMode
 } from "../graph/graphModel";
+import {
+  onHideVisualNode,
+  onHighlightRelatedNodes,
+  onOpenFileDetail,
+  onOpenSourceRef,
+  type SourceRefNavigationDetail
+} from "../graph/navigationEvents";
 
 export function GraphPage({
   selectedRepoId,
@@ -390,20 +397,17 @@ export function GraphPage({
   }, []);
 
   useEffect(() => {
-    const handleOpenFileDetail = (event: Event) => {
-      const fileId = (event as CustomEvent<{ fileId?: string }>).detail?.fileId;
+    return onOpenFileDetail((detail) => {
+      const fileId = detail?.fileId;
       if (fileId) {
         openFileDetail(fileId);
       }
-    };
-
-    window.addEventListener("codewiki:open-file-detail", handleOpenFileDetail);
-    return () => window.removeEventListener("codewiki:open-file-detail", handleOpenFileDetail);
+    });
   }, [openFileDetail]);
 
   useEffect(() => {
-    const handleHideNode = (event: Event) => {
-      const nodeId = (event as CustomEvent<{ nodeId?: string }>).detail?.nodeId;
+    return onHideVisualNode((detail) => {
+      const nodeId = detail?.nodeId;
       if (!nodeId) {
         return;
       }
@@ -414,15 +418,11 @@ export function GraphPage({
       });
       setSelectedVisualId((current) => (current === nodeId ? null : current));
       setSelectedNodeId((current) => (current === nodeId ? null : current));
-    };
-
-    window.addEventListener("codewiki:hide-visual-node", handleHideNode);
-    return () => window.removeEventListener("codewiki:hide-visual-node", handleHideNode);
+    });
   }, []);
 
   useEffect(() => {
-    const handleHighlightRelatedNodes = (event: Event) => {
-      const detail = (event as CustomEvent<{ repoId?: string; nodeIds?: string[] }>).detail;
+    return onHighlightRelatedNodes((detail) => {
       const repoId = detail?.repoId;
       const nodeIds = detail?.nodeIds?.filter(Boolean) ?? [];
       if (repoId && repoId !== selectedRepoId) {
@@ -435,17 +435,12 @@ export function GraphPage({
         return;
       }
       applyRelatedNodeHighlight(graph, nodeIds);
-    };
-
-    window.addEventListener("codewiki:highlight-related-nodes", handleHighlightRelatedNodes);
-    return () => window.removeEventListener("codewiki:highlight-related-nodes", handleHighlightRelatedNodes);
+    });
   }, [applyRelatedNodeHighlight, graph, onSelectedRepoChange, selectedRepoId]);
 
   useEffect(() => {
-    const handleOpenSourceRef = (event: Event) => {
-      const detail = normalizeSourceRefDetail(
-        (event as CustomEvent<Partial<SourceRefNavigationDetail>>).detail
-      );
+    return onOpenSourceRef((eventDetail) => {
+      const detail = normalizeSourceRefDetail(eventDetail);
       if (!detail) {
         return;
       }
@@ -459,10 +454,7 @@ export function GraphPage({
         return;
       }
       applySourceRefNavigation(graph, detail);
-    };
-
-    window.addEventListener("codewiki:open-source-ref", handleOpenSourceRef);
-    return () => window.removeEventListener("codewiki:open-source-ref", handleOpenSourceRef);
+    });
   }, [applySourceRefNavigation, graph, onSelectedRepoChange, selectedRepoId]);
 
   const handleNodeClick = useCallback(
@@ -595,13 +587,6 @@ export function GraphPage({
     </section>
   );
 }
-
-type SourceRefNavigationDetail = {
-  repoId?: string;
-  filePath: string;
-  startLine: number;
-  endLine: number;
-};
 
 function normalizeSourceRefDetail(
   detail: Partial<SourceRefNavigationDetail> | undefined

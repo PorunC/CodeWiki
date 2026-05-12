@@ -11,6 +11,7 @@ import {
   type WikiPageRecord,
   type WikiResponse
 } from "../api/client";
+import { dispatchOpenSourceRef } from "../graph/navigationEvents";
 
 const markdownComponents: Components = {
   a({ href, children, ...props }) {
@@ -404,17 +405,13 @@ function formatSourceRef(source: SourceRef): string {
 }
 
 function openSourceInGraph(repoId: string, source: SourceRef) {
-  window.dispatchEvent(
-    new CustomEvent("codewiki:open-source-ref", {
-      detail: {
-        repoId,
-        filePath: source.file_path,
-        startLine: source.start_line,
-        endLine: source.end_line
-      }
-    })
+  dispatchOpenSourceRef(
+    {
+      repoId,
+      filePath: source.file_path,
+      startLine: source.start_line,
+      endLine: source.end_line
+    },
+    { navigateToGraph: true }
   );
-  if (window.location.hash !== "#graph") {
-    window.location.hash = "graph";
-  }
 }
