@@ -63,6 +63,69 @@ class GraphRAGRepositoryMixin:
                 ],
             )
 
+    def replace_code_chunks_for_files(
+        self,
+        repo_id: str,
+        file_paths: list[str],
+        chunks: list[CodeChunkRecord],
+    ) -> None:
+        if not file_paths:
+            return
+        placeholders = ",".join("?" for _ in file_paths)
+        params = (repo_id, *file_paths)
+        with self.connect() as connection:
+            connection.execute(
+                f"DELETE FROM code_chunk_fts WHERE repo_id = ? AND file_path IN ({placeholders})",
+                params,
+            )
+            connection.execute(
+                f"DELETE FROM code_chunk WHERE repo_id = ? AND file_path IN ({placeholders})",
+                params,
+            )
+            connection.executemany(
+                """
+                INSERT INTO code_chunk (
+                  id, repo_id, node_id, file_path, start_line, end_line,
+                  content, content_hash, token_count
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        chunk.id,
+                        chunk.repo_id,
+                        chunk.node_id,
+                        chunk.file_path,
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.content,
+                        chunk.content_hash,
+                        chunk.token_count,
+                    )
+                    for chunk in chunks
+                ],
+            )
+            connection.executemany(
+                """
+                INSERT INTO code_chunk_fts (
+                  id, repo_id, node_id, file_path, start_line, end_line, content
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        chunk.id,
+                        chunk.repo_id,
+                        chunk.node_id,
+                        chunk.file_path,
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.content,
+                    )
+                    for chunk in chunks
+                ],
+            )
+
     def list_code_chunks(self, repo_id: str) -> list[CodeChunkRecord]:
         with self.connect() as connection:
             rows = connection.execute(

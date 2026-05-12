@@ -14,7 +14,14 @@ class CodeGraphRepositoryMixin:
     ) -> None:
         with self.connect() as connection:
             connection.execute("DELETE FROM code_edge WHERE repo_id = ?", (repo_id,))
-            connection.execute("DELETE FROM code_node WHERE repo_id = ?", (repo_id,))
+            connection.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS code_node_keep_ids (id TEXT PRIMARY KEY)"
+            )
+            connection.execute("DELETE FROM code_node_keep_ids")
+            connection.executemany(
+                "INSERT INTO code_node_keep_ids (id) VALUES (?)",
+                [(node.id,) for node in nodes],
+            )
             connection.executemany(
                 """
                 INSERT INTO code_node (
@@ -22,6 +29,18 @@ class CodeGraphRepositoryMixin:
                   language, symbol_id, summary, hash, metadata_json
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  repo_id = excluded.repo_id,
+                  type = excluded.type,
+                  name = excluded.name,
+                  file_path = excluded.file_path,
+                  start_line = excluded.start_line,
+                  end_line = excluded.end_line,
+                  language = excluded.language,
+                  symbol_id = excluded.symbol_id,
+                  summary = excluded.summary,
+                  hash = excluded.hash,
+                  metadata_json = excluded.metadata_json
                 """,
                 [
                     (
@@ -41,6 +60,15 @@ class CodeGraphRepositoryMixin:
                     for node in nodes
                 ],
             )
+            connection.execute(
+                """
+                DELETE FROM code_node
+                WHERE repo_id = ?
+                  AND id NOT IN (SELECT id FROM code_node_keep_ids)
+                """,
+                (repo_id,),
+            )
+            connection.execute("DELETE FROM code_node_keep_ids")
             connection.executemany(
                 """
                 INSERT INTO code_edge (
@@ -91,4 +119,3 @@ class CodeGraphRepositoryMixin:
             [node_from_row(row) for row in node_rows],
             [edge_from_row(row) for row in edge_rows],
         )
-

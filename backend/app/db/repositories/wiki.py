@@ -118,3 +118,42 @@ class WikiRepositoryMixin:
             ).fetchall()
         return [doc_page_from_row(row) for row in rows]
 
+    def mark_doc_pages_stale(
+        self,
+        repo_id: str,
+        *,
+        file_paths: list[str],
+        graph_refs: list[str],
+    ) -> list[str]:
+        file_path_set = set(file_paths)
+        graph_ref_set = set(graph_refs)
+        stale_slugs: list[str] = []
+
+        for page in self.list_doc_pages(repo_id):
+            references_file = any(
+                str(source_ref.get("file_path", "")) in file_path_set
+                for source_ref in page.source_refs
+            )
+            references_graph = bool(set(page.graph_refs) & graph_ref_set)
+            if not references_file and not references_graph:
+                continue
+
+            stale_slugs.append(page.slug)
+            if page.status == "draft":
+                continue
+            self.upsert_doc_page(
+                DocPageRecord(
+                    id=page.id,
+                    repo_id=page.repo_id,
+                    slug=page.slug,
+                    title=page.title,
+                    parent_slug=page.parent_slug,
+                    markdown=page.markdown,
+                    source_refs=page.source_refs,
+                    graph_refs=page.graph_refs,
+                    status="draft",
+                    updated_at=None,
+                )
+            )
+
+        return stale_slugs

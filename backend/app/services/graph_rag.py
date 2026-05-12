@@ -199,6 +199,15 @@ class GraphRAGRetriever:
             context_pack=context_pack,
         )
 
+    def build_source_chunks(
+        self,
+        *,
+        repo_id: str,
+        repo_path: str,
+        nodes: list[CodeGraphNode],
+    ) -> list[CodeChunkRecord]:
+        return self._build_source_chunks(repo_id=repo_id, repo_path=repo_path, nodes=nodes)
+
     def _build_source_chunks(
         self,
         *,
