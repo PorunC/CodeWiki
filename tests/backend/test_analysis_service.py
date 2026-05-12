@@ -57,3 +57,71 @@ def test_store_lists_analysis_runs(tmp_path: Path) -> None:
     assert [run.id for run in runs] == [result.run_id]
     assert runs[0].status == "done"
     assert runs[0].stats["node_count"] == result.node_count
+
+
+def test_analyze_resolves_local_typescript_imports_and_fact_edges(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "models.ts").write_text(
+        "\n".join(
+            [
+                "export interface User { id: string }",
+                "export class BaseLoader {}",
+            ]
+        )
+        + "\n"
+    )
+    (repo_dir / "routes.ts").write_text(
+        "\n".join(
+            [
+                "import { BaseLoader, User } from './models';",
+                "export class Loader extends BaseLoader {}",
+                "router.get('/users/:id', getUser);",
+                "export function getUser(): User {",
+                "  return { id: '1' };",
+                "}",
+            ]
+        )
+        + "\n"
+    )
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+
+    result = AnalysisService(store=store).analyze(repo.id)
+    nodes, edges = store.get_graph(repo.id)
+
+    assert result.status == "done"
+    assert any(node.type == "schema" and node.name == "User" for node in nodes)
+    assert any(node.type == "endpoint" and node.name == "GET /users/:id" for node in nodes)
+
+    edge_types = {edge.type for edge in edges}
+    assert {"defines", "exports", "imports", "inherits", "routes_to"} <= edge_types
+
+    local_import_edges = [
+        edge
+        for edge in edges
+        if edge.type == "imports" and edge.metadata.get("import") == "./models"
+    ]
+    assert local_import_edges
+    assert local_import_edges[0].metadata["resolved"] is True
+    assert ":file:models.ts" in local_import_edges[0].target_id
+
+
+def test_analyze_resolves_local_python_imports(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "__init__.py").write_text("")
+    (repo_dir / "service.py").write_text("def run():\n    return 1\n")
+    (repo_dir / "api.py").write_text("from service import run\n\ndef handler():\n    return run()\n")
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+
+    AnalysisService(store=store).analyze(repo.id)
+    _nodes, edges = store.get_graph(repo.id)
+
+    local_import_edges = [
+        edge for edge in edges if edge.type == "imports" and edge.metadata.get("resolved") is True
+    ]
+    assert any(edge.source_id.endswith(":file:api.py") and edge.target_id.endswith(":file:service.py") for edge in local_import_edges)

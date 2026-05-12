@@ -15,6 +15,8 @@ dependencies = [
   "python-dotenv>=1.0.1",
   "sqlalchemy>=2.0.35",
   "tree-sitter>=0.23.0",
+  "tree-sitter-javascript>=0.25.0",
+  "tree-sitter-typescript>=0.23.2",
   "uvicorn[standard]>=0.34.0",
 ]
 

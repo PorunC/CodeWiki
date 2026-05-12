@@ -35,17 +35,20 @@ def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> Non
     assert "Service" in by_id["app.py::build"].calls
 
 
-def test_javascript_like_parser_extracts_basic_symbols(tmp_path: Path) -> None:
+def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) -> None:
     source = tmp_path / "app.ts"
     source.write_text(
         "\n".join(
             [
                 "import { readFile } from 'node:fs/promises';",
-                "export class Loader {}",
+                "export interface UserDto { id: string; name?: string }",
+                "export type Status = 'ok' | 'bad';",
+                "export class Loader extends BaseLoader {}",
                 "export function loadConfig() {",
                 "  return readFile('config.json');",
                 "}",
                 "const parseConfig = (input: string) => JSON.parse(input);",
+                "router.get('/users/:id', loadConfig);",
             ]
         )
         + "\n"
@@ -55,9 +58,17 @@ def test_javascript_like_parser_extracts_basic_symbols(tmp_path: Path) -> None:
     by_id = {symbol.id: symbol for symbol in symbols}
 
     assert by_id["file:app.ts"].imports == ["node:fs/promises"]
+    assert by_id["file:app.ts"].exports == ["Loader", "Status", "UserDto", "loadConfig"]
+    assert by_id["app.ts::UserDto"].type == "schema"
+    assert by_id["app.ts::UserDto"].metadata["schema_kind"] == "interface"
+    assert by_id["app.ts::Status"].type == "schema"
     assert by_id["app.ts::Loader"].type == "class"
+    assert by_id["app.ts::Loader"].bases == ["BaseLoader"]
     assert by_id["app.ts::loadConfig"].type == "function"
     assert by_id["app.ts::parseConfig"].type == "function"
+    endpoint = by_id["app.ts::endpoint:GET:/users/:id:9"]
+    assert endpoint.type == "endpoint"
+    assert endpoint.metadata["route_path"] == "/users/:id"
 
 
 def test_registry_reports_supported_languages() -> None:
