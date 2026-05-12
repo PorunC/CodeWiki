@@ -1,13 +1,12 @@
-from backend.app.db import (
+from backend.app.db.records import (
     AnalysisRunRecord,
     CodeChunkRecord,
     DocCatalogRecord,
     DocPageRecord,
     GraphCommunityRecord,
     LLMRunRecord,
-    SQLiteStore,
-    get_store,
 )
+from backend.app.db.store import SQLiteStore, get_store
 
 __all__ = [
     "AnalysisRunRecord",
