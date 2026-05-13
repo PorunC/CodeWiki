@@ -20,6 +20,7 @@ MAX_CATALOG_ITEMS = 14
 MAX_MERMAID_EDGES = 28
 MAX_SOURCE_HINT_CHUNKS = 10
 MAX_SOURCE_HINT_CHUNKS_PER_FILE = 3
+CATALOG_GENERATION_ATTEMPTS = 3
 PAGE_GENERATION_ATTEMPTS = 2
 REQUIRED_PAGE_HEADINGS = ("## Purpose and Scope",)
 
@@ -92,6 +93,7 @@ class WikiGenerator:
             "context_pack": trace.context_pack,
             "seed_nodes": trace.seed_nodes,
             "expanded_nodes": trace.expanded_nodes[:40],
+            "community_summaries": trace.community_summaries,
             "source_chunks": _source_chunk_summaries(trace.source_chunks),
             "required_json_shape": {
                 "title": "Code Wiki",
@@ -120,28 +122,43 @@ class WikiGenerator:
                 ],
             },
         }
-        result = await self.llm.complete(
-            "catalog",
-            [
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        "Return only a JSON object. Keep pages grounded in the provided "
-                        f"nodes/chunks.\n{json.dumps(user_payload, ensure_ascii=False)}"
+        payload: dict[str, Any] | None = None
+        validation_errors: list[str] = []
+        attempt_payload = user_payload
+        for attempt in range(CATALOG_GENERATION_ATTEMPTS):
+            result = await self.llm.complete(
+                "catalog",
+                _catalog_messages(prompt, attempt_payload, validation_errors),
+                response_format="json_object",
+            )
+            self._record_llm_run(
+                repo_id,
+                task_type="catalog",
+                result=result,
+                input_payload=attempt_payload,
+                cache_key=f"catalog:{trace.trace_id}:attempt:{attempt + 1}",
+            )
+            try:
+                payload = _json_object(result.content)
+                _validate_catalog_payload(payload)
+                validation_errors = []
+                break
+            except ValueError as exc:
+                validation_errors = [str(exc)]
+                attempt_payload = {
+                    **user_payload,
+                    "previous_response": result.content[:6000],
+                    "validation_errors": validation_errors,
+                    "repair_instructions": (
+                        "Repair the catalog. Return valid JSON only, with a top-level object "
+                        "containing title and items. Do not include Markdown or comments."
                     ),
-                },
-            ],
-            response_format="json_object",
-        )
-        self._record_llm_run(
-            repo_id,
-            task_type="catalog",
-            result=result,
-            input_payload=user_payload,
-            cache_key=f"catalog:{trace.trace_id}",
-        )
-        payload = _json_object(result.content)
+                }
+        if payload is None:
+            raise ValueError(
+                "LLM did not return a valid catalog JSON object after repair attempts: "
+                + "; ".join(validation_errors)
+            )
         title, items = _normalize_catalog_payload(payload, repo.name)
         return self.store.save_doc_catalog(repo_id, title=title, structure={"items": items})
 
@@ -248,6 +265,7 @@ class WikiGenerator:
                 "seed_nodes": trace.seed_nodes,
                 "expanded_nodes": trace.expanded_nodes,
                 "related_edges": trace.related_edges,
+                "community_summaries": trace.community_summaries,
             },
             "graph_edges_for_mermaid": [
                 edge
@@ -292,15 +310,25 @@ class WikiGenerator:
 
             payload = _json_object(result.content)
             markdown = _strip_llm_mermaid(str(payload.get("markdown") or ""))
-            source_refs, validation_errors = _validate_source_refs(
+            source_refs, source_ref_errors = _validate_source_refs(
                 repo_path=repo.path,
                 requested_refs=payload.get("source_refs"),
                 source_chunks=trace.source_chunks,
                 allowed_source_refs=allowed_source_refs,
                 source_url_base=_source_url_base(repo.git_url, repo.commit_hash),
             )
+            source_refs = _include_markdown_citation_refs(
+                markdown,
+                source_refs,
+                allowed_source_refs,
+                source_url_base=_source_url_base(repo.git_url, repo.commit_hash),
+            )
             if not source_refs:
+                validation_errors = source_ref_errors
                 validation_errors.append("At least one valid source_ref is required.")
+            else:
+                validation_errors = []
+                markdown = _strip_unknown_citation_markers(markdown, source_refs)
 
             validation_errors.extend(_validate_page_markdown(markdown, title))
             validation_errors.extend(_validate_citation_markers(markdown, source_refs))
@@ -401,6 +429,30 @@ def _page_messages(
     ]
 
 
+def _catalog_messages(
+    prompt: str,
+    user_payload: dict[str, Any],
+    validation_errors: list[str],
+) -> list[dict[str, str]]:
+    instruction = (
+        "Return only a valid JSON object. The object must contain `title` and `items`; "
+        "`items` must be an array of catalog items. Do not include Markdown fences, "
+        "comments, trailing commas, or prose outside JSON."
+    )
+    if validation_errors:
+        instruction = (
+            f"{instruction}\nRepair the previous response. Validation errors: "
+            f"{json.dumps(validation_errors, ensure_ascii=False)}"
+        )
+    return [
+        {"role": "system", "content": prompt},
+        {
+            "role": "user",
+            "content": f"{instruction}\n{json.dumps(user_payload, ensure_ascii=False)}",
+        },
+    ]
+
+
 def _load_prompt(name: str) -> str:
     return resources.files("backend.app.prompts").joinpath(name).read_text(encoding="utf-8")
 
@@ -447,6 +499,13 @@ def _normalize_catalog_payload(payload: dict[str, Any], repo_name: str) -> tuple
         ]
     items = _sort_catalog_items(items)
     return title, items
+
+
+def _validate_catalog_payload(payload: dict[str, Any]) -> None:
+    root = payload.get("catalog") if isinstance(payload.get("catalog"), dict) else payload
+    raw_items = root.get("items") or root.get("pages")
+    if not isinstance(raw_items, list):
+        raise ValueError("Catalog response must contain an items array.")
 
 
 def _normalize_catalog_item(raw_item: Any, used_slugs: set[str]) -> dict[str, Any] | None:
@@ -738,9 +797,9 @@ def _validate_source_refs(
             if allowed_ref is None:
                 errors.append(f"source_refs[{index}] uses unknown citation_id: {citation_id}.")
                 continue
-            file_path = str(raw_ref.get("file_path") or allowed_ref.get("file_path") or "").strip()
-            start_line = raw_ref.get("start_line", allowed_ref.get("start_line"))
-            end_line = raw_ref.get("end_line", allowed_ref.get("end_line"))
+            file_path = str(allowed_ref.get("file_path") or "").strip()
+            start_line = allowed_ref.get("start_line")
+            end_line = allowed_ref.get("end_line")
         else:
             file_path = str(raw_ref.get("file_path") or "").strip()
             start_line = raw_ref.get("start_line")
@@ -802,6 +861,50 @@ def _validate_source_refs(
             ref["source_url"] = _source_url(source_url_base, file_path, start_line, end_line)
         valid_refs.append(ref)
     return valid_refs, errors
+
+
+def _include_markdown_citation_refs(
+    markdown: str,
+    source_refs: list[dict[str, Any]],
+    allowed_source_refs: list[dict[str, object]],
+    *,
+    source_url_base: str | None = None,
+) -> list[dict[str, Any]]:
+    refs_by_citation_id = {
+        str(ref["citation_id"]): ref
+        for ref in source_refs
+        if isinstance(ref.get("citation_id"), str)
+    }
+    allowed_by_citation_id = _allowed_refs_by_citation_id(allowed_source_refs)
+    for citation_id in sorted(CITATION_MARKER_RE.findall(markdown), key=_citation_sort_key):
+        if citation_id in refs_by_citation_id:
+            continue
+        allowed = allowed_by_citation_id.get(citation_id)
+        if allowed is None:
+            continue
+        file_path = allowed.get("file_path")
+        start_line = allowed.get("start_line")
+        end_line = allowed.get("end_line")
+        chunk_id = allowed.get("chunk_id")
+        if not isinstance(file_path, str) or not isinstance(start_line, int) or not isinstance(end_line, int):
+            continue
+        ref: dict[str, Any] = {
+            "citation_id": citation_id,
+            "file_path": file_path,
+            "start_line": start_line,
+            "end_line": end_line,
+        }
+        if isinstance(chunk_id, str):
+            ref["chunk_id"] = chunk_id
+        if source_url_base:
+            ref["source_url"] = _source_url(source_url_base, file_path, start_line, end_line)
+        refs_by_citation_id[citation_id] = ref
+    return list(refs_by_citation_id.values())
+
+
+def _citation_sort_key(citation_id: str) -> tuple[int, str]:
+    suffix = citation_id.removeprefix("S")
+    return (int(suffix), citation_id) if suffix.isdigit() else (10**9, citation_id)
 
 
 def _allowed_refs_by_citation_id(
@@ -884,6 +987,19 @@ def _validate_citation_markers(markdown: str, source_refs: list[dict[str, Any]])
     }
     unknown = sorted(markers - valid_markers)
     return [f"markdown contains citation markers not present in source_refs: {', '.join(unknown)}."] if unknown else []
+
+
+def _strip_unknown_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) -> str:
+    valid_markers = {
+        citation_id
+        for ref in source_refs
+        if isinstance((citation_id := ref.get("citation_id")), str)
+    }
+
+    def replace_marker(match: re.Match[str]) -> str:
+        return match.group(0) if match.group(1) in valid_markers else ""
+
+    return CITATION_MARKER_RE.sub(replace_marker, markdown)
 
 
 def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) -> str:

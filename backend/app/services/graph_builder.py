@@ -1,9 +1,10 @@
 import hashlib
 import posixpath
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 
 from backend.app.services.ast_parser import AstSymbol
+from backend.app.services.graph_provenance import with_edge_provenance, with_node_provenance
 from backend.app.services.repo_scanner import RepoScanResult, ScannedFile
 
 
@@ -54,7 +55,7 @@ class GraphBuilder:
         symbols_by_file: dict[str, list[AstSymbol]] = {}
 
         def add_node(node: CodeGraphNode) -> None:
-            node_index[node.id] = node
+            node_index[node.id] = replace(node, metadata=_node_metadata_with_provenance(node))
 
         def add_edge(
             source_id: str,
@@ -67,6 +68,12 @@ class GraphBuilder:
             metadata: dict[str, object] | None = None,
         ) -> None:
             edge_id = _edge_id(repo_id, source_id, target_id, edge_type)
+            edge_metadata = with_edge_provenance(
+                metadata or {},
+                edge_type=edge_type,
+                confidence=confidence,
+                is_inferred=is_inferred,
+            )
             edge_index[edge_id] = CodeGraphEdge(
                 id=edge_id,
                 repo_id=repo_id,
@@ -76,7 +83,7 @@ class GraphBuilder:
                 confidence=confidence,
                 weight=weight,
                 is_inferred=is_inferred,
-                metadata=metadata or {},
+                metadata=edge_metadata,
             )
 
         repo_node_id = f"{repo_id}:repository"
@@ -395,6 +402,49 @@ def _file_node(repo_id: str, scanned_file: ScannedFile, node_id: str) -> CodeGra
             "modified_at": scanned_file.modified_at,
         },
     )
+
+
+def _node_metadata_with_provenance(node: CodeGraphNode) -> dict[str, object]:
+    metadata = dict(node.metadata)
+    source, kind, confidence = _node_provenance_defaults(node, metadata)
+    evidence = _node_evidence(node)
+    return with_node_provenance(
+        metadata,
+        source=source,
+        kind=kind,
+        confidence=confidence,
+        evidence=evidence,
+    )
+
+
+def _node_provenance_defaults(
+    node: CodeGraphNode,
+    metadata: dict[str, object],
+) -> tuple[str, str, float]:
+    if node.type == "repository":
+        return "repo_scanner", "synthetic_root", 1.0
+    if node.type == "directory":
+        return "repo_scanner", "synthetic_directory", 1.0
+    if node.type == "file":
+        return "repo_scanner", "extracted", 1.0
+    if node.type == "module":
+        if metadata.get("kind") == "type_reference":
+            return "graph_builder", "inferred_external_reference", 0.65
+        return "graph_builder", "external_reference", 1.0
+    if node.symbol_id:
+        return "ast_parser", "extracted", 1.0
+    return "graph_builder", "synthetic", 1.0
+
+
+def _node_evidence(node: CodeGraphNode) -> list[str]:
+    evidence: list[str] = [f"type={node.type}"]
+    if node.file_path:
+        evidence.append(f"file_path={node.file_path}")
+    if node.start_line is not None:
+        evidence.append(f"start_line={node.start_line}")
+    if node.end_line is not None:
+        evidence.append(f"end_line={node.end_line}")
+    return evidence
 
 
 def _file_node_id(repo_id: str, file_path: str) -> str:

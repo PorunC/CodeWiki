@@ -10,6 +10,7 @@ from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.wiki_generator import (
     WikiGenerator,
+    _include_markdown_citation_refs,
     _replace_citation_markers,
     _source_url,
     _source_url_base,
@@ -172,6 +173,44 @@ def test_source_refs_accept_citation_ids_and_replace_markers(tmp_path: Path) -> 
     assert errors == []
     assert refs[0]["citation_id"] == "S1"
     assert "[api.py:L1-L2](source-link)" in markdown
+
+
+def test_source_refs_force_allowed_range_and_auto_include_markers(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "api.py").write_text("def handler():\n    return 42\n")
+    source_chunks = [
+        {
+            "id": "chunk-1",
+            "file_path": "api.py",
+            "start_line": 1,
+            "end_line": 2,
+            "content": "def handler():\n    return 42\n",
+        }
+    ]
+    allowed_source_refs = [
+        {
+            "citation_id": "S1",
+            "file_path": "api.py",
+            "start_line": 1,
+            "end_line": 2,
+            "chunk_id": "chunk-1",
+        }
+    ]
+
+    refs, errors = _validate_source_refs(
+        repo_path=str(repo_dir),
+        requested_refs=[{"citation_id": "S1", "file_path": "api.py", "start_line": 1, "end_line": 99}],
+        source_chunks=source_chunks,
+        allowed_source_refs=allowed_source_refs,
+    )
+    auto_refs = _include_markdown_citation_refs("The handler returns a constant. [[S1]]", [], allowed_source_refs)
+
+    assert errors == []
+    assert refs[0]["start_line"] == 1
+    assert refs[0]["end_line"] == 2
+    assert refs[0]["citation_id"] == "S1"
+    assert auto_refs[0]["citation_id"] == "S1"
 
 
 def test_source_urls_normalize_git_remotes_and_quote_paths() -> None:

@@ -4,6 +4,7 @@ from typing import Any
 
 from backend.app.database import SQLiteStore, get_store
 from backend.app.services.ast_parser import AstParser, AstSymbol
+from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode, GraphBuilder
 from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner, ScannedFile
@@ -43,6 +44,7 @@ class IncrementalUpdateResult:
     reused_file_count: int
     node_count: int
     edge_count: int
+    community_count: int
     chunk_count: int
     stale_pages: list[str] = field(default_factory=list)
     errors: list[dict[str, str]] = field(default_factory=list)
@@ -56,6 +58,7 @@ class IncrementalUpdateResult:
             "reused_file_count": self.reused_file_count,
             "node_count": self.node_count,
             "edge_count": self.edge_count,
+            "community_count": self.community_count,
             "chunk_count": self.chunk_count,
             "stale_pages": self.stale_pages,
             "errors": self.errors,
@@ -70,12 +73,14 @@ class IncrementalUpdater:
         scanner: RepoScanner | None = None,
         parser: AstParser | None = None,
         graph_builder: GraphBuilder | None = None,
+        community_detector: CommunityDetector | None = None,
         graphrag: GraphRAGRetriever | None = None,
     ) -> None:
         self.store = store or get_store()
         self.scanner = scanner or RepoScanner()
         self.parser = parser or AstParser()
         self.graph_builder = graph_builder or GraphBuilder()
+        self.community_detector = community_detector or CommunityDetector()
         self.graphrag = graphrag or GraphRAGRetriever(store=self.store)
 
     def plan(self, repo_id: str) -> IncrementalUpdatePlan:
@@ -105,6 +110,7 @@ class IncrementalUpdater:
                     reused_file_count=len(plan.unchanged_files),
                     node_count=len(old_nodes),
                     edge_count=len(old_edges),
+                    community_count=len(self.store.list_graph_communities(repo_id)),
                     chunk_count=chunk_count,
                 )
                 self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
@@ -119,6 +125,8 @@ class IncrementalUpdater:
             )
             graph = self.graph_builder.build(scan, [*reused_symbols, *parsed_symbols])
             self.store.replace_graph(repo_id, nodes=graph.nodes, edges=graph.edges)
+            communities = self.community_detector.detect(repo_id, graph.nodes, graph.edges)
+            self.store.replace_graph_communities(repo_id, communities.communities)
 
             chunk_count = len(self.store.list_code_chunks(repo_id))
             if refresh_chunks:
@@ -139,6 +147,7 @@ class IncrementalUpdater:
                 reused_file_count=len(plan.unchanged_files),
                 node_count=len(graph.nodes),
                 edge_count=len(graph.edges),
+                community_count=len(communities.communities),
                 chunk_count=chunk_count,
                 stale_pages=stale_pages,
                 errors=parse_errors,

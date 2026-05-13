@@ -13,6 +13,7 @@ from backend.app.database import (
     get_store,
 )
 from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode
+from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.llm_gateway import LLMGateway
 
 SOURCE_NODE_TYPES = {"file", "class", "function", "method", "schema", "endpoint"}
@@ -183,6 +184,7 @@ class GraphRAGRetriever:
             chunks=source_chunks,
             related_edges=edge_payloads,
             nodes=seed_nodes + expanded_nodes,
+            community_summaries=communities,
         )
         trace_id = self._trace_id(repo_id, query, seed_hits.keys(), [hit.chunk.id for hit in source_chunks])
 
@@ -523,10 +525,15 @@ class GraphRAGRetriever:
                     "name": community.name,
                     "level": community.level,
                     "summary": community.summary,
+                    "node_count": len(community.node_ids),
+                    "node_ids": community.node_ids[:24],
                     "matched_node_ids": overlap,
                 }
             )
-        return communities
+        return sorted(
+            communities,
+            key=lambda item: (-len(item["matched_node_ids"]), item["level"], item["name"]),
+        )[:12]
 
     def _context_pack(
         self,
@@ -535,6 +542,7 @@ class GraphRAGRetriever:
         chunks: list[_ChunkHit],
         related_edges: list[dict[str, object]],
         nodes: list[dict[str, object]],
+        community_summaries: list[dict[str, object]],
     ) -> dict[str, object]:
         parts = [f"Query: {query}", "", "Source Chunks:"]
         for hit in chunks:
@@ -542,11 +550,18 @@ class GraphRAGRetriever:
             parts.append(f"[{chunk.id}] {chunk.file_path}:{chunk.start_line}-{chunk.end_line}")
             parts.append(chunk.content.rstrip())
             parts.append("")
+        if community_summaries:
+            parts.append("Community Summaries:")
+            for community in community_summaries[:12]:
+                parts.append(
+                    f"- {community['name']} ({community['id']}): {community.get('summary') or ''}"
+                )
+            parts.append("")
         parts.append("Graph Facts:")
         for edge in related_edges[:40]:
             parts.append(
                 f"- {edge['source']} -[{edge['type']}]-> {edge['target']}"
-                f" (confidence={edge['confidence']})"
+                f" (confidence={edge['confidence']}, level={edge.get('confidence_level')})"
             )
         text = "\n".join(parts).strip()
         return {
@@ -555,9 +570,11 @@ class GraphRAGRetriever:
             "node_count": len(nodes),
             "edge_count": len(related_edges),
             "chunk_count": len(chunks),
+            "community_count": len(community_summaries),
             "source_chunk_ids": [hit.chunk.id for hit in chunks],
             "node_ids": [str(node["id"]) for node in nodes],
             "edge_ids": [str(edge["id"]) for edge in related_edges],
+            "community_ids": [str(community["id"]) for community in community_summaries],
         }
 
     def _node_payload(
@@ -580,6 +597,8 @@ class GraphRAGRetriever:
             "score": round(score, 4),
             "reasons": reasons,
             "hop": hop,
+            "confidence": node_confidence(node.metadata),
+            "provenance": node_provenance(node.metadata),
             "metadata": node.metadata,
         }
 
@@ -592,8 +611,10 @@ class GraphRAGRetriever:
             "target_id": edge.target_id,
             "type": edge.type,
             "confidence": edge.confidence,
+            "confidence_level": edge.metadata.get("confidence_level"),
             "weight": edge.weight,
             "is_inferred": edge.is_inferred,
+            "provenance": edge_provenance(edge.metadata),
             "metadata": edge.metadata,
         }
 

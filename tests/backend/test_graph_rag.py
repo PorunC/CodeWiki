@@ -55,7 +55,10 @@ async def test_graphrag_retrieve_lazily_builds_chunks_and_returns_context(tmp_pa
     assert trace.expanded_nodes
     assert any("def handler" in chunk["content"] for chunk in trace.source_chunks)
     assert trace.related_edges
+    assert trace.community_summaries
+    assert "Community Summaries:" in trace.context_pack["text"]
     assert trace.context_pack["chunk_count"] == len(trace.source_chunks)
+    assert trace.context_pack["community_count"] == len(trace.community_summaries)
     assert "Graph Facts:" in trace.context_pack["text"]
 
 
@@ -117,6 +120,7 @@ def test_graphrag_retrieve_http_returns_real_context(tmp_path: Path, monkeypatch
     assert data["seed_nodes"]
     assert data["source_chunks"]
     assert data["related_edges"]
+    assert data["community_summaries"]
     assert "def handler" in data["context_pack"]["text"]
 
     get_settings.cache_clear()

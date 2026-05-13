@@ -1,27 +1,43 @@
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.app.config import get_settings
 from backend.app.database import get_store
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.incremental_updater import IncrementalUpdater
+from backend.app.services.llm_gateway import LLMGateway
 
 router = APIRouter()
 
 
+class AnalyzeRepoRequest(BaseModel):
+    name_communities: bool = False
+
+
 class IncrementalUpdateRequest(BaseModel):
     refresh_chunks: bool = True
+    name_communities: bool = False
 
 
 @router.post("/{repo_id}/analyze")
-async def analyze_repo(repo_id: str) -> dict[str, object]:
+async def analyze_repo(repo_id: str, payload: AnalyzeRepoRequest | None = None) -> dict[str, object]:
     store = get_store()
     if store.get_repo(repo_id) is None:
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+    request = payload or AnalyzeRepoRequest()
     try:
         result = AnalysisService(store=store).analyze(repo_id)
+        naming_result = (
+            await CommunityNamer(LLMGateway(get_settings()), store=store).name_communities(repo_id)
+            if request.name_communities
+            else None
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {
+    response = {
         "run_id": result.run_id,
         "repo_id": result.repo_id,
         "status": result.status,
@@ -29,8 +45,12 @@ async def analyze_repo(repo_id: str) -> dict[str, object]:
         "parsed_file_count": result.parsed_file_count,
         "node_count": result.node_count,
         "edge_count": result.edge_count,
+        "community_count": result.community_count,
         "errors": result.errors,
     }
+    if naming_result is not None:
+        response["community_naming"] = asdict(naming_result)
+    return response
 
 
 @router.post("/{repo_id}/update")
@@ -47,9 +67,14 @@ async def update_repo(
             repo_id,
             refresh_chunks=request.refresh_chunks,
         )
+        naming_result = (
+            await CommunityNamer(LLMGateway(get_settings()), store=store).name_communities(repo_id)
+            if request.name_communities
+            else None
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {
+    response = {
         "run_id": result.run_id,
         "repo_id": result.repo_id,
         "status": result.status,
@@ -59,10 +84,14 @@ async def update_repo(
         "reused_file_count": result.reused_file_count,
         "node_count": result.node_count,
         "edge_count": result.edge_count,
+        "community_count": result.community_count,
         "chunk_count": result.chunk_count,
         "stale_pages": result.stale_pages,
         "errors": result.errors,
     }
+    if naming_result is not None:
+        response["community_naming"] = asdict(naming_result)
+    return response
 
 
 @router.get("/{repo_id}/runs")

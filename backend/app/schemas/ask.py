@@ -22,4 +22,5 @@ class AskResponse(BaseModel):
     sources: list[SourceRef]
     related_nodes: list[dict[str, object]]
     related_edges: list[dict[str, object]]
+    related_communities: list[dict[str, object]] = Field(default_factory=list)
     trace_id: str

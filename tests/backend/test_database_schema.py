@@ -117,7 +117,7 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
         summary_hash="summary-hash",
         created_at=None,
     )
-    store.upsert_graph_community(community)
+    store.replace_graph_communities(repo.id, [community])
     communities = store.list_graph_communities(repo.id)
     assert len(communities) == 1
     assert communities[0].node_ids == [file_node.id]

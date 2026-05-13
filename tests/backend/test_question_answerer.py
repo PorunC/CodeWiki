@@ -42,6 +42,7 @@ async def test_question_answerer_returns_answer_sources_and_related_graph(tmp_pa
     assert response.related_nodes
     assert any(node["name"] == "handler" for node in response.related_nodes)
     assert response.related_edges
+    assert response.related_communities
     assert store.list_llm_runs(repo.id, task_type="qa")
 
 
@@ -56,6 +57,7 @@ class _FakeQALLM:
         assert task_type == "qa"
         assert response_format is None
         assert "GraphRAG context" in messages[-1]["content"]
+        assert "community_summaries" in messages[-1]["content"]
         return LLMResult(
             content="`handler` calls `answer`, which returns 42. See api.py and service.py.",
             model="fake/qa",

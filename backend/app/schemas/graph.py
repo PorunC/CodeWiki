@@ -10,6 +10,8 @@ class CodeNode(BaseModel):
     end_line: int | None = None
     language: str | None = None
     symbol_id: str | None = None
+    confidence: float = 1.0
+    provenance: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -19,7 +21,9 @@ class CodeEdge(BaseModel):
     target: str
     type: str
     confidence: float = 1.0
+    confidence_level: str | None = None
     is_inferred: bool = False
+    provenance: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 

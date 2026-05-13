@@ -3,9 +3,13 @@ from dataclasses import asdict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.app.config import get_settings
 from backend.app.database import get_store
 from backend.app.schemas.graph import CodeEdge, CodeNode, GraphResponse
+from backend.app.services.community_namer import CommunityNamer
+from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.llm_gateway import LLMGateway
 
 router = APIRouter()
 
@@ -18,6 +22,10 @@ class RetrieveRequest(BaseModel):
     query: str
     max_hops: int = 2
     include_embeddings: bool = False
+
+
+class NameCommunitiesRequest(BaseModel):
+    max_communities: int = 40
 
 
 @router.get("/{repo_id}/graph")
@@ -38,6 +46,8 @@ async def get_graph(repo_id: str) -> GraphResponse:
                 end_line=node.end_line,
                 language=node.language,
                 symbol_id=node.symbol_id,
+                confidence=node_confidence(node.metadata),
+                provenance=node_provenance(node.metadata),
                 metadata=node.metadata,
             )
             for node in nodes
@@ -49,7 +59,13 @@ async def get_graph(repo_id: str) -> GraphResponse:
                 target=edge.target_id,
                 type=edge.type,
                 confidence=edge.confidence,
+                confidence_level=(
+                    str(edge.metadata["confidence_level"])
+                    if isinstance(edge.metadata.get("confidence_level"), str)
+                    else None
+                ),
                 is_inferred=edge.is_inferred,
+                provenance=edge_provenance(edge.metadata),
                 metadata=edge.metadata,
             )
             for edge in edges
@@ -87,6 +103,27 @@ async def get_communities(repo_id: str) -> list[dict[str, str]]:
         }
         for community in get_store().list_graph_communities(repo_id)
     ]
+
+
+@router.post("/{repo_id}/communities/name")
+async def name_communities(
+    repo_id: str,
+    payload: NameCommunitiesRequest | None = None,
+) -> dict[str, object]:
+    store = get_store()
+    if store.get_repo(repo_id) is None:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+    request = payload or NameCommunitiesRequest()
+    try:
+        result = await CommunityNamer(
+            LLMGateway(get_settings()),
+            store=store,
+        ).name_communities(repo_id, max_communities=request.max_communities)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if message.startswith("Repository not found") else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    return asdict(result)
 
 
 @router.post("/{repo_id}/graphrag/build")

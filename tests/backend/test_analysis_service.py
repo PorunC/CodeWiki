@@ -36,11 +36,16 @@ def test_analyze_persists_first_code_graph(tmp_path: Path) -> None:
     assert result.parsed_file_count == 1
     assert result.node_count == len(nodes)
     assert result.edge_count == len(edges)
+    assert result.community_count == len(store.list_graph_communities(repo.id))
+    assert result.community_count >= 1
     assert {node.type for node in nodes} >= {"repository", "file", "class", "function", "method"}
     assert any(node.name == "os" and node.type == "module" for node in nodes)
+    assert all("provenance" in node.metadata for node in nodes)
     assert any(edge.type == "contains" for edge in edges)
     assert any(edge.type == "imports" for edge in edges)
     assert any(edge.type == "calls" for edge in edges)
+    assert all("provenance" in edge.metadata for edge in edges)
+    assert all("confidence_level" in edge.metadata for edge in edges)
 
 
 def test_store_lists_analysis_runs(tmp_path: Path) -> None:
@@ -57,6 +62,7 @@ def test_store_lists_analysis_runs(tmp_path: Path) -> None:
     assert [run.id for run in runs] == [result.run_id]
     assert runs[0].status == "done"
     assert runs[0].stats["node_count"] == result.node_count
+    assert runs[0].stats["community_count"] == result.community_count
 
 
 def test_analyze_resolves_local_typescript_imports_and_fact_edges(tmp_path: Path) -> None:

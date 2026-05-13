@@ -17,6 +17,7 @@ class QAPromptContext:
     source_chunks: list[dict[str, object]]
     related_nodes: list[dict[str, object]]
     related_edges: list[dict[str, object]]
+    community_summaries: list[dict[str, object]]
 
 
 class QuestionAnswerer:
@@ -44,6 +45,7 @@ class QuestionAnswerer:
         )
         related_nodes = [*trace.seed_nodes, *trace.expanded_nodes] if request.include_graph else []
         related_edges = trace.related_edges if request.include_graph else []
+        related_communities = trace.community_summaries if request.include_graph else []
         sources = _source_refs(trace.source_chunks) if request.include_sources else []
         prompt_context = QAPromptContext(
             question=request.question,
@@ -51,6 +53,7 @@ class QuestionAnswerer:
             source_chunks=trace.source_chunks if request.include_sources else [],
             related_nodes=related_nodes,
             related_edges=related_edges,
+            community_summaries=related_communities,
         )
         result = await self.llm.complete(
             "qa",
@@ -77,6 +80,7 @@ class QuestionAnswerer:
             sources=sources,
             related_nodes=related_nodes,
             related_edges=related_edges,
+            related_communities=related_communities,
             trace_id=trace.trace_id,
         )
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from backend.app.database import SQLiteStore
 from backend.app.services.ast_parser import AstParser, AstSymbol
+from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.graph_builder import CodeGraph, GraphBuilder
 from backend.app.services.repo_scanner import RepoScanner
 
@@ -17,6 +18,7 @@ class AnalysisResult:
     parsed_file_count: int
     node_count: int
     edge_count: int
+    community_count: int
     errors: list[dict[str, str]] = field(default_factory=list)
 
     def stats(self) -> dict[str, Any]:
@@ -25,6 +27,7 @@ class AnalysisResult:
             "parsed_file_count": self.parsed_file_count,
             "node_count": self.node_count,
             "edge_count": self.edge_count,
+            "community_count": self.community_count,
             "errors": self.errors,
         }
 
@@ -37,11 +40,13 @@ class AnalysisService:
         scanner: RepoScanner | None = None,
         parser: AstParser | None = None,
         graph_builder: GraphBuilder | None = None,
+        community_detector: CommunityDetector | None = None,
     ) -> None:
         self.store = store
         self.scanner = scanner or RepoScanner()
         self.parser = parser or AstParser()
         self.graph_builder = graph_builder or GraphBuilder()
+        self.community_detector = community_detector or CommunityDetector()
 
     def analyze(self, repo_id: str) -> AnalysisResult:
         repo = self.store.get_repo(repo_id)
@@ -54,6 +59,8 @@ class AnalysisService:
             symbols, parse_errors = self._parse_scan(scan.files, repo_root=Path(scan.repo.path))
             graph = self.graph_builder.build(scan, symbols)
             self.store.replace_graph(repo_id, nodes=graph.nodes, edges=graph.edges)
+            communities = self.community_detector.detect(repo_id, graph.nodes, graph.edges)
+            self.store.replace_graph_communities(repo_id, communities.communities)
 
             result = AnalysisResult(
                 run_id=run.id,
@@ -63,6 +70,7 @@ class AnalysisService:
                 parsed_file_count=len({symbol.file_path for symbol in symbols}),
                 node_count=len(graph.nodes),
                 edge_count=len(graph.edges),
+                community_count=len(communities.communities),
                 errors=parse_errors,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())

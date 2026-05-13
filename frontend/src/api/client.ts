@@ -18,6 +18,8 @@ export type CodeNode = {
   end_line: number | null;
   language: string | null;
   symbol_id: string | null;
+  confidence: number;
+  provenance: Record<string, unknown>;
   metadata: Record<string, unknown>;
 };
 
@@ -27,7 +29,9 @@ export type CodeEdge = {
   target: string;
   type: string;
   confidence: number;
+  confidence_level?: string | null;
   is_inferred: boolean;
+  provenance: Record<string, unknown>;
   metadata: Record<string, unknown>;
 };
 
@@ -50,6 +54,7 @@ export type AskResponse = {
   sources: SourceRef[];
   related_nodes: Array<Record<string, unknown> & { id?: string; name?: string; type?: string }>;
   related_edges: Array<Record<string, unknown> & { id?: string; type?: string; source_id?: string; target_id?: string }>;
+  related_communities?: Array<Record<string, unknown> & { id?: string; name?: string }>;
   trace_id: string;
 };
 
