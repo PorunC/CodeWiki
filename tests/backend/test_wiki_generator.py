@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.database import SQLiteStore
+from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMResult
@@ -54,7 +54,8 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     assert "fake --> invented" not in page.markdown
     assert "## Relevant source files\n- [api.py](source-link)" in page.markdown
     assert "Title: Request Handler graph overview" in page.markdown
-    assert "### Component interaction" in page.markdown
+    assert "### Component map" in page.markdown
+    assert "### Interaction flow" in page.markdown
     assert "```mermaid" in page.markdown
     assert "-->|calls / imports|" in page.markdown
     assert 'C0["Api"]' in page.markdown
@@ -114,7 +115,8 @@ async def test_wiki_generator_generates_leaf_pages_for_category_catalog(
                     "path": "core-runtime",
                     "order": 0,
                     "kind": "category",
-                    "topic": "runtime",
+                    "topic": "handler answer",
+                    "source_hints": ["api.py"],
                     "children": [
                         {
                             "title": "Request Handler",
@@ -140,8 +142,42 @@ async def test_wiki_generator_generates_leaf_pages_for_category_catalog(
     await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
 
-    assert [result.page.slug for result in results] == ["request-handler"]
-    assert results[0].page.parent_slug == "core-runtime"
+    assert [result.page.slug for result in results] == ["core-runtime", "request-handler"]
+    assert results[0].page.parent_slug is None
+    assert results[1].page.parent_slug == "core-runtime"
+
+
+@pytest.mark.asyncio
+async def test_wiki_generator_prunes_pages_removed_from_catalog(tmp_path: Path) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    old_page = store.upsert_doc_page(
+        DocPageRecord(
+            id="old-page",
+            repo_id=repo.id,
+            slug="old-page",
+            title="Old Page",
+            parent_slug=None,
+            markdown="# Old Page\n\n## Purpose and Scope\n\nOld.",
+            source_refs=[],
+            graph_refs=[],
+            status="generated",
+            updated_at=None,
+        )
+    )
+    assert old_page.slug == "old-page"
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Request Handler",
+            "markdown": "# Request Handler\n\n## Purpose and Scope\n\nThe handler delegates to answer().",
+            "source_refs": [{"file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+    )
+    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+
+    await generator.generate_catalog(repo.id)
+    await generator.generate_all_pages(repo.id)
+
+    assert store.get_doc_page(repo.id, "old-page") is None
 
 
 def test_source_refs_accept_citation_ids_and_replace_markers(tmp_path: Path) -> None:

@@ -18,8 +18,14 @@ Page structure:
 - Write like DeepWiki: concise, source-grounded, and oriented around how the subsystem
   fits into the larger repository. Prefer short paragraphs, compact tables, and
   explicit relationships between files, APIs, data structures, and workflows.
+- Use tables as a primary presentation format for dense technical information:
+  component responsibilities, routes, data shapes, configuration keys, workflows,
+  failure modes, extension points, and source-backed comparisons.
 - Add inline source citations with the exact `[[S#]]` markers from `allowed_source_refs`
   after concrete claims about files, functions, routes, data models, or control flow.
+- Every concrete factual claim should have at least one nearby citation marker. Prefer
+  the narrowest available source range from `allowed_source_refs`; avoid citing a broad
+  chunk when a smaller cited chunk supports the claim.
 - If a section makes several related claims, finish the section with a compact
   `Sources: [[S1]] [[S2]]` line, using only refs returned in `source_refs`.
 - Then choose the most relevant sections from: "System Context", "Core Components",
@@ -31,8 +37,13 @@ Page structure:
   the provided context. Avoid generic tutorial prose.
 - When catalog_context contains related pages, mention only directly related pages by
   their provided titles or paths. Do not invent wiki links or pages.
-- Do not include "Sources", "Relevant source files", or Mermaid sections; the server
-  injects those from validated source references and graph edges.
+- Do not include "Sources", "Relevant source files", "Related Pages", or Mermaid
+  sections; the server and frontend inject those from validated source references,
+  catalog context, and graph edges.
+- The server chooses Mermaid diagrams from graph facts only. It may use component
+  maps, left-to-right data flow, top-down control flow, sequence diagrams, and class
+  diagrams. Write the prose so those diagrams are introduced naturally, but do not
+  emit Mermaid code.
 - Do not include an "On this page" section; the frontend derives it from headings.
 
 Detail requirements:
@@ -48,7 +59,9 @@ Detail requirements:
 - Use tests as evidence for behavior only when they are present in the retrieved
   context; do not let tests dominate a non-testing page.
 - If expected information is not visible in the provided source evidence, say so
-  briefly instead of guessing.
+  briefly instead of guessing. Missing evidence is useful information: add a short
+  "Missing evidence:" note when expected lifecycle, configuration, error handling, or
+  recovery behavior is not exposed by the retrieved source.
 
 Rules:
 - Every factual claim about code must be supported by source chunks or graph edges.

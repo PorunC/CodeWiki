@@ -1533,8 +1533,11 @@ button.metadata-chip:disabled {
 }
 
 .wiki-markdown table {
+  background: rgba(255, 255, 255, 0.012);
   border-collapse: collapse;
+  border-spacing: 0;
   display: block;
+  font-size: 0.875rem;
   overflow: auto;
   width: 100%;
 }
@@ -1542,14 +1545,64 @@ button.metadata-chip:disabled {
 .wiki-markdown th,
 .wiki-markdown td {
   border: 1px solid var(--color-border-subtle);
-  padding: 8px 10px;
+  padding: 0.5rem 0.75rem;
   text-align: left;
+  vertical-align: top;
 }
 
 .wiki-markdown th {
+  background: rgba(255, 255, 255, 0.045);
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-weight: 700;
   text-transform: uppercase;
+}
+
+.wiki-markdown tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.wiki-related-pages {
+  border-top: 1px solid var(--color-border-subtle);
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+}
+
+.wiki-related-pages h3 {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.wiki-related-pages button {
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.wiki-related-pages button:hover,
+.wiki-related-pages button:focus-visible {
+  background: rgba(212, 165, 116, 0.08);
+  border-color: var(--color-border-medium);
+  outline: none;
+}
+
+.wiki-related-pages strong {
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.wiki-related-pages span {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
 }
 
 .mermaid-block {

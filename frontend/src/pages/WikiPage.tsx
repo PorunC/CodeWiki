@@ -40,6 +40,12 @@ const markdownComponents: Components = {
   }
 };
 
+type RelatedWikiPage = {
+  slug: string;
+  title: string;
+  path: string;
+};
+
 let mermaidInitialized = false;
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
 
@@ -130,6 +136,10 @@ export function WikiPage({
     [wiki?.pages]
   );
   const selectedPage = selectedSlug ? pageBySlug.get(selectedSlug) ?? null : null;
+  const relatedPages = useMemo(
+    () => (wiki && selectedPage ? relatedPagesForPage(wiki.items, pageBySlug, selectedPage.slug) : []),
+    [pageBySlug, selectedPage, wiki]
+  );
   const generatedCount = wiki?.pages.filter((page) => page.status === "generated").length ?? 0;
   const selectedRepo = useMemo(
     () => repos.find((repo) => repo.id === selectedRepoId) ?? null,
@@ -208,7 +218,9 @@ export function WikiPage({
             />
           </nav>
 
-          {selectedPage ? <WikiArticle page={selectedPage} /> : null}
+          {selectedPage ? (
+            <WikiArticle page={selectedPage} relatedPages={relatedPages} onSelectPage={setSelectedSlug} />
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -282,8 +294,20 @@ function sortCatalogItems(items: WikiCatalogItem[]): WikiCatalogItem[] {
   });
 }
 
-function WikiArticle({ page }: { page: WikiPageRecord }) {
+function WikiArticle({
+  page,
+  relatedPages,
+  onSelectPage
+}: {
+  page: WikiPageRecord;
+  relatedPages: RelatedWikiPage[];
+  onSelectPage: (slug: string) => void;
+}) {
   const markdown = useMemo(() => stripMarkdownSourcesSection(page.markdown), [page.markdown]);
+  const components = useMemo(
+    () => wikiMarkdownComponents(onSelectPage),
+    [onSelectPage]
+  );
 
   return (
     <article className="wiki-article">
@@ -296,10 +320,26 @@ function WikiArticle({ page }: { page: WikiPageRecord }) {
       </div>
 
       <div className="wiki-markdown">
-        <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
           {markdown}
         </ReactMarkdown>
       </div>
+
+      {relatedPages.length > 0 ? (
+        <div className="wiki-related-pages">
+          <h3>See also</h3>
+          {relatedPages.map((relatedPage) => (
+            <button
+              key={relatedPage.slug}
+              type="button"
+              onClick={() => onSelectPage(relatedPage.slug)}
+            >
+              <strong>{relatedPage.title}</strong>
+              <span>{relatedPage.path}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {page.source_refs.length > 0 ? (
         <div className="wiki-source-list">
@@ -321,6 +361,38 @@ function WikiArticle({ page }: { page: WikiPageRecord }) {
       ) : null}
     </article>
   );
+}
+
+function wikiMarkdownComponents(onSelectPage: (slug: string) => void): Components {
+  return {
+    ...markdownComponents,
+    a({ href, children, ...props }) {
+      if (href === "source-link") {
+        return <>{children}</>;
+      }
+      const internalSlug = wikiPageSlugFromHref(href);
+      if (internalSlug) {
+        return (
+          <a
+            {...props}
+            href={`#wiki-${internalSlug}`}
+            onClick={(event) => {
+              event.preventDefault();
+              onSelectPage(internalSlug);
+            }}
+          >
+            {children}
+          </a>
+        );
+      }
+      const isExternal = href?.startsWith("http://") || href?.startsWith("https://");
+      return (
+        <a {...props} href={href} target={isExternal ? "_blank" : props.target} rel={isExternal ? "noreferrer" : props.rel}>
+          {children}
+        </a>
+      );
+    }
+  };
 }
 
 function MermaidBlock({ chart }: { chart: string }) {
@@ -484,6 +556,85 @@ function firstPageSlugFromItems(
     }
   }
   return null;
+}
+
+function relatedPagesForPage(
+  items: WikiCatalogItem[],
+  pageBySlug: Map<string, WikiPageRecord>,
+  slug: string
+): RelatedWikiPage[] {
+  const summaries = flattenCatalogSummaries(items);
+  const current = summaries.find((item) => item.slug === slug);
+  if (!current) {
+    return [];
+  }
+  return summaries
+    .filter((item) => item.slug !== slug && pageBySlug.has(item.slug))
+    .sort((left, right) => {
+      const leftScore = relatedPageScore(left, current);
+      const rightScore = relatedPageScore(right, current);
+      if (leftScore !== rightScore) {
+        return leftScore - rightScore;
+      }
+      if (left.order !== right.order) {
+        return left.order - right.order;
+      }
+      return left.title.localeCompare(right.title);
+    })
+    .slice(0, 6)
+    .map((item) => ({
+      slug: item.slug,
+      title: item.title,
+      path: item.path
+    }));
+}
+
+function flattenCatalogSummaries(
+  items: WikiCatalogItem[],
+  parentSlug: string | null = null,
+  depth = 0
+): Array<RelatedWikiPage & { parentSlug: string | null; depth: number; order: number; kind: string }> {
+  const summaries: Array<RelatedWikiPage & { parentSlug: string | null; depth: number; order: number; kind: string }> = [];
+  sortCatalogItems(items).forEach((item, index) => {
+    summaries.push({
+      slug: item.slug,
+      title: item.title,
+      path: item.path ?? item.slug,
+      parentSlug,
+      depth,
+      order: typeof item.order === "number" ? item.order : index,
+      kind: item.kind ?? "page"
+    });
+    summaries.push(...flattenCatalogSummaries(item.children ?? [], item.slug, depth + 1));
+  });
+  return summaries;
+}
+
+function relatedPageScore(
+  candidate: { parentSlug: string | null; depth: number; kind: string },
+  current: { parentSlug: string | null; depth: number }
+): number {
+  if (candidate.parentSlug === current.parentSlug) {
+    return 0;
+  }
+  if (candidate.parentSlug && candidate.parentSlug === current.parentSlug) {
+    return 1;
+  }
+  if (candidate.depth === current.depth) {
+    return 2;
+  }
+  return candidate.kind === "page" ? 3 : 4;
+}
+
+function wikiPageSlugFromHref(href: string | undefined): string | null {
+  if (!href) {
+    return null;
+  }
+  if (href.startsWith("wiki-page:")) {
+    return href.slice("wiki-page:".length);
+  }
+  const wikiPathMatch = /^\/wiki\/[^/]+\/([^/#?]+)$/.exec(href);
+  return wikiPathMatch?.[1] ?? null;
 }
 
 function openSourceInGraph(repoId: string, source: SourceRef) {

@@ -24,6 +24,10 @@ MAX_MERMAID_EDGES = 28
 MAX_MERMAID_COMPONENTS = 10
 MAX_MERMAID_ABSTRACT_EDGES = 14
 MAX_MERMAID_SURFACES = 10
+MAX_MERMAID_DIAGRAMS = 4
+MAX_MERMAID_SEQUENCE_MESSAGES = 8
+MAX_MERMAID_CLASS_NODES = 8
+MAX_MERMAID_CLASS_FIELDS = 6
 MAX_SOURCE_HINT_CHUNKS = 10
 MAX_SOURCE_HINT_CHUNKS_PER_FILE = 3
 CATALOG_GENERATION_ATTEMPTS = 3
@@ -90,6 +94,21 @@ class WikiGenerator:
                     "hierarchical developer wiki with Overview first, subsystem pages, "
                     "workflow drill-downs, and source-grounded topics"
                 ),
+                "audiences": [
+                    "new developers who need orientation and getting-started guidance",
+                    "users who need how-to-use pages for API or UI surfaces",
+                    "contributors who need architecture and developer guide pages",
+                    "operators who need configuration, deployment, and operations pages when evidenced",
+                ],
+                "preferred_top_level_flow": [
+                    "Overview",
+                    "Getting Started or User Guide",
+                    "System Architecture",
+                    "Core Workflows",
+                    "API Reference",
+                    "Developer Guide",
+                    "Operations",
+                ],
                 "catalog_design": [
                     "group related files and symbols into logical feature or subsystem pages",
                     "use parent categories for navigation and leaf pages for implementation detail",
@@ -192,6 +211,10 @@ class WikiGenerator:
         results: list[PageGenerationResult] = []
         for item, parent_slug in _catalog_items_for_generation(catalog.structure.get("items", [])):
             results.append(await self.generate_page(repo_id, item, parent_slug=parent_slug))
+        self.store.delete_doc_pages_not_in(
+            repo_id,
+            [result.page.slug for result in results],
+        )
         return results
 
     async def generate_page(
@@ -267,6 +290,8 @@ class WikiGenerator:
                     "route or API/symbol/purpose/evidence",
                     "data structure/owner/fields or role/evidence",
                     "configuration key/default or source/effect/evidence",
+                    "workflow step/owner/input/output/evidence",
+                    "failure mode/trigger/handling/evidence",
                 ],
                 "code_examples": (
                     "Use exact source snippets only when source_chunks provide them; otherwise "
@@ -295,6 +320,18 @@ class WikiGenerator:
                 for edge in trace.related_edges
                 if edge.get("type") in SOURCE_EDGE_TYPES
             ][:MAX_MERMAID_EDGES],
+            "server_diagram_strategy": {
+                "diagram_generation": "server_generated_from_graph_facts_only",
+                "llm_must_not_emit_mermaid": True,
+                "strategies": {
+                    "component": "graph TD for high-level component dependency maps",
+                    "data_flow": "flowchart LR for data moving between components",
+                    "control_flow": "flowchart TD for hierarchical control or route flow",
+                    "sequence": "sequenceDiagram for request/response or multi-agent interactions",
+                    "data_model": "classDiagram for schemas, classes, DTOs, and inheritance",
+                },
+                "grouping": "Prefer subgraphs or grouped components over function-level calls.",
+            },
             "required_json_shape": {
                 "title": title,
                 "markdown": (
@@ -346,6 +383,7 @@ class WikiGenerator:
                 allowed_source_refs,
                 source_url_base=_source_url_base(repo.git_url, repo.commit_hash),
             )
+            source_refs = _filter_unused_source_refs(markdown, source_refs)
             if not source_refs:
                 validation_errors = source_ref_errors
                 validation_errors.append("At least one valid source_ref is required.")
@@ -679,7 +717,7 @@ def _catalog_items_for_generation(
         children = item.get("children") or []
         has_children = isinstance(children, list) and bool(children)
         kind = str(item.get("kind") or "").lower()
-        if kind == "page" or not has_children:
+        if kind in {"page", "category"} or not has_children:
             yield item, parent_slug
         if isinstance(children, list):
             yield from _catalog_items_for_generation(children, parent_slug=_catalog_slug(item))
@@ -1025,6 +1063,20 @@ def _strip_unknown_citation_markers(markdown: str, source_refs: list[dict[str, A
     return CITATION_MARKER_RE.sub(replace_marker, markdown)
 
 
+def _filter_unused_source_refs(
+    markdown: str,
+    source_refs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    markers = set(CITATION_MARKER_RE.findall(markdown))
+    if not markers:
+        return source_refs
+    return [
+        ref
+        for ref in source_refs
+        if not isinstance(ref.get("citation_id"), str) or ref["citation_id"] in markers
+    ]
+
+
 def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) -> str:
     refs_by_citation_id = {
         citation_id: ref
@@ -1169,9 +1221,22 @@ def _mermaid_from_trace(
         return ""
 
     diagrams: list[tuple[str, list[str]]] = []
-    component_diagram = _abstract_component_diagram(trace, nodes)
+    component_groups, component_edges = _component_groups_and_edges(trace, nodes)
+    component_diagram = _abstract_component_diagram(component_groups, component_edges)
     if component_diagram:
-        diagrams.append(("Component interaction", component_diagram))
+        diagrams.append(("Component map", component_diagram))
+
+    data_flow_diagram = _data_flow_diagram(component_groups, component_edges)
+    if data_flow_diagram:
+        diagrams.append(("Data flow", data_flow_diagram))
+
+    sequence_diagram = _interaction_sequence_diagram(component_groups, component_edges)
+    if sequence_diagram:
+        diagrams.append(("Interaction flow", sequence_diagram))
+
+    data_diagram = _data_model_diagram(trace, nodes)
+    if data_diagram:
+        diagrams.append(("Data model", data_diagram))
 
     surface_diagram = _key_surface_diagram(trace, nodes)
     if surface_diagram:
@@ -1182,7 +1247,7 @@ def _mermaid_from_trace(
 
     graph_title = f"{title} graph overview" if title else "Graph overview"
     lines = ["## Graph", "", f"Title: {graph_title}"]
-    for diagram_title, diagram_lines in diagrams:
+    for diagram_title, diagram_lines in diagrams[:MAX_MERMAID_DIAGRAMS]:
         lines.extend(["", f"### {diagram_title}", "", "```mermaid"])
         lines.extend(diagram_lines)
         lines.append("```")
@@ -1192,26 +1257,35 @@ def _mermaid_from_trace(
     return "\n".join(lines)
 
 
-def _abstract_component_diagram(
+def _component_groups_and_edges(
     trace: RetrievalTrace,
     nodes: dict[str, dict[str, object]],
-) -> list[str]:
+) -> tuple[dict[str, _MermaidGroup], list[_MermaidEdgeAggregate]]:
     community_groups, community_edges = _aggregate_component_edges(
         trace,
         nodes,
         group_mode="community",
     )
     if community_edges and len(community_groups) > 1:
-        return _render_component_diagram(community_groups, community_edges)
+        return community_groups, community_edges
 
     file_groups, file_edges = _aggregate_component_edges(
         trace,
         nodes,
         group_mode="file",
     )
-    if not file_edges or len(file_groups) <= 1:
+    if file_edges and len(file_groups) > 1:
+        return file_groups, file_edges
+    return {}, []
+
+
+def _abstract_component_diagram(
+    groups: dict[str, _MermaidGroup],
+    edges: list[_MermaidEdgeAggregate],
+) -> list[str]:
+    if not edges or len(groups) <= 1:
         return []
-    return _render_component_diagram(file_groups, file_edges)
+    return _render_component_diagram(groups, edges)
 
 
 def _aggregate_component_edges(
@@ -1309,7 +1383,7 @@ def _render_component_diagram(
             sorted(groups, key=lambda key: (groups[key].rank, groups[key].label, key))
         )
     }
-    lines = ["flowchart LR"]
+    lines = ["graph TD"]
     for key in aliases:
         group = groups[key]
         lines.append(f'  {aliases[key]}["{_mermaid_text(group.label)}"]')
@@ -1321,6 +1395,109 @@ def _render_component_diagram(
         label = _edge_label(edge.counts)
         lines.append(f"  {source_alias} -->|{label}| {target_alias}")
     return lines
+
+
+def _data_flow_diagram(
+    groups: dict[str, _MermaidGroup],
+    edges: list[_MermaidEdgeAggregate],
+) -> list[str]:
+    flow_edges = [
+        edge
+        for edge in sorted(edges, key=_component_edge_sort_key)
+        if edge.counts.get("routes_to") or edge.counts.get("calls") or edge.counts.get("imports")
+    ][:MAX_MERMAID_SEQUENCE_MESSAGES]
+    if len(groups) <= 1 or len(flow_edges) < 2:
+        return []
+
+    involved_keys = {edge.source_key for edge in flow_edges} | {edge.target_key for edge in flow_edges}
+    aliases = {
+        key: f"D{index}"
+        for index, key in enumerate(
+            sorted(involved_keys, key=lambda key: (groups[key].rank, groups[key].label, key))
+        )
+        if key in groups
+    }
+    lines = ["flowchart LR"]
+    for key in aliases:
+        lines.append(f'  {aliases[key]}["{_mermaid_text(groups[key].label)}"]')
+    for edge in flow_edges:
+        source_alias = aliases.get(edge.source_key)
+        target_alias = aliases.get(edge.target_key)
+        label = _sequence_edge_label(edge.counts)
+        if source_alias is None or target_alias is None or not label:
+            continue
+        lines.append(f"  {source_alias} -->|{label}| {target_alias}")
+    return lines if len(lines) > 1 else []
+
+
+def _interaction_sequence_diagram(
+    groups: dict[str, _MermaidGroup],
+    edges: list[_MermaidEdgeAggregate],
+) -> list[str]:
+    sequence_edges = [
+        edge
+        for edge in sorted(edges, key=_component_edge_sort_key)
+        if _sequence_edge_label(edge.counts)
+    ][:MAX_MERMAID_SEQUENCE_MESSAGES]
+    if len(groups) <= 1 or not sequence_edges:
+        return []
+
+    involved_keys: list[str] = []
+    for edge in sequence_edges:
+        for key in (edge.source_key, edge.target_key):
+            if key in groups and key not in involved_keys:
+                involved_keys.append(key)
+
+    aliases = {key: f"P{index}" for index, key in enumerate(involved_keys)}
+    lines = ["sequenceDiagram"]
+    for key in involved_keys:
+        label = _mermaid_sequence_text(groups[key].label)
+        lines.append(f"  participant {aliases[key]} as {label}")
+    for edge in sequence_edges:
+        source_alias = aliases.get(edge.source_key)
+        target_alias = aliases.get(edge.target_key)
+        label = _sequence_edge_label(edge.counts)
+        if source_alias is None or target_alias is None or not label:
+            continue
+        arrow = "->>" if _sequence_edge_is_runtime(edge.counts) else "-->>"
+        lines.append(f"  {source_alias}{arrow}{target_alias}: {label}")
+    return lines if len(lines) > 1 else []
+
+
+def _data_model_diagram(
+    trace: RetrievalTrace,
+    nodes: dict[str, dict[str, object]],
+) -> list[str]:
+    selected = _select_data_nodes([*trace.seed_nodes, *trace.expanded_nodes])
+    if not selected:
+        return []
+
+    aliases = _class_aliases(selected)
+    lines = ["classDiagram"]
+    for node in selected:
+        node_id = str(node.get("id") or "")
+        alias = aliases.get(node_id)
+        if not alias:
+            continue
+        lines.append(f"  class {alias}")
+        label = _class_display_label(node)
+        if label != alias:
+            lines.append(f"  {alias} : {_mermaid_class_text(label)}")
+        for field in _data_node_fields(node)[:MAX_MERMAID_CLASS_FIELDS]:
+            lines.append(f"  {alias} : +{_mermaid_class_text(field)}")
+
+    selected_ids = {str(node.get("id") or "") for node in selected}
+    for edge in trace.related_edges:
+        if edge.get("type") != "inherits":
+            continue
+        source_id = _edge_endpoint(edge, "source_id", "source")
+        target_id = _edge_endpoint(edge, "target_id", "target")
+        if source_id in selected_ids and target_id in selected_ids:
+            source_alias = aliases.get(source_id)
+            target_alias = aliases.get(target_id)
+            if source_alias and target_alias:
+                lines.append(f"  {target_alias} <|-- {source_alias}")
+    return lines if len(lines) > 1 else []
 
 
 def _key_surface_diagram(
@@ -1404,6 +1581,24 @@ def _select_surface_nodes(nodes: list[dict[str, object]]) -> list[dict[str, obje
     )[:MAX_MERMAID_SURFACES]
 
 
+def _select_data_nodes(nodes: list[dict[str, object]]) -> list[dict[str, object]]:
+    candidates = [
+        node
+        for node in nodes
+        if str(node.get("type") or "") in {"class", "schema", "interface"}
+    ]
+    return sorted(
+        candidates,
+        key=lambda node: (
+            _surface_rank(str(node.get("type") or "")),
+            int(node.get("hop") or 0),
+            -float(node.get("score") or 0.0),
+            str(node.get("file_path") or ""),
+            str(node.get("name") or ""),
+        ),
+    )[:MAX_MERMAID_CLASS_NODES]
+
+
 def _surface_rank(node_type: str) -> int:
     return {
         "endpoint": 0,
@@ -1422,6 +1617,53 @@ def _surface_label(node: dict[str, object]) -> str:
         if method or route_path:
             return _mermaid_text(" ".join(part for part in [method, route_path] if part))
     return _mermaid_label(node)
+
+
+def _class_aliases(nodes: list[dict[str, object]]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    used: set[str] = set()
+    for index, node in enumerate(nodes):
+        node_id = str(node.get("id") or "")
+        if not node_id:
+            continue
+        base = _class_identifier(str(node.get("name") or f"Data{index}"))
+        alias = base
+        suffix = 2
+        while alias in used:
+            alias = f"{base}{suffix}"
+            suffix += 1
+        used.add(alias)
+        aliases[node_id] = alias
+    return aliases
+
+
+def _class_identifier(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_]", "_", value).strip("_")
+    if not cleaned:
+        return "DataModel"
+    if cleaned[0].isdigit():
+        cleaned = f"Data{cleaned}"
+    return cleaned[:48]
+
+
+def _class_display_label(node: dict[str, object]) -> str:
+    name = str(node.get("name") or "")
+    node_type = str(node.get("type") or "")
+    return f"{name} ({node_type})" if node_type and node_type != "class" else name
+
+
+def _data_node_fields(node: dict[str, object]) -> list[str]:
+    metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+    fields = metadata.get("fields")
+    if isinstance(fields, list):
+        return [str(field) for field in fields if field is not None and str(field).strip()]
+    signature = metadata.get("signature")
+    if isinstance(signature, str) and signature:
+        return [signature]
+    bases = metadata.get("bases")
+    if isinstance(bases, list):
+        return [f"extends {base}" for base in bases if base]
+    return []
 
 
 def _community_index(communities: list[dict[str, object]]) -> dict[str, _MermaidGroup]:
@@ -1520,6 +1762,21 @@ def _edge_label(counts: dict[str, int]) -> str:
     return _mermaid_edge_text(" / ".join(labels))
 
 
+def _sequence_edge_label(counts: dict[str, int]) -> str:
+    labels = []
+    for edge_type in ("routes_to", "calls", "imports"):
+        count = counts.get(edge_type, 0)
+        if not count:
+            continue
+        label = edge_type.replace("_", " ")
+        labels.append(f"{label} x{count}" if count > 1 else label)
+    return _mermaid_edge_text(" / ".join(labels))
+
+
+def _sequence_edge_is_runtime(counts: dict[str, int]) -> bool:
+    return bool(counts.get("routes_to") or counts.get("calls"))
+
+
 def _section_sources_line(source_refs: list[dict[str, Any]]) -> str:
     refs = [
         f"[{_source_ref_label(ref)}]({_source_ref_href(ref)})"
@@ -1540,6 +1797,14 @@ def _mermaid_text(value: str) -> str:
 
 def _mermaid_edge_text(value: str) -> str:
     return _mermaid_text(value).replace("|", "/")
+
+
+def _mermaid_sequence_text(value: str) -> str:
+    return _mermaid_edge_text(value).replace(":", " -")
+
+
+def _mermaid_class_text(value: str) -> str:
+    return _mermaid_edge_text(value).replace("{", "(").replace("}", ")")
 
 
 def _slugify(value: str) -> str:

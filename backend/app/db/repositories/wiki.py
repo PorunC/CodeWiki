@@ -118,6 +118,21 @@ class WikiRepositoryMixin:
             ).fetchall()
         return [doc_page_from_row(row) for row in rows]
 
+    def delete_doc_pages_not_in(self, repo_id: str, slugs: list[str]) -> int:
+        if not slugs:
+            return 0
+        placeholders = ",".join("?" for _ in slugs)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                f"""
+                DELETE FROM doc_page
+                WHERE repo_id = ?
+                  AND slug NOT IN ({placeholders})
+                """,
+                (repo_id, *slugs),
+            )
+        return int(cursor.rowcount or 0)
+
     def mark_doc_pages_stale(
         self,
         repo_id: str,

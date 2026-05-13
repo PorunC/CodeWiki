@@ -17,15 +17,26 @@ Analysis workflow:
 
 Organization goals:
 - Build a navigable documentation tree, not a flat list of summaries.
+- Consider audience explicitly: new developers need "Getting Started" or a quick
+  orientation, users need a "User Guide" or "How to Use" section, contributors need
+  "Architecture" and "Developer Guide" sections, and operators need "Configuration",
+  "Deployment", or "Operations" only when those concerns are evidenced.
+- Prefer a DeepWiki-like progression when evidence supports it: Overview, Getting
+  Started/User Guide, System Architecture, Core Workflows, API Reference, Developer
+  Guide, and Operations.
+- Include at least one "how to use" section and one "how it works" section when the
+  repository has both API or UI surfaces and internal implementation layers.
 - Start with a top-level "Overview" page, then group pages by real systems, layers,
   workflows, data models, APIs, services, and frontend surfaces that appear in the
   provided graph.
 - Prefer 5-9 top-level pages. Use children only when a subsystem has enough retrieved
   evidence to justify a drill-down page.
-- Use `kind: "category"` for grouping nodes that should not have their own document.
-  Use `kind: "page"` for nodes that should generate Markdown content.
-- Prefer generating content only for leaf pages, except important parent pages such as
-  "Overview" or "Architecture" that genuinely need their own content.
+- Use `kind: "category"` for parent section pages that should receive lightweight
+  overview content and point readers to child pages. Use `kind: "page"` for focused
+  documents that carry implementation detail.
+- Prefer detailed content for leaf pages. Parent category pages should summarize the
+  child section, explain the mental model, and avoid repeating child implementation
+  details.
 - Page titles should be short and concrete, like "Architecture", "Wiki Generation",
   "GraphRAG Retrieval", or "Frontend Wiki View".
 - Each topic must be a retrieval query that names the concrete subsystem and key files,
@@ -34,7 +45,8 @@ Organization goals:
 - Use README and the compact directory tree to infer documentation boundaries, but keep
   every page grounded in graph nodes, edges, source chunks, or visible repository files.
 - Mirror DeepWiki's shape: broad overview first, architecture/system pages next,
-  then implementation areas and workflows with focused child pages.
+  then user-facing workflows, implementation areas, API references, developer
+  extension points, and operational topics with focused child pages.
 - Parent categories should have concise, meaningful names such as "Backend Services",
   "Graph Pipeline", "Wiki Generation", "Frontend", or "Operations" only when those
   boundaries are evident in the repository.
