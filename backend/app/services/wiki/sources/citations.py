@@ -1,9 +1,11 @@
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+
+from backend.app.services.wiki.sources.urls import _source_ref_href, _source_ref_label, _source_url
 
 CITATION_MARKER_RE = re.compile(r"\[\[(S\d+)\]\]")
+
 
 def _source_refs_from_chunks(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
     return [
@@ -154,63 +156,6 @@ def _include_markdown_citation_refs(
     return list(refs_by_citation_id.values())
 
 
-def _citation_sort_key(citation_id: str) -> tuple[int, str]:
-    suffix = citation_id.removeprefix("S")
-    return (int(suffix), citation_id) if suffix.isdigit() else (10**9, citation_id)
-
-
-def _allowed_refs_by_citation_id(
-    allowed_source_refs: list[dict[str, object]],
-) -> dict[str, dict[str, object]]:
-    refs: dict[str, dict[str, object]] = {}
-    for ref in allowed_source_refs:
-        citation_id = ref.get("citation_id")
-        if isinstance(citation_id, str) and citation_id:
-            refs[citation_id] = ref
-    return refs
-
-
-def _citation_id_for_range(
-    allowed_source_refs: list[dict[str, object]],
-    file_path: str,
-    start_line: int,
-    end_line: int,
-) -> str | None:
-    for ref in allowed_source_refs:
-        if (
-            ref.get("file_path") == file_path
-            and ref.get("start_line") == start_line
-            and ref.get("end_line") == end_line
-            and isinstance(ref.get("citation_id"), str)
-        ):
-            return str(ref["citation_id"])
-    return None
-
-
-def _chunk_ranges(chunks: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
-    ranges: dict[str, list[dict[str, object]]] = {}
-    for chunk in chunks:
-        file_path = chunk.get("file_path")
-        start_line = chunk.get("start_line")
-        end_line = chunk.get("end_line")
-        content = chunk.get("content")
-        if (
-            isinstance(file_path, str)
-            and isinstance(start_line, int)
-            and isinstance(end_line, int)
-            and isinstance(content, str)
-        ):
-            ranges.setdefault(file_path, []).append(
-                {
-                    "id": chunk.get("id"),
-                    "start_line": start_line,
-                    "end_line": end_line,
-                    "content": content,
-                }
-            )
-    return ranges
-
-
 def _validate_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) -> list[str]:
     markers = set(CITATION_MARKER_RE.findall(markdown))
     if not markers:
@@ -268,101 +213,58 @@ def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) 
     return CITATION_MARKER_RE.sub(replace_marker, markdown)
 
 
-def _compose_page_markdown(
-    markdown: str,
-    mermaid: str,
-    source_refs: list[dict[str, Any]],
-) -> str:
-    sections = [_insert_relevant_source_files(markdown.strip(), source_refs)]
-    if mermaid:
-        sections.append(mermaid.strip())
-    sections.append(_sources_markdown(source_refs))
-    return "\n\n".join(section for section in sections if section)
+def _citation_sort_key(citation_id: str) -> tuple[int, str]:
+    suffix = citation_id.removeprefix("S")
+    return (int(suffix), citation_id) if suffix.isdigit() else (10**9, citation_id)
 
 
-def _insert_relevant_source_files(markdown: str, source_refs: list[dict[str, Any]]) -> str:
-    if "## Relevant source files" in markdown:
-        return markdown
-
-    relevant = _relevant_source_files_markdown(source_refs)
-    lines = markdown.splitlines()
-    if lines and lines[0].startswith("# "):
-        rest = "\n".join(lines[1:]).strip()
-        return "\n\n".join(section for section in [lines[0], relevant, rest] if section)
-    return "\n\n".join(section for section in [relevant, markdown] if section)
-
-
-def _relevant_source_files_markdown(source_refs: list[dict[str, Any]]) -> str:
-    lines = ["## Relevant source files"]
-    seen: set[str] = set()
-    for ref in source_refs:
-        file_path = str(ref["file_path"])
-        if file_path in seen:
-            continue
-        seen.add(file_path)
-        lines.append(f"- [{file_path}]({_source_file_href(ref)})")
-    return "\n".join(lines)
+def _allowed_refs_by_citation_id(
+    allowed_source_refs: list[dict[str, object]],
+) -> dict[str, dict[str, object]]:
+    refs: dict[str, dict[str, object]] = {}
+    for ref in allowed_source_refs:
+        citation_id = ref.get("citation_id")
+        if isinstance(citation_id, str) and citation_id:
+            refs[citation_id] = ref
+    return refs
 
 
-def _sources_markdown(source_refs: list[dict[str, Any]]) -> str:
-    lines = ["## Sources"]
-    for ref in source_refs:
-        href = _source_ref_href(ref)
-        prefix = f"{ref['citation_id']} " if isinstance(ref.get("citation_id"), str) else ""
-        lines.append(
-            f"- {prefix}[{_source_ref_label(ref)}]({href})"
-        )
-    return "\n".join(lines)
+def _citation_id_for_range(
+    allowed_source_refs: list[dict[str, object]],
+    file_path: str,
+    start_line: int,
+    end_line: int,
+) -> str | None:
+    for ref in allowed_source_refs:
+        if (
+            ref.get("file_path") == file_path
+            and ref.get("start_line") == start_line
+            and ref.get("end_line") == end_line
+            and isinstance(ref.get("citation_id"), str)
+        ):
+            return str(ref["citation_id"])
+    return None
 
 
-def _source_ref_label(ref: dict[str, Any]) -> str:
-    return f"{ref['file_path']}:L{ref['start_line']}-L{ref['end_line']}"
-
-
-def _source_ref_href(ref: dict[str, Any]) -> str:
-    source_url = ref.get("source_url")
-    return source_url if isinstance(source_url, str) and source_url else "source-link"
-
-
-def _source_file_href(ref: dict[str, Any]) -> str:
-    source_url = ref.get("source_url")
-    if not isinstance(source_url, str) or not source_url:
-        return "source-link"
-    return re.sub(r"#L\d+(?:-L\d+)?$", "", source_url)
-
-
-def _source_url_base(git_url: str | None, commit_hash: str | None) -> str | None:
-    if not git_url:
-        return None
-    normalized = git_url.strip().rstrip("/")
-    if normalized.endswith(".git"):
-        normalized = normalized.removesuffix(".git")
-    if normalized.startswith("git@"):
-        host_and_path = normalized.removeprefix("git@")
-        host, _, repo_path = host_and_path.partition(":")
-        if host and repo_path:
-            normalized = f"https://{host}/{repo_path}"
-    ref = commit_hash or "HEAD"
-    if "gitlab" in normalized:
-        return f"{normalized}/-/blob/{ref}"
-    if "bitbucket.org" in normalized:
-        return f"{normalized}/src/{ref}"
-    return f"{normalized}/blob/{ref}"
-
-
-def _source_url(source_url_base: str, file_path: str, start_line: int, end_line: int) -> str:
-    return f"{source_url_base}/{quote(file_path, safe='/')}#L{start_line}-L{end_line}"
-
-
-def _draft_markdown(title: str, errors: list[str]) -> str:
-    lines = [
-        f"# {title}",
-        "",
-        "This page was not promoted because source reference validation failed.",
-        "",
-        "## Validation Errors",
-    ]
-    lines.extend(f"- {error}" for error in errors)
-    return "\n".join(lines)
-
-
+def _chunk_ranges(chunks: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    ranges: dict[str, list[dict[str, object]]] = {}
+    for chunk in chunks:
+        file_path = chunk.get("file_path")
+        start_line = chunk.get("start_line")
+        end_line = chunk.get("end_line")
+        content = chunk.get("content")
+        if (
+            isinstance(file_path, str)
+            and isinstance(start_line, int)
+            and isinstance(end_line, int)
+            and isinstance(content, str)
+        ):
+            ranges.setdefault(file_path, []).append(
+                {
+                    "id": chunk.get("id"),
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "content": content,
+                }
+            )
+    return ranges
