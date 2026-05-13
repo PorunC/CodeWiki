@@ -1559,16 +1559,70 @@ button.metadata-chip:disabled {
   color: var(--color-text-secondary);
   display: grid;
   font-size: 13px;
-  justify-items: center;
+  gap: 10px;
+  justify-items: stretch;
   margin: 0 0 14px;
   min-height: 120px;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.mermaid-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.mermaid-toolbar button {
+  align-items: center;
+  background: rgba(26, 27, 26, 0.96);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 7px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.mermaid-toolbar button:hover,
+.mermaid-toolbar button:focus-visible {
+  background: rgba(212, 165, 116, 0.1);
+  border-color: var(--color-border-medium);
+  color: var(--color-accent-strong);
+  outline: none;
+}
+
+.mermaid-toolbar span {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 40px;
+  text-align: center;
+}
+
+.mermaid-viewport {
+  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 7px;
+  max-height: 520px;
+  min-height: 160px;
   overflow: auto;
   padding: 14px;
 }
 
-.mermaid-block svg {
+.mermaid-canvas {
+  display: inline-block;
+  min-width: 100%;
+  transform-origin: top left;
+}
+
+.mermaid-canvas svg {
   height: auto;
-  max-width: 100%;
+  max-width: none;
 }
 
 .mermaid-block.is-loading {
@@ -1576,11 +1630,13 @@ button.metadata-chip:disabled {
   color: var(--color-text-muted);
   font-weight: 800;
   justify-items: center;
+  padding: 14px;
 }
 
 .mermaid-block.is-error {
   border-color: rgba(190, 86, 68, 0.32);
   justify-items: stretch;
+  padding: 14px;
 }
 
 .mermaid-block.is-error strong {

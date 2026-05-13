@@ -53,9 +53,14 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     assert page.source_refs[0]["file_path"] == "api.py"
     assert "fake --> invented" not in page.markdown
     assert "## Relevant source files\n- [api.py](source-link)" in page.markdown
-    assert "Title: Request Handler graph relationships" in page.markdown
+    assert "Title: Request Handler graph overview" in page.markdown
+    assert "### Component interaction" in page.markdown
     assert "```mermaid" in page.markdown
-    assert "-->|calls|" in page.markdown
+    assert "-->|calls / imports|" in page.markdown
+    assert 'C0["Api"]' in page.markdown
+    assert 'C1["Service"]' in page.markdown
+    assert "handler (function)" not in page.markdown
+    assert "answer (function)" not in page.markdown
     assert "Sources: [api.py:L3-L4](source-link)" in page.markdown
     assert "[api.py:L3-L4](source-link)" in page.markdown
     assert page.graph_refs

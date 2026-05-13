@@ -1,4 +1,4 @@
-import { BookOpenText, FileText, RefreshCw } from "lucide-react";
+import { BookOpenText, FileText, RefreshCw, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -331,6 +331,11 @@ function MermaidBlock({ chart }: { chart: string }) {
   );
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    setScale(1);
+  }, [chart]);
 
   useEffect(() => {
     let cancelled = false;
@@ -386,7 +391,44 @@ function MermaidBlock({ chart }: { chart: string }) {
     return <div className="mermaid-block is-loading">Rendering diagram...</div>;
   }
 
-  return <div className="mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return (
+    <div className="mermaid-block">
+      <div className="mermaid-toolbar" aria-label="Diagram zoom controls">
+        <button
+          type="button"
+          title="Zoom out"
+          aria-label="Zoom out"
+          onClick={() => setScale((current) => Math.max(0.5, Number((current - 0.1).toFixed(2))))}
+        >
+          <ZoomOut size={14} />
+        </button>
+        <span>{Math.round(scale * 100)}%</span>
+        <button
+          type="button"
+          title="Zoom in"
+          aria-label="Zoom in"
+          onClick={() => setScale((current) => Math.min(2.4, Number((current + 0.1).toFixed(2))))}
+        >
+          <ZoomIn size={14} />
+        </button>
+        <button
+          type="button"
+          title="Reset zoom"
+          aria-label="Reset zoom"
+          onClick={() => setScale(1)}
+        >
+          <RotateCcw size={14} />
+        </button>
+      </div>
+      <div className="mermaid-viewport">
+        <div
+          className="mermaid-canvas"
+          style={{ transform: `scale(${scale})` }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+    </div>
+  );
 }
 
 function loadMermaid(): Promise<typeof import("mermaid").default> {

@@ -15,9 +15,15 @@ from backend.app.services.repo_context import RepositoryContextBuilder
 
 MERMAID_FENCE_RE = re.compile(r"```mermaid.*?```", re.DOTALL | re.IGNORECASE)
 CITATION_MARKER_RE = re.compile(r"\[\[(S\d+)\]\]")
-SOURCE_EDGE_TYPES = {"calls", "imports", "contains"}
+ABSTRACT_DIAGRAM_EDGE_TYPES = {"routes_to", "calls", "imports", "inherits", "exports"}
+SOURCE_EDGE_TYPES = ABSTRACT_DIAGRAM_EDGE_TYPES | {"contains", "defines"}
+SURFACE_NODE_TYPES = {"endpoint", "class", "schema", "interface"}
+EDGE_LABEL_ORDER = ("routes_to", "calls", "imports", "inherits", "exports")
 MAX_CATALOG_ITEMS = 14
 MAX_MERMAID_EDGES = 28
+MAX_MERMAID_COMPONENTS = 10
+MAX_MERMAID_ABSTRACT_EDGES = 14
+MAX_MERMAID_SURFACES = 10
 MAX_SOURCE_HINT_CHUNKS = 10
 MAX_SOURCE_HINT_CHUNKS_PER_FILE = 3
 CATALOG_GENERATION_ATTEMPTS = 3
@@ -29,6 +35,23 @@ REQUIRED_PAGE_HEADINGS = ("## Purpose and Scope",)
 class PageGenerationResult:
     page: DocPageRecord
     validation_errors: list[str]
+
+
+@dataclass(frozen=True)
+class _MermaidGroup:
+    key: str
+    label: str
+    kind: str
+    rank: int
+
+
+@dataclass
+class _MermaidEdgeAggregate:
+    source_key: str
+    target_key: str
+    counts: dict[str, int]
+    confidence_total: float = 0.0
+    evidence_count: int = 0
 
 
 class WikiGenerator:
@@ -410,7 +433,7 @@ def _page_messages(
 ) -> list[dict[str, str]]:
     instruction = (
         "Return only a JSON object. Do not include Mermaid blocks; the server "
-        "will generate diagrams from graph_edges_for_mermaid. source_refs must "
+        "will generate abstract diagrams from validated graph facts. source_refs must "
         "be selected from allowed_source_refs. Use [[S#]] citation markers only "
         "for source refs you return. Use catalog_context.related_pages only for "
         "real related-page mentions; do not invent wiki pages or links."
@@ -1142,33 +1165,359 @@ def _mermaid_from_trace(
         for node in [*trace.seed_nodes, *trace.expanded_nodes]
         if "id" in node
     }
-    edges = [
-        edge
-        for edge in trace.related_edges
-        if edge.get("type") in SOURCE_EDGE_TYPES
-        and edge.get("source_id") in nodes
-        and edge.get("target_id") in nodes
-    ][:MAX_MERMAID_EDGES]
-    if not edges:
+    if not nodes:
         return ""
 
-    node_aliases: dict[str, str] = {}
-    graph_title = f"{title} graph relationships" if title else "Graph relationships"
-    lines = ["## Graph", "", f"Title: {graph_title}", "", "```mermaid", "flowchart TD"]
-    for edge in edges:
-        source_id = str(edge["source_id"])
-        target_id = str(edge["target_id"])
-        source_alias = node_aliases.setdefault(source_id, f"N{len(node_aliases)}")
-        target_alias = node_aliases.setdefault(target_id, f"N{len(node_aliases)}")
-        source_label = _mermaid_label(nodes[source_id])
-        target_label = _mermaid_label(nodes[target_id])
-        edge_type = _mermaid_text(str(edge["type"]))
-        lines.append(f'  {source_alias}["{source_label}"] -->|{edge_type}| {target_alias}["{target_label}"]')
-    lines.append("```")
+    diagrams: list[tuple[str, list[str]]] = []
+    component_diagram = _abstract_component_diagram(trace, nodes)
+    if component_diagram:
+        diagrams.append(("Component interaction", component_diagram))
+
+    surface_diagram = _key_surface_diagram(trace, nodes)
+    if surface_diagram:
+        diagrams.append(("Key surfaces", surface_diagram))
+
+    if not diagrams:
+        return ""
+
+    graph_title = f"{title} graph overview" if title else "Graph overview"
+    lines = ["## Graph", "", f"Title: {graph_title}"]
+    for diagram_title, diagram_lines in diagrams:
+        lines.extend(["", f"### {diagram_title}", "", "```mermaid"])
+        lines.extend(diagram_lines)
+        lines.append("```")
     source_line = _section_sources_line(source_refs or [])
     if source_line:
         lines.extend(["", source_line])
     return "\n".join(lines)
+
+
+def _abstract_component_diagram(
+    trace: RetrievalTrace,
+    nodes: dict[str, dict[str, object]],
+) -> list[str]:
+    community_groups, community_edges = _aggregate_component_edges(
+        trace,
+        nodes,
+        group_mode="community",
+    )
+    if community_edges and len(community_groups) > 1:
+        return _render_component_diagram(community_groups, community_edges)
+
+    file_groups, file_edges = _aggregate_component_edges(
+        trace,
+        nodes,
+        group_mode="file",
+    )
+    if not file_edges or len(file_groups) <= 1:
+        return []
+    return _render_component_diagram(file_groups, file_edges)
+
+
+def _aggregate_component_edges(
+    trace: RetrievalTrace,
+    nodes: dict[str, dict[str, object]],
+    *,
+    group_mode: str,
+) -> tuple[dict[str, _MermaidGroup], list[_MermaidEdgeAggregate]]:
+    community_index = _community_index(trace.community_summaries)
+    groups: dict[str, _MermaidGroup] = {}
+    aggregates: dict[tuple[str, str], _MermaidEdgeAggregate] = {}
+
+    for edge in trace.related_edges:
+        edge_type = str(edge.get("type") or "")
+        if edge_type not in ABSTRACT_DIAGRAM_EDGE_TYPES:
+            continue
+        source_id = _edge_endpoint(edge, "source_id", "source")
+        target_id = _edge_endpoint(edge, "target_id", "target")
+        source_node = nodes.get(source_id)
+        target_node = nodes.get(target_id)
+        if source_node is None or target_node is None:
+            continue
+
+        source_group = _abstract_group_for_node(
+            source_node,
+            community_index=community_index,
+            group_mode=group_mode,
+        )
+        target_group = _abstract_group_for_node(
+            target_node,
+            community_index=community_index,
+            group_mode=group_mode,
+        )
+        if source_group.key == target_group.key:
+            continue
+
+        groups[source_group.key] = source_group
+        groups[target_group.key] = target_group
+        aggregate_key = (source_group.key, target_group.key)
+        aggregate = aggregates.setdefault(
+            aggregate_key,
+            _MermaidEdgeAggregate(
+                source_key=source_group.key,
+                target_key=target_group.key,
+                counts={},
+            ),
+        )
+        aggregate.counts[edge_type] = aggregate.counts.get(edge_type, 0) + 1
+        aggregate.confidence_total += _edge_confidence(edge)
+        aggregate.evidence_count += 1
+
+    selected = _select_component_edges(list(aggregates.values()))
+    selected_group_keys = {edge.source_key for edge in selected} | {edge.target_key for edge in selected}
+    return (
+        {key: group for key, group in groups.items() if key in selected_group_keys},
+        selected,
+    )
+
+
+def _select_component_edges(edges: list[_MermaidEdgeAggregate]) -> list[_MermaidEdgeAggregate]:
+    selected: list[_MermaidEdgeAggregate] = []
+    selected_groups: set[str] = set()
+    for edge in sorted(edges, key=_component_edge_sort_key):
+        proposed_groups = selected_groups | {edge.source_key, edge.target_key}
+        if selected and len(proposed_groups) > MAX_MERMAID_COMPONENTS:
+            continue
+        selected.append(edge)
+        selected_groups = proposed_groups
+        if len(selected) >= MAX_MERMAID_ABSTRACT_EDGES:
+            break
+    return selected
+
+
+def _component_edge_sort_key(edge: _MermaidEdgeAggregate) -> tuple[float, str, str]:
+    type_weight = {
+        "routes_to": 6.0,
+        "calls": 4.5,
+        "imports": 3.5,
+        "inherits": 2.8,
+        "exports": 1.8,
+    }
+    score = sum(type_weight.get(edge_type, 1.0) * min(count, 4) for edge_type, count in edge.counts.items())
+    if edge.evidence_count:
+        score += edge.confidence_total / edge.evidence_count
+    return (-score, edge.source_key, edge.target_key)
+
+
+def _render_component_diagram(
+    groups: dict[str, _MermaidGroup],
+    edges: list[_MermaidEdgeAggregate],
+) -> list[str]:
+    aliases = {
+        key: f"C{index}"
+        for index, key in enumerate(
+            sorted(groups, key=lambda key: (groups[key].rank, groups[key].label, key))
+        )
+    }
+    lines = ["flowchart LR"]
+    for key in aliases:
+        group = groups[key]
+        lines.append(f'  {aliases[key]}["{_mermaid_text(group.label)}"]')
+    for edge in edges:
+        source_alias = aliases.get(edge.source_key)
+        target_alias = aliases.get(edge.target_key)
+        if source_alias is None or target_alias is None:
+            continue
+        label = _edge_label(edge.counts)
+        lines.append(f"  {source_alias} -->|{label}| {target_alias}")
+    return lines
+
+
+def _key_surface_diagram(
+    trace: RetrievalTrace,
+    nodes: dict[str, dict[str, object]],
+) -> list[str]:
+    community_index = _community_index(trace.community_summaries)
+    surfaces = _select_surface_nodes([*trace.seed_nodes, *trace.expanded_nodes])
+    if not surfaces:
+        return []
+
+    groups: dict[str, _MermaidGroup] = {}
+    surface_aliases: dict[str, str] = {}
+    lines = ["flowchart TD"]
+    for surface in surfaces:
+        node_id = str(surface.get("id") or "")
+        if not node_id or node_id not in nodes:
+            continue
+        group = _abstract_group_for_node(
+            surface,
+            community_index=community_index,
+            group_mode="community",
+        )
+        if group.kind != "community":
+            group = _abstract_group_for_node(
+                surface,
+                community_index=community_index,
+                group_mode="file",
+            )
+        groups[group.key] = group
+        surface_aliases[node_id] = f"S{len(surface_aliases)}"
+
+    group_aliases = {
+        key: f"G{index}"
+        for index, key in enumerate(
+            sorted(groups, key=lambda key: (groups[key].rank, groups[key].label, key))
+        )
+    }
+    for key in group_aliases:
+        lines.append(f'  {group_aliases[key]}["{_mermaid_text(groups[key].label)}"]')
+    for surface in surfaces:
+        node_id = str(surface.get("id") or "")
+        surface_alias = surface_aliases.get(node_id)
+        if surface_alias is None:
+            continue
+        group = _abstract_group_for_node(
+            surface,
+            community_index=community_index,
+            group_mode="community",
+        )
+        if group.kind != "community":
+            group = _abstract_group_for_node(
+                surface,
+                community_index=community_index,
+                group_mode="file",
+            )
+        group_alias = group_aliases.get(group.key)
+        if group_alias is None:
+            continue
+        lines.append(f'  {surface_alias}["{_surface_label(surface)}"]')
+        lines.append(f"  {group_alias} --> {surface_alias}")
+
+    return lines if len(lines) > 1 else []
+
+
+def _select_surface_nodes(nodes: list[dict[str, object]]) -> list[dict[str, object]]:
+    candidates = [
+        node
+        for node in nodes
+        if str(node.get("type") or "") in SURFACE_NODE_TYPES
+    ]
+    return sorted(
+        candidates,
+        key=lambda node: (
+            _surface_rank(str(node.get("type") or "")),
+            int(node.get("hop") or 0),
+            -float(node.get("score") or 0.0),
+            str(node.get("file_path") or ""),
+            str(node.get("name") or ""),
+        ),
+    )[:MAX_MERMAID_SURFACES]
+
+
+def _surface_rank(node_type: str) -> int:
+    return {
+        "endpoint": 0,
+        "schema": 1,
+        "class": 2,
+        "interface": 3,
+    }.get(node_type, 9)
+
+
+def _surface_label(node: dict[str, object]) -> str:
+    node_type = str(node.get("type") or "")
+    metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+    if node_type == "endpoint":
+        method = str(metadata.get("route_method") or "").upper()
+        route_path = str(metadata.get("route_path") or "")
+        if method or route_path:
+            return _mermaid_text(" ".join(part for part in [method, route_path] if part))
+    return _mermaid_label(node)
+
+
+def _community_index(communities: list[dict[str, object]]) -> dict[str, _MermaidGroup]:
+    index: dict[str, _MermaidGroup] = {}
+    for rank, community in enumerate(communities):
+        community_id = str(community.get("id") or "")
+        if not community_id:
+            continue
+        label = str(community.get("name") or community_id.rsplit(":", 1)[-1])
+        group = _MermaidGroup(
+            key=f"community:{community_id}",
+            label=label,
+            kind="community",
+            rank=rank,
+        )
+        raw_node_ids = [
+            *_string_list(community.get("matched_node_ids")),
+            *_string_list(community.get("node_ids")),
+        ]
+        for node_id in raw_node_ids:
+            if node_id:
+                index.setdefault(node_id, group)
+    return index
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
+def _abstract_group_for_node(
+    node: dict[str, object],
+    *,
+    community_index: dict[str, _MermaidGroup],
+    group_mode: str,
+) -> _MermaidGroup:
+    node_id = str(node.get("id") or "")
+    if group_mode == "community" and node_id in community_index:
+        return community_index[node_id]
+
+    metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+    name = str(node.get("name") or node_id)
+    if str(node.get("type") or "") == "module" and metadata.get("external"):
+        return _MermaidGroup(
+            key=f"external:{name}",
+            label=f"External: {name}",
+            kind="external",
+            rank=90,
+        )
+
+    file_path = str(node.get("file_path") or "")
+    if file_path:
+        return _MermaidGroup(
+            key=f"file:{file_path}",
+            label=_component_label(file_path),
+            kind="file",
+            rank=20,
+        )
+
+    return _MermaidGroup(
+        key=f"node:{node_id}",
+        label=_mermaid_label(node),
+        kind="node",
+        rank=80,
+    )
+
+
+def _component_label(file_path: str) -> str:
+    parts = [part for part in file_path.split("/") if part]
+    if len(parts) >= 2:
+        return f"{parts[-2]}/{parts[-1]}"
+    return file_path
+
+
+def _edge_endpoint(edge: dict[str, object], primary: str, fallback: str) -> str:
+    value = edge.get(primary) or edge.get(fallback)
+    return str(value or "")
+
+
+def _edge_confidence(edge: dict[str, object]) -> float:
+    confidence = edge.get("confidence")
+    if isinstance(confidence, int | float):
+        return float(confidence)
+    return 1.0
+
+
+def _edge_label(counts: dict[str, int]) -> str:
+    labels = []
+    for edge_type in EDGE_LABEL_ORDER:
+        count = counts.get(edge_type, 0)
+        if not count:
+            continue
+        label = edge_type.replace("_", " ")
+        labels.append(f"{label} x{count}" if count > 1 else label)
+    return _mermaid_edge_text(" / ".join(labels))
 
 
 def _section_sources_line(source_refs: list[dict[str, Any]]) -> str:
@@ -1187,6 +1536,10 @@ def _mermaid_label(node: dict[str, object]) -> str:
 
 def _mermaid_text(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', "'").replace("\n", " ")[:80]
+
+
+def _mermaid_edge_text(value: str) -> str:
+    return _mermaid_text(value).replace("|", "/")
 
 
 def _slugify(value: str) -> str:
