@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import type { GraphResponse } from "../api/client";
+import type { GraphResponse } from "../api/types";
 import {
   buildFileDetailGraph,
   buildFocusGraph,

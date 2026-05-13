@@ -1,4 +1,4 @@
-import type { CodeNode } from "../api/client";
+import type { CodeNode } from "../api/types";
 import { compactFilePath, fileDisplayName, filePathLabel, formatLineRange } from "./formatters";
 import { nodeTone } from "./styles";
 import type { CodeVisualData, ContainmentIndex, NodeStats } from "./types";

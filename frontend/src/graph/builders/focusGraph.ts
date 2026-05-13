@@ -1,4 +1,4 @@
-import type { GraphResponse } from "../../api/client";
+import type { GraphResponse } from "../../api/types";
 import { FILE_NODE_WIDTH, FOCUS_NODE_HEIGHT } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
 import { formatLineRange, nodeSummary } from "../formatters";

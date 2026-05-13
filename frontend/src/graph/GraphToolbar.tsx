@@ -1,6 +1,6 @@
 import { FileCode2, Focus, Network } from "lucide-react";
 
-import type { RepoSummary } from "../api/client";
+import type { RepoSummary } from "../api/types";
 import { ModeButton } from "./GraphControls";
 import type { GraphViewMode } from "./graphModel";
 

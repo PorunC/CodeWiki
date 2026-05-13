@@ -1,0 +1,82 @@
+.react-flow__background {
+  background: #080909;
+}
+
+.react-flow__node {
+  overflow-wrap: anywhere;
+}
+
+.react-flow__node-code,
+.react-flow__node-container {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.react-flow__edge-text {
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.react-flow__edge.code-flow-edge .react-flow__edge-path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition:
+    filter 180ms ease,
+    opacity 180ms ease,
+    stroke 180ms ease,
+    stroke-width 180ms ease;
+}
+
+.react-flow__edge.code-flow-edge.is-flowing:not(.is-muted) .react-flow__edge-path {
+  animation: edgeFlow 1.7s linear infinite;
+  stroke-dasharray: 10 8 !important;
+}
+
+.react-flow__edge.code-flow-edge.is-inferred:not(.is-active):not(.is-muted) .react-flow__edge-path {
+  animation-duration: 1.35s;
+  stroke-dasharray: 7 6 !important;
+}
+
+.react-flow__edge.code-flow-edge.is-active .react-flow__edge-path {
+  animation: edgeFlow 0.95s linear infinite;
+  filter:
+    drop-shadow(0 0 5px rgba(232, 196, 154, 0.42))
+    drop-shadow(0 0 12px rgba(212, 165, 116, 0.22));
+  stroke-dasharray: 12 8 !important;
+}
+
+.react-flow__edge.code-flow-edge.is-muted .react-flow__edge-path {
+  animation: none;
+  filter: none;
+}
+
+.react-flow__edge.code-flow-edge.is-active .react-flow__edge-text {
+  filter: drop-shadow(0 0 8px rgba(232, 196, 154, 0.28));
+}
+
+.react-flow__controls {
+  background: rgba(20, 21, 21, 0.86);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: transparent;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(212, 165, 116, 0.08);
+}
+
+.react-flow__minimap {
+  background: rgba(16, 17, 17, 0.92);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  box-shadow: var(--shadow-panel);
+}
+

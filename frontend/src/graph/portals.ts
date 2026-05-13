@@ -1,4 +1,4 @@
-import type { CodeEdge, CodeNode, GraphResponse } from "../api/client";
+import type { CodeEdge, CodeNode, GraphResponse } from "../api/types";
 import { FILE_NODE_HEIGHT, FILE_NODE_WIDTH } from "./constants";
 import { filePathLabel } from "./formatters";
 import { nodeSize } from "./layout";

@@ -1,0 +1,122 @@
+.side-panel {
+  border-bottom: 1px solid var(--color-border-subtle);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.side-panel header {
+  display: grid;
+  gap: 4px;
+}
+
+.wiki-panel {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+}
+
+.wiki-header {
+  align-items: center;
+  display: flex !important;
+  gap: 14px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.wiki-header h2 {
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+
+.wiki-summary {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.wiki-repo-bar {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
+}
+
+.wiki-repo-bar .field {
+  min-width: 0;
+}
+
+.wiki-repo-bar select {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  min-height: 38px;
+  outline: none;
+  padding: 8px 10px;
+}
+
+.wiki-repo-bar select:focus {
+  border-color: var(--color-border-medium);
+  box-shadow: 0 0 0 3px rgba(212, 165, 116, 0.1);
+}
+
+.wiki-repo-path {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  padding-bottom: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-summary div {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.wiki-summary span {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.wiki-summary strong {
+  color: var(--color-accent-strong);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.wiki-state {
+  background: rgba(74, 124, 155, 0.1);
+  border: 1px solid rgba(74, 124, 155, 0.22);
+  border-radius: 8px;
+  color: #a9c6f5;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+  padding: 10px 12px;
+}
+
+.wiki-state.is-error {
+  background: rgba(190, 86, 68, 0.12);
+  border-color: rgba(190, 86, 68, 0.28);
+  color: #f0a08c;
+}
+
+.wiki-browser {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+}
+

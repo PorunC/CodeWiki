@@ -1,4 +1,4 @@
-import type { CodeEdge, CodeNode } from "../api/client";
+import type { CodeEdge, CodeNode } from "../api/types";
 import type { GraphViewMode } from "./types";
 
 export function formatLineRange(node: CodeNode): string {

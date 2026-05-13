@@ -1,6 +1,6 @@
 import { MarkerType } from "@xyflow/react";
 
-import type { CodeEdge } from "../api/client";
+import type { CodeEdge } from "../api/types";
 import { SOURCE_HANDLE_ID, TARGET_HANDLE_ID } from "./constants";
 import { edgeTone } from "./styles";
 import type { EdgeBucket, FlowEdge, GraphViewMode } from "./types";

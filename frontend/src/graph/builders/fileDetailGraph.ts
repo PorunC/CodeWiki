@@ -1,4 +1,4 @@
-import type { CodeNode, GraphResponse } from "../../api/client";
+import type { CodeNode, GraphResponse } from "../../api/types";
 import {
   FILE_DETAIL_WIDTH,
   FILE_NODE_WIDTH,

@@ -1,6 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 
-import type { CodeEdge, CodeNode } from "../api/client";
+import type { CodeEdge, CodeNode } from "../api/types";
 
 export type GraphViewMode = "overview" | "file" | "focus";
 

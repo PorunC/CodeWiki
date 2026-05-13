@@ -1,4 +1,4 @@
-import type { CodeNode, GraphResponse } from "../api/client";
+import type { CodeNode, GraphResponse } from "../api/types";
 import type { ContainmentIndex, VisualNodeData } from "./types";
 import { compareBySourceOrder } from "./fileGrouping";
 

@@ -1,4 +1,4 @@
-import type { CodeEdge, CodeNode } from "../api/client";
+import type { CodeEdge, CodeNode } from "../api/types";
 import {
   FILE_NODE_HEIGHT,
   FILE_NODE_WIDTH,

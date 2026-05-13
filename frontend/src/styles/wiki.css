@@ -1,0 +1,5 @@
+@import "./wiki/layout.css";
+@import "./wiki/catalog.css";
+@import "./wiki/article.css";
+@import "./wiki/mermaid.css";
+@import "./wiki/sources.css";

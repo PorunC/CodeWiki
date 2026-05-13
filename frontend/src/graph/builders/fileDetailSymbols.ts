@@ -1,4 +1,4 @@
-import type { CodeNode } from "../../api/client";
+import type { CodeNode } from "../../api/types";
 import { GROUP_HEADER_HEIGHT, SYMBOL_NODE_HEIGHT, SYMBOL_NODE_WIDTH } from "../constants";
 import {
   classDisplayName,

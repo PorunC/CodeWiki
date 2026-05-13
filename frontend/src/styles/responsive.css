@@ -1,0 +1,120 @@
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 165, 116, 0.22);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 165, 116, 0.36);
+}
+
+@media (max-width: 1200px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  body {
+    overflow: auto;
+  }
+
+  .graph-panel {
+    min-height: 760px;
+  }
+
+  .assistant-rail {
+    border-left: 0;
+    border-top: 1px solid var(--color-border-subtle);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .app-header,
+  .graph-toolbar {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .app-header {
+    flex-wrap: wrap;
+  }
+
+  .brand-block {
+    min-width: 0;
+  }
+
+  .runtime-status {
+    margin-left: auto;
+  }
+
+  .graph-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-filters,
+  .node-details {
+    border-left: 0;
+    border-right: 0;
+    max-height: 280px;
+  }
+
+  .flow-frame {
+    min-height: 520px;
+  }
+
+  .workspace.is-section-wiki .wiki-browser {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace.is-section-wiki .wiki-catalog {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding: 12px;
+  }
+
+  .top-nav {
+    order: 3;
+    width: 100%;
+  }
+
+  .top-nav a {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .assistant-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .wiki-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .wiki-repo-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .wiki-repo-path {
+    padding-bottom: 0;
+  }
+
+  .wiki-article,
+  .workspace.is-section-wiki .wiki-panel {
+    padding: 14px;
+  }
+}
+

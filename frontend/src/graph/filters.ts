@@ -1,4 +1,4 @@
-import type { GraphResponse } from "../api/client";
+import type { GraphResponse } from "../api/types";
 import type { FilteredGraph } from "./types";
 
 export function filterRawGraph(

@@ -1,4 +1,4 @@
-import type { CodeEdge } from "../api/client";
+import type { CodeEdge } from "../api/types";
 import type { NodeStats } from "./types";
 
 export function computeStatsByRawNode(edges: CodeEdge[]): Map<string, NodeStats> {

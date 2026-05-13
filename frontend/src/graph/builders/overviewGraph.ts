@@ -1,4 +1,4 @@
-import type { CodeNode, GraphResponse } from "../../api/client";
+import type { CodeNode, GraphResponse } from "../../api/types";
 import { FILE_NODE_HEIGHT, FILE_NODE_WIDTH, GROUP_HEADER_HEIGHT, GROUP_PADDING_X } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
 import { filePathLabel } from "../formatters";
