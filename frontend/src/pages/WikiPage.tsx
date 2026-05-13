@@ -1,6 +1,7 @@
 import { BookOpenText, FileText, RefreshCw } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import {
   getRepos,
@@ -295,7 +296,9 @@ function WikiArticle({ page }: { page: WikiPageRecord }) {
       </div>
 
       <div className="wiki-markdown">
-        <ReactMarkdown components={markdownComponents}>{markdown}</ReactMarkdown>
+        <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+          {markdown}
+        </ReactMarkdown>
       </div>
 
       {page.source_refs.length > 0 ? (

@@ -1,6 +1,20 @@
 You are generating a DeepWiki-style Code Wiki catalog from a repository graph and
 repository context.
 
+Analysis workflow:
+- First read the repository README, entry points, compact directory tree, and graph
+  evidence in the payload before deciding pages.
+- Treat the directory tree and graph as a module map. Group related files, symbols,
+  routes, models, and workflows into logical developer-facing modules.
+- Identify the main systems, capabilities, and workflows, not individual files or
+  classes.
+- Cross-check each proposed page against source_hints, graph nodes, source chunks,
+  entry points, or README claims.
+- If a topic is only weakly evidenced, merge it into a broader page instead of
+  creating a thin page.
+- Prefer a leaf-first mindset: child pages carry implementation detail, while parent
+  categories or parent pages summarize how those children fit together.
+
 Organization goals:
 - Build a navigable documentation tree, not a flat list of summaries.
 - Start with a top-level "Overview" page, then group pages by real systems, layers,
@@ -21,6 +35,28 @@ Organization goals:
   every page grounded in graph nodes, edges, source chunks, or visible repository files.
 - Mirror DeepWiki's shape: broad overview first, architecture/system pages next,
   then implementation areas and workflows with focused child pages.
+- Parent categories should have concise, meaningful names such as "Backend Services",
+  "Graph Pipeline", "Wiki Generation", "Frontend", or "Operations" only when those
+  boundaries are evident in the repository.
+- Prefer pages such as Overview, Architecture, Core Workflows, API Surface,
+  Data Model, Configuration, Frontend/UI, Testing, and Operations only when those
+  topics are actually present in the repository evidence.
+- Keep child paths stable and URL-friendly. Use child pages for meaningful drill-downs,
+  not for every source file.
+- Exclude tests, docs, examples, generated output, and scaffolding from core feature
+  pages unless the page is explicitly about testing, documentation, examples, or
+  operations.
+
+Coverage checklist:
+- Include the application bootstrap or runtime entry points when present.
+- Include public API or UI surfaces when present.
+- Include data persistence, schemas, migrations, or storage models when present.
+- Include core pipelines, background jobs, indexing, retrieval, generation, or
+  rendering workflows when present.
+- Include configuration, environment variables, deployment, or operational concerns
+  only when evidenced by repository files.
+- If a complex subsystem has several strongly related files, create one detailed page
+  for the subsystem instead of one page per file.
 
 Rules:
 - Use only the provided graph context, community summaries, nodes, edges, and source
@@ -28,6 +64,8 @@ Rules:
 - Do not invent modules, APIs, files, dependencies, or deployment surfaces.
 - Return a concise hierarchy suitable for a developer-facing wiki.
 - Return only JSON in the requested shape.
+- Do not create pages for individual helpers, single tests, or isolated classes unless
+  they are the primary public surface of the repository.
 
 Catalog item shape:
 - `title`: display name.
@@ -35,6 +73,9 @@ Catalog item shape:
 - `path`: URL-safe path, usually same as slug.
 - `order`: integer ordering inside its parent.
 - `kind`: `"page"` or `"category"`.
-- `topic`: retrieval query for this page.
-- `source_hints`: array of relevant file paths.
+- `topic`: retrieval query for this page. Name the concrete subsystem, workflow,
+  files, symbols, endpoints, models, and configuration keys that should be retrieved.
+- `source_hints`: array of relevant file paths. Include the most important P0/P1
+  files for the page: primary implementation, public contracts, routes, models,
+  configuration, and representative tests when they clarify behavior.
 - `children`: nested catalog items.

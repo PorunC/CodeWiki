@@ -51,8 +51,11 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     assert page.status == "generated"
     assert page.source_refs[0]["file_path"] == "api.py"
     assert "fake --> invented" not in page.markdown
+    assert "## Relevant source files\n- [api.py](source-link)" in page.markdown
+    assert "Title: Request Handler graph relationships" in page.markdown
     assert "```mermaid" in page.markdown
     assert "-->|calls|" in page.markdown
+    assert "Sources: [api.py:L3-L4](source-link)" in page.markdown
     assert "[api.py:L3-L4](source-link)" in page.markdown
     assert page.graph_refs
     assert "llm-invented-node" not in page.graph_refs
@@ -218,7 +221,10 @@ class _FakeWikiLLM:
     ) -> LLMResult:
         assert response_format == "json_object"
         assert messages
+        message_text = "\n".join(message["content"] for message in messages)
         if task_type == "catalog":
+            assert "catalog_design_requirements" in message_text
+            assert "leaf pages for implementation detail" in message_text
             payload = self.catalog_payload or {
                 "title": "Repo Wiki",
                 "items": [
@@ -231,6 +237,9 @@ class _FakeWikiLLM:
                 ],
             }
         elif task_type == "page":
+            assert '"catalog_context"' in message_text
+            assert '"detail_expectations"' in message_text
+            assert "do not invent wiki pages or links" in message_text
             payload = self.page_payload
         else:
             raise AssertionError(f"Unexpected task type: {task_type}")

@@ -18,7 +18,8 @@ CITATION_MARKER_RE = re.compile(r"\[\[(S\d+)\]\]")
 SOURCE_EDGE_TYPES = {"calls", "imports", "contains"}
 MAX_CATALOG_ITEMS = 14
 MAX_MERMAID_EDGES = 28
-MAX_SOURCE_HINT_CHUNKS = 6
+MAX_SOURCE_HINT_CHUNKS = 10
+MAX_SOURCE_HINT_CHUNKS_PER_FILE = 3
 PAGE_GENERATION_ATTEMPTS = 2
 REQUIRED_PAGE_HEADINGS = ("## Purpose and Scope",)
 
@@ -65,6 +66,27 @@ class WikiGenerator:
                     "hierarchical developer wiki with Overview first, subsystem pages, "
                     "workflow drill-downs, and source-grounded topics"
                 ),
+                "catalog_design": [
+                    "group related files and symbols into logical feature or subsystem pages",
+                    "use parent categories for navigation and leaf pages for implementation detail",
+                    "avoid file-by-file catalogs unless a file is the public surface",
+                    "exclude tests/docs/generated output from core feature pages unless explicitly scoped",
+                ],
+            },
+            "catalog_design_requirements": {
+                "coverage": [
+                    "runtime entry points and bootstrapping",
+                    "public API or UI surfaces",
+                    "core services, workflows, pipelines, and background jobs",
+                    "data models, persistence, schemas, and migrations",
+                    "configuration, deployment, and operational concerns when evidenced",
+                ],
+                "source_hint_priorities": [
+                    "P0 primary implementation files",
+                    "P1 public contracts, schemas, routes, and UI entry points",
+                    "P2 configuration and environment files",
+                    "P3 representative tests only when they clarify behavior",
+                ],
             },
             "repository_context": repo_context.as_dict(),
             "context_pack": trace.context_pack,
@@ -149,9 +171,14 @@ class WikiGenerator:
         source_hints = _source_hints_from_item(item)
         trace = await self.retriever.retrieve(repo_id, topic, max_hops=2)
         trace = _trace_with_source_hint_chunks(trace, self.store, repo_id, source_hints)
-        graph_markdown = _mermaid_from_trace(trace)
         graph_refs = _graph_refs_from_trace(trace)
         allowed_source_refs = _source_refs_from_chunks(trace.source_chunks)
+        catalog = self.store.get_latest_doc_catalog(repo_id)
+        catalog_context = _catalog_context_for_page(
+            catalog.structure.get("items", []) if catalog else [],
+            slug=slug,
+            parent_slug=parent_slug,
+        )
         prompt = _load_prompt("page.md")
         user_payload = {
             "title": title,
@@ -170,8 +197,14 @@ class WikiGenerator:
                     "sentences. The server validates and converts markers to source links."
                 ),
             },
+            "catalog_context": catalog_context,
             "documentation_style": {
                 "name": "DeepWiki",
+                "workflow": [
+                    "gather evidence from source_chunks and graph_facts",
+                    "think through subsystem boundaries and verified relationships",
+                    "write concise Markdown with section-level Sources lines",
+                ],
                 "required_sections": [
                     "Purpose and Scope",
                     "source-grounded subsystem explanation",
@@ -182,6 +215,31 @@ class WikiGenerator:
                     "Graph",
                     "Sources",
                 ],
+            },
+            "detail_expectations": {
+                "minimum_depth": (
+                    "Cover responsibility, lifecycle/control flow, dependencies, data surfaces, "
+                    "APIs or UI routes, configuration, extension points, and failure handling "
+                    "when those details are present in the evidence."
+                ),
+                "preferred_tables": [
+                    "component/file/responsibility/evidence",
+                    "route or API/symbol/purpose/evidence",
+                    "data structure/owner/fields or role/evidence",
+                    "configuration key/default or source/effect/evidence",
+                ],
+                "code_examples": (
+                    "Use exact source snippets only when source_chunks provide them; otherwise "
+                    "prefer prose over invented examples."
+                ),
+                "related_pages": (
+                    "Mention related pages only from catalog_context.related_pages and only when "
+                    "the relationship is supported by the retrieved evidence."
+                ),
+                "missing_information": (
+                    "If a detail is expected but absent from source evidence, state the gap briefly "
+                    "instead of filling it with assumptions."
+                ),
             },
             "context_pack": trace.context_pack,
             "source_chunks": trace.source_chunks,
@@ -262,6 +320,7 @@ class WikiGenerator:
         status = "generated" if not validation_errors else "draft"
         if status == "generated":
             markdown = _replace_citation_markers(markdown, source_refs)
+            graph_markdown = _mermaid_from_trace(trace, title=title, source_refs=source_refs)
             markdown = _compose_page_markdown(markdown, graph_markdown, source_refs)
         else:
             markdown = _draft_markdown(title, validation_errors)
@@ -308,7 +367,7 @@ class WikiGenerator:
             provider=result.model.split("/", 1)[0] if "/" in result.model else None,
             model=result.model,
             model_alias=task_type,
-            prompt_version=f"{task_type}:deepwiki:v1",
+            prompt_version=f"{task_type}:deepwiki:v2",
             input_hash=sha256(json.dumps(input_payload, sort_keys=True).encode("utf-8")).hexdigest(),
             cache_key=cache_key,
             tokens_in=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
@@ -325,7 +384,8 @@ def _page_messages(
         "Return only a JSON object. Do not include Mermaid blocks; the server "
         "will generate diagrams from graph_edges_for_mermaid. source_refs must "
         "be selected from allowed_source_refs. Use [[S#]] citation markers only "
-        "for source refs you return."
+        "for source refs you return. Use catalog_context.related_pages only for "
+        "real related-page mentions; do not invent wiki pages or links."
     )
     if validation_errors:
         instruction = (
@@ -431,6 +491,86 @@ def _sort_catalog_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=lambda item: (int(item.get("order") or 0), str(item.get("title") or "")))
 
 
+def _catalog_context_for_page(
+    items: list[Any],
+    *,
+    slug: str,
+    parent_slug: str | None,
+) -> dict[str, Any]:
+    summaries = _catalog_item_summaries(items)
+    current = next((item for item in summaries if item["slug"] == slug), None)
+    parent = next((item for item in summaries if item["slug"] == parent_slug), None) if parent_slug else None
+    related_pages = _related_catalog_pages(summaries, slug=slug, parent_slug=parent_slug)
+    return {
+        "current": current
+        or {
+            "title": "",
+            "slug": slug,
+            "path": slug,
+            "kind": "page",
+            "parent_slug": parent_slug,
+            "depth": 0,
+        },
+        "parent": parent,
+        "related_pages": related_pages,
+        "page_count": sum(1 for item in summaries if item["kind"] == "page"),
+    }
+
+
+def _catalog_item_summaries(
+    items: list[Any],
+    *,
+    parent_slug: str | None = None,
+    depth: int = 0,
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        slug = _catalog_slug(raw_item)
+        summary = {
+            "title": str(raw_item.get("title") or ""),
+            "slug": slug,
+            "path": str(raw_item.get("path") or slug),
+            "kind": str(raw_item.get("kind") or "page").lower(),
+            "topic": str(raw_item.get("topic") or raw_item.get("title") or ""),
+            "parent_slug": parent_slug,
+            "order": int(raw_item.get("order") or 0),
+            "depth": depth,
+            "source_hints": _source_hints_from_item(raw_item)[:4],
+        }
+        summaries.append(summary)
+        children = raw_item.get("children") or []
+        if isinstance(children, list):
+            summaries.extend(
+                _catalog_item_summaries(children, parent_slug=slug, depth=depth + 1)
+            )
+    return summaries[:48]
+
+
+def _related_catalog_pages(
+    summaries: list[dict[str, Any]],
+    *,
+    slug: str,
+    parent_slug: str | None,
+) -> list[dict[str, Any]]:
+    page_summaries = [
+        item
+        for item in summaries
+        if item["kind"] == "page" and item["slug"] != slug
+    ]
+    ranked = sorted(
+        page_summaries,
+        key=lambda item: (
+            0 if item["parent_slug"] == parent_slug else 1,
+            item["depth"],
+            item["order"],
+            item["title"],
+        ),
+    )
+    return ranked[:12]
+
+
 def _flatten_catalog_items(
     items: list[Any],
     *,
@@ -506,7 +646,7 @@ def _trace_with_source_hint_chunks(
     for chunk in store.list_code_chunks(repo_id):
         if not _matches_source_hint(chunk.file_path, source_hints):
             continue
-        if per_file_counts.get(chunk.file_path, 0) >= 2:
+        if per_file_counts.get(chunk.file_path, 0) >= MAX_SOURCE_HINT_CHUNKS_PER_FILE:
             continue
         per_file_counts[chunk.file_path] = per_file_counts.get(chunk.file_path, 0) + 1
         hinted_chunks.append(
@@ -789,16 +929,13 @@ def _insert_relevant_source_files(markdown: str, source_refs: list[dict[str, Any
 
 def _relevant_source_files_markdown(source_refs: list[dict[str, Any]]) -> str:
     lines = ["## Relevant source files"]
-    seen: set[tuple[str, int, int]] = set()
+    seen: set[str] = set()
     for ref in source_refs:
-        key = (ref["file_path"], ref["start_line"], ref["end_line"])
-        if key in seen:
+        file_path = str(ref["file_path"])
+        if file_path in seen:
             continue
-        seen.add(key)
-        href = _source_ref_href(ref)
-        lines.append(
-            f"- [{_source_ref_label(ref)}]({href})"
-        )
+        seen.add(file_path)
+        lines.append(f"- [{file_path}]({_source_file_href(ref)})")
     return "\n".join(lines)
 
 
@@ -820,6 +957,13 @@ def _source_ref_label(ref: dict[str, Any]) -> str:
 def _source_ref_href(ref: dict[str, Any]) -> str:
     source_url = ref.get("source_url")
     return source_url if isinstance(source_url, str) and source_url else "source-link"
+
+
+def _source_file_href(ref: dict[str, Any]) -> str:
+    source_url = ref.get("source_url")
+    if not isinstance(source_url, str) or not source_url:
+        return "source-link"
+    return re.sub(r"#L\d+(?:-L\d+)?$", "", source_url)
 
 
 def _source_url_base(git_url: str | None, commit_hash: str | None) -> str | None:
@@ -871,7 +1015,12 @@ def _graph_refs_from_trace(trace: RetrievalTrace) -> set[str]:
     return refs
 
 
-def _mermaid_from_trace(trace: RetrievalTrace) -> str:
+def _mermaid_from_trace(
+    trace: RetrievalTrace,
+    *,
+    title: str | None = None,
+    source_refs: list[dict[str, Any]] | None = None,
+) -> str:
     nodes = {
         str(node["id"]): node
         for node in [*trace.seed_nodes, *trace.expanded_nodes]
@@ -888,7 +1037,8 @@ def _mermaid_from_trace(trace: RetrievalTrace) -> str:
         return ""
 
     node_aliases: dict[str, str] = {}
-    lines = ["## Graph", "", "```mermaid", "flowchart TD"]
+    graph_title = f"{title} graph relationships" if title else "Graph relationships"
+    lines = ["## Graph", "", f"Title: {graph_title}", "", "```mermaid", "flowchart TD"]
     for edge in edges:
         source_id = str(edge["source_id"])
         target_id = str(edge["target_id"])
@@ -899,7 +1049,18 @@ def _mermaid_from_trace(trace: RetrievalTrace) -> str:
         edge_type = _mermaid_text(str(edge["type"]))
         lines.append(f'  {source_alias}["{source_label}"] -->|{edge_type}| {target_alias}["{target_label}"]')
     lines.append("```")
+    source_line = _section_sources_line(source_refs or [])
+    if source_line:
+        lines.extend(["", source_line])
     return "\n".join(lines)
+
+
+def _section_sources_line(source_refs: list[dict[str, Any]]) -> str:
+    refs = [
+        f"[{_source_ref_label(ref)}]({_source_ref_href(ref)})"
+        for ref in source_refs[:6]
+    ]
+    return f"Sources: {' '.join(refs)}" if refs else ""
 
 
 def _mermaid_label(node: dict[str, object]) -> str:
