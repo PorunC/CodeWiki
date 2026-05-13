@@ -1,12 +1,11 @@
-import json
 import uuid
 from dataclasses import dataclass
-from hashlib import sha256
 from typing import Any
 
 from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore, get_store
 from backend.app.services.graph_rag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway, LLMResult
+from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm_run_recorder import record_llm_run
 from backend.app.services.repo_context import RepositoryContextBuilder
 from backend.app.services.wiki.catalog import (
     _catalog_context_for_page,
@@ -169,12 +168,15 @@ class WikiGenerator:
                 _catalog_messages(prompt, attempt_payload, validation_errors),
                 response_format="json_object",
             )
-            self._record_llm_run(
+            record_llm_run(
+                self.store,
                 repo_id,
                 task_type="catalog",
                 result=result,
                 input_payload=attempt_payload,
                 cache_key=f"catalog:{trace.trace_id}:attempt:{attempt + 1}",
+                model_alias="catalog",
+                prompt_version="catalog:deepwiki:v2",
             )
             try:
                 payload = _json_object(result.content)
@@ -356,15 +358,32 @@ class WikiGenerator:
                 _page_messages(prompt, attempt_payload, validation_errors if attempt else []),
                 response_format="json_object",
             )
-            self._record_llm_run(
+            record_llm_run(
+                self.store,
                 repo_id,
                 task_type="page",
                 result=result,
                 input_payload=attempt_payload,
                 cache_key=f"page:{slug}:{trace.trace_id}:attempt:{attempt + 1}",
+                model_alias="page",
+                prompt_version="page:deepwiki:v2",
             )
 
-            payload = _json_object(result.content)
+            try:
+                payload = _json_object(result.content)
+            except ValueError as exc:
+                validation_errors = [str(exc)]
+                attempt_payload = {
+                    **user_payload,
+                    "previous_response": result.content[:6000],
+                    "validation_errors": validation_errors,
+                    "repair_instructions": (
+                        "Repair the page response. Return one valid JSON object only, with title, "
+                        "markdown, and source_refs. Do not include prose, comments, Markdown fences "
+                        "around the JSON, or trailing commas."
+                    ),
+                }
+                continue
             markdown = _strip_llm_mermaid(str(payload.get("markdown") or ""))
             source_refs, source_ref_errors = _validate_source_refs(
                 repo_path=repo.path,
@@ -435,27 +454,3 @@ class WikiGenerator:
             if _slugify(str(item.get("slug") or item.get("path") or item.get("title") or "")) == slug:
                 return await self.generate_page(repo_id, item, parent_slug=parent_slug)
         raise ValueError(f"Catalog page not found: {slug}")
-
-    def _record_llm_run(
-        self,
-        repo_id: str,
-        *,
-        task_type: str,
-        result: LLMResult,
-        input_payload: dict[str, Any],
-        cache_key: str,
-    ) -> None:
-        usage = result.usage or {}
-        self.store.record_llm_run(
-            repo_id,
-            task_type=task_type,
-            provider=result.model.split("/", 1)[0] if "/" in result.model else None,
-            model=result.model,
-            model_alias=task_type,
-            prompt_version=f"{task_type}:deepwiki:v2",
-            input_hash=sha256(json.dumps(input_payload, sort_keys=True).encode("utf-8")).hexdigest(),
-            cache_key=cache_key,
-            tokens_in=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-            tokens_out=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
-        )
-

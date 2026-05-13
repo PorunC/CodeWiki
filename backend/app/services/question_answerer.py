@@ -2,12 +2,12 @@ import json
 from dataclasses import dataclass
 from hashlib import sha256
 from importlib import resources
-from typing import Any
 
 from backend.app.database import SQLiteStore, get_store
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
 from backend.app.services.graph_rag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway, LLMResult
+from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm_run_recorder import record_llm_run
 
 
 @dataclass(frozen=True)
@@ -69,11 +69,15 @@ class QuestionAnswerer:
                 },
             ],
         )
-        self._record_llm_run(
+        record_llm_run(
+            self.store,
             repo_id,
+            task_type="qa",
             result=result,
             input_payload=prompt_context.__dict__,
             cache_key=f"qa:{trace.trace_id}:{sha256(request.question.encode('utf-8')).hexdigest()[:16]}",
+            model_alias="qa",
+            prompt_version="qa:v1",
         )
         return AskResponse(
             answer=result.content.strip() or "I could not produce an answer from the retrieved context.",
@@ -83,29 +87,6 @@ class QuestionAnswerer:
             related_communities=related_communities,
             trace_id=trace.trace_id,
         )
-
-    def _record_llm_run(
-        self,
-        repo_id: str,
-        *,
-        result: LLMResult,
-        input_payload: dict[str, Any],
-        cache_key: str,
-    ) -> None:
-        usage = result.usage or {}
-        self.store.record_llm_run(
-            repo_id,
-            task_type="qa",
-            provider=result.model.split("/", 1)[0] if "/" in result.model else None,
-            model=result.model,
-            model_alias="qa",
-            prompt_version="qa:v1",
-            input_hash=sha256(json.dumps(input_payload, sort_keys=True).encode("utf-8")).hexdigest(),
-            cache_key=cache_key,
-            tokens_in=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-            tokens_out=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
-        )
-
 
 def _source_refs(chunks: list[dict[str, object]]) -> list[SourceRef]:
     refs: list[SourceRef] = []

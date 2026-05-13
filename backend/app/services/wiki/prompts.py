@@ -64,9 +64,14 @@ def _json_object(content: str) -> dict[str, Any]:
         match = re.search(r"\{.*\}", content, re.DOTALL)
         if not match:
             raise ValueError("LLM did not return a JSON object.") from exc
-        payload = json.loads(match.group(0))
+        try:
+            payload = json.loads(match.group(0))
+        except json.JSONDecodeError as nested_exc:
+            raise ValueError(
+                f"LLM returned malformed JSON: {nested_exc.msg} at line {nested_exc.lineno}, "
+                f"column {nested_exc.colno}."
+            ) from nested_exc
     if not isinstance(payload, dict):
         raise ValueError("LLM response must be a JSON object.")
     return payload
-
 

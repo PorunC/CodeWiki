@@ -26,3 +26,5 @@ storage/
 coverage/
 .coverage
 graphify-out/
+*.egg-info/
+

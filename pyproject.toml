@@ -27,6 +27,17 @@ dev = [
   "ruff>=0.8.0",
 ]
 
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+exclude = ["data*", "docs*", "frontend*", "tests*"]
+
+[tool.setuptools.package-data]
+"backend.app.prompts" = ["*.md"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

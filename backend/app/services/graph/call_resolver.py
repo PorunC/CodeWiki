@@ -1,8 +1,8 @@
 from collections.abc import Callable
 
 from backend.app.services.ast_parser import AstSymbol
-from backend.app.services.graph.ids import module_node_id
 from backend.app.services.graph.models import CodeGraphNode
+from backend.app.services.graph.node_factory import module_node
 
 
 def build_call_index(
@@ -53,16 +53,9 @@ def resolve_type_reference(
         return local_matches[0], False
     if not name:
         return None, False
-    module_id = module_node_id(repo_id, name)
-    add_node(
-        CodeGraphNode(
-            id=module_id,
-            repo_id=repo_id,
-            type="module",
-            name=name,
-            metadata={"external": True, "kind": "type_reference"},
-        )
-    )
+    node = module_node(repo_id, name, kind="type_reference")
+    add_node(node)
+    module_id = node.id
     return module_id, True
 
 

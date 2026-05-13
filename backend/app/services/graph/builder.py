@@ -1,5 +1,4 @@
 from dataclasses import replace
-from pathlib import PurePosixPath
 
 from backend.app.services.ast_parser import AstSymbol
 from backend.app.services.graph.call_resolver import (
@@ -9,15 +8,19 @@ from backend.app.services.graph.call_resolver import (
     resolve_type_reference,
 )
 from backend.app.services.graph.ids import (
-    directory_node_id,
     edge_id,
     file_node_id,
-    module_node_id,
     symbol_node_id as make_symbol_node_id,
 )
-from backend.app.services.graph.import_resolver import resolve_import_target
+from backend.app.services.graph.import_resolver import add_import_edges
 from backend.app.services.graph.models import CodeGraph, CodeGraphEdge, CodeGraphNode
-from backend.app.services.graph.nodes import file_node, node_metadata_with_provenance
+from backend.app.services.graph.node_factory import (
+    ensure_directory_nodes,
+    file_node,
+    node_metadata_with_provenance,
+    repository_node,
+    symbol_node,
+)
 from backend.app.services.graph_provenance import with_edge_provenance
 from backend.app.services.repo_scanner import RepoScanResult
 
@@ -65,22 +68,13 @@ class GraphBuilder:
             )
 
         repo_node_id = f"{repo_id}:repository"
-        add_node(
-            CodeGraphNode(
-                id=repo_node_id,
-                repo_id=repo_id,
-                type="repository",
-                name=scan.repo.name,
-                file_path="",
-                metadata={"path": scan.repo.path, "source_type": scan.repo.source_type},
-            )
-        )
+        add_node(repository_node(scan.repo))
 
         for scanned_file in scan.files:
             current_file_node_id = file_node_id(repo_id, scanned_file.path)
             file_nodes[scanned_file.path] = current_file_node_id
             add_node(file_node(repo_id, scanned_file, current_file_node_id))
-            parent_id = self._ensure_directories(
+            parent_id = ensure_directory_nodes(
                 repo_id=repo_id,
                 file_path=scanned_file.path,
                 repo_node_id=repo_node_id,
@@ -96,34 +90,12 @@ class GraphBuilder:
                 continue
             node_id = make_symbol_node_id(repo_id, symbol.id)
             symbol_nodes[symbol.id] = node_id
-            add_node(
-                CodeGraphNode(
-                    id=node_id,
-                    repo_id=repo_id,
-                    type=symbol.type,
-                    name=symbol.name,
-                    file_path=symbol.file_path,
-                    start_line=symbol.start_line,
-                    end_line=symbol.end_line,
-                    language=symbol.language,
-                    symbol_id=symbol.id,
-                    hash=symbol.hash,
-                    metadata={
-                        "signature": symbol.signature,
-                        "docstring": symbol.docstring,
-                        "exports": symbol.exports,
-                        "bases": symbol.bases,
-                        "decorators": symbol.decorators,
-                        "calls": symbol.calls,
-                        **symbol.metadata,
-                    },
-                )
-            )
+            add_node(symbol_node(repo_id, symbol, node_id))
 
         call_index = build_call_index(symbols, symbol_nodes)
         for symbol in symbols:
             if symbol.type == "file":
-                self._add_import_edges(
+                add_import_edges(
                     repo_id=repo_id,
                     file_node_id=file_nodes.get(symbol.file_path),
                     from_file_path=symbol.file_path,
@@ -215,80 +187,3 @@ class GraphBuilder:
             nodes=sorted(node_index.values(), key=lambda node: (node.type, node.file_path, node.name)),
             edges=sorted(edge_index.values(), key=lambda edge: (edge.type, edge.source_id, edge.target_id)),
         )
-
-    def _ensure_directories(
-        self,
-        *,
-        repo_id: str,
-        file_path: str,
-        repo_node_id: str,
-        directory_nodes: dict[str, str],
-        add_node,
-        add_edge,
-    ) -> str:
-        parent_id = repo_node_id
-        parts = PurePosixPath(file_path).parts[:-1]
-        current_parts: list[str] = []
-        for part in parts:
-            current_parts.append(part)
-            directory_path = "/".join(current_parts)
-            directory_id = directory_node_id(repo_id, directory_path)
-            if directory_path not in directory_nodes:
-                directory_nodes[directory_path] = directory_id
-                add_node(
-                    CodeGraphNode(
-                        id=directory_id,
-                        repo_id=repo_id,
-                        type="directory",
-                        name=part,
-                        file_path=directory_path,
-                        metadata={"path": directory_path},
-                    )
-                )
-                add_edge(parent_id, directory_id, "contains")
-            parent_id = directory_id
-        return parent_id
-
-    def _add_import_edges(
-        self,
-        *,
-        repo_id: str,
-        file_node_id: str | None,
-        from_file_path: str,
-        imports: list[str],
-        file_nodes: dict[str, str],
-        add_node,
-        add_edge,
-    ) -> None:
-        if not file_node_id:
-            return
-        for import_name in imports:
-            local_target_id = resolve_import_target(
-                import_name,
-                from_file_path=from_file_path,
-                file_nodes=file_nodes,
-            )
-            if local_target_id:
-                add_edge(
-                    file_node_id,
-                    local_target_id,
-                    "imports",
-                    metadata={"import": import_name, "resolved": True},
-                )
-                continue
-            module_id = module_node_id(repo_id, import_name)
-            add_node(
-                CodeGraphNode(
-                    id=module_id,
-                    repo_id=repo_id,
-                    type="module",
-                    name=import_name,
-                    metadata={"external": True},
-                )
-            )
-            add_edge(
-                file_node_id,
-                module_id,
-                "imports",
-                metadata={"import": import_name, "resolved": False},
-            )

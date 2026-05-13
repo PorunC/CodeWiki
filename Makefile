@@ -9,7 +9,7 @@ BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 5173
 FRONTEND_DIR := frontend
 
-.PHONY: help install install-backend install-frontend start dev backend frontend test lint lint-backend lint-frontend build clean
+.PHONY: help install install-backend install-frontend start dev backend frontend kill test lint lint-backend lint-frontend build clean
 
 help:
 	@echo "Code Wiki Platform"
@@ -19,6 +19,7 @@ help:
 	@echo "  make start            Start FastAPI and Vite together"
 	@echo "  make backend          Start only the FastAPI backend"
 	@echo "  make frontend         Start only the Vite frontend"
+	@echo "  make kill             Kill processes listening on ports 8000 and 5173"
 	@echo "  make test             Run backend tests"
 	@echo "  make lint             Run backend and frontend lint checks"
 	@echo "  make build            Build the frontend"
@@ -51,6 +52,9 @@ backend:
 
 frontend:
 	$(NPM) --prefix $(FRONTEND_DIR) run dev -- --host 127.0.0.1 --port $(FRONTEND_PORT)
+
+kill:
+	$(PYTHON) scripts/kill_ports.py $(BACKEND_PORT) $(FRONTEND_PORT)
 
 test:
 	$(PYTHON) -m pytest -q

@@ -1,4 +1,4 @@
-from backend.app.services.graphrag import GraphRAGBuildResult, GraphRAGRetriever, RetrievalTrace
+from backend.app.services.graphrag import GraphRAGBuildResult, GraphRAGRetriever, RetrievalTrace, build_index
 from backend.app.services.graphrag.chunking import build_source_chunks as _build_source_chunks
 from backend.app.services.graphrag.context import (
     chunk_payload as _chunk_payload,
@@ -38,6 +38,7 @@ __all__ = [
     "_add_overview_fallback_seeds",
     "_batched",
     "_build_source_chunks",
+    "_build_index",
     "_chunk_payload",
     "_community_summaries",
     "_context_pack",
@@ -58,4 +59,7 @@ __all__ = [
     "_select_source_chunks",
     "_stable_id",
     "_terms",
+    "build_index",
 ]
+
+_build_index = build_index

@@ -1,7 +1,6 @@
 from backend.app.config import Settings, get_settings
 from backend.app.database import CodeChunkRecord, SQLiteStore, get_store
 from backend.app.services.graph import CodeGraphNode
-from backend.app.services.graphrag.chunking import build_source_chunks
 from backend.app.services.graphrag.constants import (
     DEFAULT_CONTEXT_TOKENS,
     DEFAULT_MAX_SOURCE_CHUNKS,
@@ -15,8 +14,8 @@ from backend.app.services.graphrag.context import (
     node_payload,
     select_source_chunks,
 )
-from backend.app.services.graphrag.embedding import embed_chunks
 from backend.app.services.graphrag.expansion import expand, related_edges
+from backend.app.services.graphrag.indexer import build_index as build_graphrag_index
 from backend.app.services.graphrag.models import GraphRAGBuildResult, RetrievalTrace
 from backend.app.services.graphrag.search import (
     add_overview_fallback_seeds,
@@ -47,28 +46,12 @@ class GraphRAGRetriever:
         *,
         include_embeddings: bool = False,
     ) -> GraphRAGBuildResult:
-        repo = self.store.get_repo(repo_id)
-        if repo is None:
-            raise ValueError(f"Repository not found: {repo_id}")
-
-        nodes, _edges = self.store.get_graph(repo_id)
-        if not nodes:
-            return GraphRAGBuildResult(repo_id=repo_id, status="empty_graph", chunk_count=0)
-
-        chunks = build_source_chunks(repo_id=repo_id, repo_path=repo.path, nodes=nodes)
-        self.store.replace_code_chunks(repo_id, chunks)
-
-        embedding_count = 0
-        embedding_model: str | None = None
-        if include_embeddings and chunks:
-            embedding_count, embedding_model = await embed_chunks(self.store, self._llm(), repo_id, chunks)
-
-        return GraphRAGBuildResult(
-            repo_id=repo_id,
-            status="built",
-            chunk_count=len(chunks),
-            embedding_count=embedding_count,
-            embedding_model=embedding_model,
+        return await build_graphrag_index(
+            self.store,
+            repo_id,
+            include_embeddings=include_embeddings,
+            llm=self._llm() if include_embeddings else self.llm,
+            settings=self.settings,
         )
 
     async def retrieve(
@@ -179,6 +162,8 @@ class GraphRAGRetriever:
         repo_path: str,
         nodes: list[CodeGraphNode],
     ) -> list[CodeChunkRecord]:
+        from backend.app.services.graphrag.chunking import build_source_chunks
+
         return build_source_chunks(repo_id=repo_id, repo_path=repo_path, nodes=nodes)
 
     def _trace_id(
