@@ -4,7 +4,7 @@ from backend.app.config import get_settings
 from backend.app.database import DocCatalogRecord, DocPageRecord, get_store
 from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.wiki_generator import PageGenerationResult, WikiGenerator
+from backend.app.services.wiki import PageGenerationResult, WikiGenerator
 
 router = APIRouter()
 

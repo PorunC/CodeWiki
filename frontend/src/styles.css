@@ -1498,6 +1498,46 @@ button.metadata-chip:disabled {
   text-underline-offset: 3px;
 }
 
+.wiki-relevant-files {
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  margin: 0 0 16px;
+  overflow: hidden;
+}
+
+.wiki-relevant-files summary {
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style-position: inside;
+  padding: 10px 12px;
+  text-transform: uppercase;
+}
+
+.wiki-relevant-files summary:hover,
+.wiki-relevant-files summary:focus-visible {
+  background: rgba(212, 165, 116, 0.08);
+  outline: none;
+}
+
+.wiki-relevant-files ul {
+  border-top: 1px solid var(--color-border-subtle);
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 12px 10px 30px;
+}
+
+.wiki-relevant-files li + li {
+  margin-top: 6px;
+}
+
+.wiki-relevant-files span {
+  color: var(--color-text-secondary);
+}
+
 .wiki-markdown code {
   background: rgba(212, 165, 116, 0.08);
   border: 1px solid var(--color-border-subtle);

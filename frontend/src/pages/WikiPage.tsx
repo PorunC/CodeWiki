@@ -46,6 +46,11 @@ type RelatedWikiPage = {
   path: string;
 };
 
+type RelevantSourceFile = {
+  label: string;
+  href: string;
+};
+
 let mermaidInitialized = false;
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
 
@@ -303,7 +308,10 @@ function WikiArticle({
   relatedPages: RelatedWikiPage[];
   onSelectPage: (slug: string) => void;
 }) {
-  const markdown = useMemo(() => stripMarkdownSourcesSection(page.markdown), [page.markdown]);
+  const articleContent = useMemo(
+    () => extractRelevantSourceFilesSection(stripMarkdownSourcesSection(page.markdown)),
+    [page.markdown]
+  );
   const components = useMemo(
     () => wikiMarkdownComponents(onSelectPage),
     [onSelectPage]
@@ -321,7 +329,22 @@ function WikiArticle({
 
       <div className="wiki-markdown">
         <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
-          {markdown}
+          {articleContent.titleMarkdown}
+        </ReactMarkdown>
+        {articleContent.relevantFiles.length > 0 ? (
+          <details className="wiki-relevant-files">
+            <summary>Relevant source files</summary>
+            <ul>
+              {articleContent.relevantFiles.map((file) => (
+                <li key={`${file.label}:${file.href}`}>
+                  {file.href === "source-link" ? <span>{file.label}</span> : <a href={file.href}>{file.label}</a>}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+        <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+          {articleContent.bodyMarkdown}
         </ReactMarkdown>
       </div>
 
@@ -536,6 +559,59 @@ function stripMarkdownSourcesSection(markdown: string): string {
   }
 
   return lines.slice(0, sourcesHeadingIndex).join("\n").trimEnd();
+}
+
+function extractRelevantSourceFilesSection(markdown: string): {
+  titleMarkdown: string;
+  bodyMarkdown: string;
+  relevantFiles: RelevantSourceFile[];
+} {
+  const lines = markdown.split(/\r?\n/);
+  const relevantStart = lines.findIndex((line) => /^##\s+Relevant source files\s*$/i.test(line.trim()));
+  const titleMarkdown = lines[0]?.startsWith("# ") ? lines[0] : "";
+
+  if (relevantStart < 0) {
+    return {
+      titleMarkdown,
+      bodyMarkdown: titleMarkdown ? lines.slice(1).join("\n").trimStart() : markdown,
+      relevantFiles: []
+    };
+  }
+
+  let relevantEnd = lines.length;
+  for (let index = relevantStart + 1; index < lines.length; index += 1) {
+    if (/^#{1,6}\s+/.test(lines[index].trim())) {
+      relevantEnd = index;
+      break;
+    }
+  }
+
+  const relevantFiles = lines
+    .slice(relevantStart + 1, relevantEnd)
+    .map(parseRelevantSourceFile)
+    .filter((file): file is RelevantSourceFile => file !== null);
+  const withoutRelevant = [...lines.slice(0, relevantStart), ...lines.slice(relevantEnd)];
+  return {
+    titleMarkdown,
+    bodyMarkdown: titleMarkdown ? withoutRelevant.slice(1).join("\n").trimStart() : withoutRelevant.join("\n").trim(),
+    relevantFiles
+  };
+}
+
+function parseRelevantSourceFile(line: string): RelevantSourceFile | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("- ")) {
+    return null;
+  }
+  const linkMatch = /^-\s+\[([^\]]+)]\(([^)]+)\)\s*$/.exec(trimmed);
+  if (linkMatch) {
+    return {
+      label: linkMatch[1],
+      href: linkMatch[2]
+    };
+  }
+  const label = trimmed.replace(/^-\s+/, "").trim();
+  return label ? { label, href: "source-link" } : null;
 }
 
 function formatSourceRef(source: SourceRef): string {
