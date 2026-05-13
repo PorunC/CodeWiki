@@ -131,6 +131,22 @@ select:disabled {
   min-width: 0;
 }
 
+.analysis-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.graph-action-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+  min-width: 86px;
+  white-space: nowrap;
+}
+
 .view-switcher {
   align-items: center;
   background: rgba(20, 21, 21, 0.9);

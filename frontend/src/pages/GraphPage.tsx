@@ -25,6 +25,8 @@ export function GraphPage({
     repoLoading,
     repoError,
     error,
+    analysisTask,
+    analysisMessage,
     viewMode,
     selectedFileId,
     selectedNodeId,
@@ -60,11 +62,15 @@ export function GraphPage({
         selectedFileId={selectedFileId}
         selectedNodeId={selectedNodeId}
         graphStats={graphStats}
+        analysisTask={analysisTask}
         onRepoChange={onSelectedRepoChange}
         onModeSelect={actions.selectMode}
+        onFullAnalyze={actions.runFullAnalysis}
+        onIncrementalUpdate={actions.runIncrementalUpdate}
       />
 
       {repoError || error ? <div className="state-banner error-banner">{repoError ?? error}</div> : null}
+      {analysisMessage ? <div className="state-banner analysis-banner">{analysisMessage}</div> : null}
       {highlightedRawNodeIds.size > 0 ? (
         <div className="state-banner ask-highlight-banner">
           <span>

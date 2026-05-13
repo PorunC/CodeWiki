@@ -65,6 +65,12 @@
     grid-template-columns: 1fr;
   }
 
+  .toolbar-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
   .graph-filters,
   .node-details {
     border-left: 0;

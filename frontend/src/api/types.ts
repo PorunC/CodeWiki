@@ -37,6 +37,37 @@ export type RepoFilesResponse = {
   skipped_count: number;
 };
 
+export type AnalysisRunResponse = {
+  run_id: string;
+  repo_id: string;
+  status: string;
+  scanned_count: number;
+  parsed_file_count: number;
+  node_count: number;
+  edge_count: number;
+  community_count: number;
+  errors: string[];
+  community_naming?: Record<string, unknown>;
+};
+
+export type IncrementalUpdateResponse = {
+  run_id: string;
+  repo_id: string;
+  status: string;
+  plan: Record<string, unknown>;
+  scanned_count: number;
+  parsed_file_count: number;
+  reused_file_count: number;
+  node_count: number;
+  edge_count: number;
+  community_count: number;
+  chunk_count: number;
+  stale_pages: string[];
+  wiki_regeneration: Record<string, unknown>;
+  errors: string[];
+  community_naming?: Record<string, unknown>;
+};
+
 export type LlmModelsResponse = {
   mode: string;
   base_url: string;

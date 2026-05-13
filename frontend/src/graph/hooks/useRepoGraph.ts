@@ -5,11 +5,13 @@ import type { GraphResponse } from "../../api/types";
 
 export function useRepoGraph({
   selectedRepoId,
+  reloadToken,
   onGraphLoaded,
   onGraphReset,
   onGraphError
 }: {
   selectedRepoId: string;
+  reloadToken?: number;
   onGraphLoaded: (graph: GraphResponse) => void;
   onGraphReset: () => void;
   onGraphError: (message: string) => void;
@@ -50,7 +52,7 @@ export function useRepoGraph({
     return () => {
       cancelled = true;
     };
-  }, [onGraphError, onGraphLoaded, onGraphReset, selectedRepoId]);
+  }, [onGraphError, onGraphLoaded, onGraphReset, reloadToken, selectedRepoId]);
 
   return { graph, loading };
 }

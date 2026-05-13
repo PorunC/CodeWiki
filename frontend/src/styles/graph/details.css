@@ -116,6 +116,12 @@ button.metadata-chip:disabled {
   color: #f0a08c;
 }
 
+.analysis-banner {
+  background: rgba(212, 165, 116, 0.1);
+  border-color: rgba(212, 165, 116, 0.24);
+  color: var(--color-accent-strong);
+}
+
 .ask-highlight-banner {
   align-items: center;
   background: rgba(124, 188, 155, 0.12);
@@ -134,5 +140,4 @@ button.metadata-chip:disabled {
   font-weight: 800;
   padding: 5px 9px;
 }
-
 

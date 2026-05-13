@@ -1,4 +1,4 @@
-import { FileCode2, Focus, Network } from "lucide-react";
+import { FileCode2, Focus, Network, Play, RefreshCw } from "lucide-react";
 
 import type { RepoSummary } from "../api/types";
 import { ModeButton } from "./GraphControls";
@@ -13,8 +13,11 @@ export function GraphToolbar({
   selectedFileId,
   selectedNodeId,
   graphStats,
+  analysisTask,
   onRepoChange,
-  onModeSelect
+  onModeSelect,
+  onFullAnalyze,
+  onIncrementalUpdate
 }: {
   repos: RepoSummary[];
   selectedRepo: RepoSummary | null;
@@ -24,9 +27,13 @@ export function GraphToolbar({
   selectedFileId: string | null;
   selectedNodeId: string | null;
   graphStats: string;
+  analysisTask: "analyze" | "update" | null;
   onRepoChange: (repoId: string) => void;
   onModeSelect: (mode: GraphViewMode) => void;
+  onFullAnalyze: () => void;
+  onIncrementalUpdate: () => void;
 }) {
+  const analysisDisabled = repoLoading || !selectedRepoId || analysisTask !== null;
   return (
     <div className="graph-toolbar">
       <label className="field">
@@ -45,6 +52,26 @@ export function GraphToolbar({
       </label>
       {selectedRepo ? <span className="repo-path">{selectedRepo.path}</span> : null}
       <div className="toolbar-actions">
+        <div className="analysis-actions" aria-label="Repository analysis actions">
+          <button
+            className="secondary-button graph-action-button"
+            type="button"
+            disabled={analysisDisabled}
+            onClick={onFullAnalyze}
+          >
+            <Play size={14} />
+            {analysisTask === "analyze" ? "Analyzing" : "Analyze"}
+          </button>
+          <button
+            className="secondary-button graph-action-button"
+            type="button"
+            disabled={analysisDisabled}
+            onClick={onIncrementalUpdate}
+          >
+            <RefreshCw size={14} />
+            {analysisTask === "update" ? "Updating" : "Update"}
+          </button>
+        </div>
         <div className="view-switcher" aria-label="Graph view mode">
           <ModeButton
             active={viewMode === "overview"}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
+import { analyzeRepo, updateRepo } from "../../api/runs";
 import type { GraphResponse } from "../../api/types";
 import { useRepos } from "../../hooks/useRepos";
 import type { HiddenVisualNodeOption } from "../GraphFiltersPanel";
@@ -48,6 +49,9 @@ export function useGraphPageController({
   const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
   const [highlightedRawNodeIds, setHighlightedRawNodeIds] = useState<Set<string>>(new Set());
   const [highlightLabel, setHighlightLabel] = useState("Ask-related");
+  const [graphReloadToken, setGraphReloadToken] = useState(0);
+  const [analysisTask, setAnalysisTask] = useState<"analyze" | "update" | null>(null);
+  const [analysisMessage, setAnalysisMessage] = useState<string | null>(null);
   const pendingRelatedNodeIdsRef = useRef<string[]>([]);
   const pendingSourceRefRef = useRef<SourceRefNavigationDetail | null>(null);
 
@@ -141,6 +145,7 @@ export function useGraphPageController({
 
   const { graph, loading: graphLoading } = useRepoGraph({
     selectedRepoId,
+    reloadToken: graphReloadToken,
     onGraphLoaded: handleGraphLoaded,
     onGraphReset: resetGraphSelection,
     onGraphError: setError
@@ -341,6 +346,52 @@ export function useGraphPageController({
     setViewMode("file");
   }, []);
 
+  const runFullAnalysis = useCallback(async () => {
+    if (!selectedRepoId || analysisTask) {
+      return;
+    }
+    setAnalysisTask("analyze");
+    setAnalysisMessage("Running full analysis...");
+    setError(null);
+    try {
+      const result = await analyzeRepo(selectedRepoId);
+      setAnalysisMessage(
+        `Analysis complete: ${result.node_count} nodes, ${result.edge_count} edges, ${result.community_count} communities.`
+      );
+      setGraphReloadToken((value) => value + 1);
+    } catch (apiError) {
+      setAnalysisMessage(null);
+      setError(apiError instanceof Error ? apiError.message : "Repository analysis failed");
+    } finally {
+      setAnalysisTask(null);
+    }
+  }, [analysisTask, selectedRepoId]);
+
+  const runIncrementalUpdate = useCallback(async () => {
+    if (!selectedRepoId || analysisTask) {
+      return;
+    }
+    setAnalysisTask("update");
+    setAnalysisMessage("Running incremental update...");
+    setError(null);
+    try {
+      const result = await updateRepo(selectedRepoId, {
+        refresh_chunks: true,
+        regenerate_wiki: true
+      });
+      const staleSuffix = result.stale_pages.length ? ` ${result.stale_pages.length} wiki pages refreshed.` : "";
+      setAnalysisMessage(
+        `Update complete: ${result.node_count} nodes, ${result.edge_count} edges, ${result.chunk_count} chunks.${staleSuffix}`
+      );
+      setGraphReloadToken((value) => value + 1);
+    } catch (apiError) {
+      setAnalysisMessage(null);
+      setError(apiError instanceof Error ? apiError.message : "Repository update failed");
+    } finally {
+      setAnalysisTask(null);
+    }
+  }, [analysisTask, selectedRepoId]);
+
   useEffect(() => {
     return onOpenFileDetail((detail) => {
       const fileId = detail?.fileId;
@@ -466,6 +517,8 @@ export function useGraphPageController({
     repoLoading,
     repoError,
     error,
+    analysisTask,
+    analysisMessage,
     viewMode,
     selectedFileId,
     selectedNodeId,
@@ -497,6 +550,8 @@ export function useGraphPageController({
       showAllHiddenNodes,
       clearHighlights,
       openFileDetail,
+      runFullAnalysis,
+      runIncrementalUpdate,
       handleNodeClick,
       handleNodeDoubleClick,
       handleNavigateToNode
