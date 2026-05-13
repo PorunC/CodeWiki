@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS code_chunk_embedding (
   chunk_id TEXT NOT NULL REFERENCES code_chunk(id) ON DELETE CASCADE,
   model TEXT NOT NULL,
   dimensions INTEGER NOT NULL,
-  embedding_json TEXT NOT NULL,
+  vec_table TEXT NOT NULL,
+  vec_rowid INTEGER NOT NULL,
   content_hash TEXT NOT NULL,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -96,6 +97,8 @@ CREATE INDEX IF NOT EXISTS idx_code_chunk_embedding_repo
   ON code_chunk_embedding(repo_id, model);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_code_chunk_embedding_chunk_model
   ON code_chunk_embedding(repo_id, chunk_id, model);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_code_chunk_embedding_vec_row
+  ON code_chunk_embedding(vec_table, vec_rowid);
 
 CREATE TABLE IF NOT EXISTS graph_community (
   id TEXT PRIMARY KEY,

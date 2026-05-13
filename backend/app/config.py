@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None
     litellm_proxy_base_url: str | None = None
     llm_default_model: str = "provider/strong-coding-model"
+    llm_small_model: str | None = None
+    llm_large_model: str | None = None
+    llm_catalog_model: str | None = None
+    llm_community_model: str | None = None
+    llm_page_model: str | None = None
+    llm_qa_model: str | None = None
     llm_embedding_model: str = "provider/embedding-model"
     llm_api_key: str | None = None
     llm_timeout_seconds: int = 120

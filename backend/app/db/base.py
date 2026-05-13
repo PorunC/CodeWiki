@@ -20,6 +20,7 @@ class BaseSQLiteStore:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        self._load_sqlite_vec(connection)
         return connection
 
     def ensure_schema(self) -> None:
@@ -33,6 +34,21 @@ class BaseSQLiteStore:
                     "commit_hash": "TEXT",
                 },
             )
+
+    def _load_sqlite_vec(self, connection: sqlite3.Connection) -> None:
+        try:
+            import sqlite_vec
+        except ImportError as exc:
+            raise RuntimeError(
+                "sqlite-vec is required for CodeWiki vector search. "
+                "Install dependencies from pyproject.toml."
+            ) from exc
+
+        connection.enable_load_extension(True)
+        try:
+            sqlite_vec.load(connection)
+        finally:
+            connection.enable_load_extension(False)
 
     def _ensure_columns(
         self,

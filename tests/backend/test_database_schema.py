@@ -32,6 +32,13 @@ def test_schema_contains_graphrag_wiki_and_llm_tables(tmp_path: Path) -> None:
         "doc_page",
         "llm_run",
     } <= tables
+    with store.connect() as connection:
+        embedding_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(code_chunk_embedding)").fetchall()
+        }
+    assert "embedding_json" not in embedding_columns
+    assert {"vec_table", "vec_rowid"} <= embedding_columns
 
 
 def test_schema_migrates_existing_repo_git_metadata_columns(tmp_path: Path) -> None:
@@ -99,6 +106,16 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
         created_at=None,
     )
     store.replace_code_chunk_embeddings(repo.id, model="fake/embed", embeddings=[embedding])
+    embeddings = store.list_code_chunk_embeddings(repo.id, model="fake/embed")
+    assert embeddings[0].embedding == [1.0, 0.0]
+    with store.connect() as connection:
+        vec_table_exists = connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE name = 'code_chunk_embedding_vec_2'
+            """
+        ).fetchone()
+    assert vec_table_exists is not None
     vector_hits = store.search_code_chunk_embeddings(
         repo.id,
         model="fake/embed",

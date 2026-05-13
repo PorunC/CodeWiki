@@ -120,8 +120,28 @@ export function SettingsPage({
                 <dd className="ops-mono">{models.base_url || "default provider endpoint"}</dd>
               </div>
               <div>
-                <dt>Default model</dt>
-                <dd className="ops-mono">{models.default_model}</dd>
+                <dt>Small model</dt>
+                <dd className="ops-mono">{models.small_model}</dd>
+              </div>
+              <div>
+                <dt>Large model</dt>
+                <dd className="ops-mono">{models.large_model}</dd>
+              </div>
+              <div>
+                <dt>Catalog</dt>
+                <dd className="ops-mono">{models.catalog_model}</dd>
+              </div>
+              <div>
+                <dt>Community naming</dt>
+                <dd className="ops-mono">{models.community_model}</dd>
+              </div>
+              <div>
+                <dt>Wiki pages</dt>
+                <dd className="ops-mono">{models.page_model}</dd>
+              </div>
+              <div>
+                <dt>QA</dt>
+                <dd className="ops-mono">{models.qa_model}</dd>
               </div>
               <div>
                 <dt>Embedding model</dt>

@@ -41,6 +41,12 @@ export type LlmModelsResponse = {
   mode: string;
   base_url: string;
   default_model: string;
+  small_model: string;
+  large_model: string;
+  catalog_model: string;
+  community_model: string;
+  page_model: string;
+  qa_model: string;
   embedding_model: string;
 };
 

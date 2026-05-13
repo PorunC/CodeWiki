@@ -28,6 +28,13 @@ codewiki ask "How does the main workflow fit together?"
 codewiki repos add . --name my-repo
 codewiki update my-repo
 
+# Optional LLM routing
+export CODEWIKI_LLM_SMALL_MODEL=provider/small-coding-model
+export CODEWIKI_LLM_LARGE_MODEL=provider/strong-coding-model
+export CODEWIKI_LLM_CATALOG_MODEL=provider/fast-catalog-model
+export CODEWIKI_LLM_PAGE_MODEL=provider/strong-page-model
+export CODEWIKI_LLM_QA_MODEL=provider/strong-qa-model
+
 # frontend
 cd frontend
 npm install

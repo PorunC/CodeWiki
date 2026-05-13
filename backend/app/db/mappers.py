@@ -77,7 +77,7 @@ def code_chunk_embedding_from_row(row: sqlite3.Row) -> CodeChunkEmbeddingRecord:
         chunk_id=row["chunk_id"],
         model=row["model"],
         dimensions=row["dimensions"],
-        embedding=json.loads(row["embedding_json"] or "[]"),
+        embedding=[],
         content_hash=row["content_hash"],
         created_at=row["created_at"],
     )
