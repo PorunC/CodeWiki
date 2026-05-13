@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api import ask, graph, repos, runs, settings, wiki
+from backend.app.api import ask, files, graph, repos, runs, settings, wiki
 from backend.app.config import get_settings
 
 
@@ -18,6 +18,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(repos.router, prefix="/api/repos", tags=["repos"])
+    app.include_router(files.router, prefix="/api/repos", tags=["files"])
     app.include_router(graph.router, prefix="/api/repos", tags=["graph"])
     app.include_router(wiki.router, prefix="/api/repos", tags=["wiki"])
     app.include_router(ask.router, prefix="/api/repos", tags=["ask"])
@@ -32,4 +33,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

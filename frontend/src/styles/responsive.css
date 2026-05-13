@@ -36,6 +36,10 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .workspace:not(.is-section-graph) .assistant-rail {
+    display: block;
+  }
 }
 
 @media (max-width: 900px) {
@@ -104,6 +108,12 @@
     grid-template-columns: 1fr;
   }
 
+  .ops-summary,
+  .ops-toolbar,
+  .settings-section dl div {
+    grid-template-columns: 1fr;
+  }
+
   .wiki-repo-bar {
     grid-template-columns: 1fr;
   }
@@ -117,4 +127,3 @@
     padding: 14px;
   }
 }
-

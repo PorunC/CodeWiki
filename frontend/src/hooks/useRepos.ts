@@ -15,6 +15,7 @@ export function useRepos({
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,12 +46,18 @@ export function useRepos({
     return () => {
       cancelled = true;
     };
-  }, [autoSelect, onRepoChange, selectedRepoId]);
+  }, [autoSelect, onRepoChange, reloadToken, selectedRepoId]);
 
   const selectedRepo = useMemo(
     () => repos.find((repo) => repo.id === selectedRepoId) ?? null,
     [repos, selectedRepoId]
   );
 
-  return { repos, selectedRepo, loading, error };
+  return {
+    repos,
+    selectedRepo,
+    loading,
+    error,
+    refresh: () => setReloadToken((value) => value + 1)
+  };
 }

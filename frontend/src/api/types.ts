@@ -7,6 +7,43 @@ export type RepoSummary = {
   commit_hash?: string;
 };
 
+export type RepoFileRecord = {
+  path: string;
+  language: string;
+  is_source: boolean;
+  size_bytes: number;
+  sha256: string;
+  modified_at: string;
+};
+
+export type RepoFileTreeNode = {
+  type: "directory" | "file";
+  name: string;
+  path: string;
+  language?: string;
+  is_source?: boolean;
+  size_bytes?: number;
+  sha256?: string;
+  modified_at?: string;
+  children?: RepoFileTreeNode[];
+};
+
+export type RepoFilesResponse = {
+  repo_id: string;
+  root: RepoFileTreeNode;
+  files: RepoFileRecord[];
+  scanned_count: number;
+  ignored_count: number;
+  skipped_count: number;
+};
+
+export type LlmModelsResponse = {
+  mode: string;
+  base_url: string;
+  default_model: string;
+  embedding_model: string;
+};
+
 export type CodeNode = {
   id: string;
   type: string;

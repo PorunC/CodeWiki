@@ -95,6 +95,10 @@ def _partition(graph: nx.Graph) -> tuple[list[set[str]], str]:
     if graph.number_of_edges() == 0:
         return [set(component) for component in nx.connected_components(graph)], "connected_components"
 
+    leiden_communities = _graspologic_leiden_communities(graph)
+    if leiden_communities is not None:
+        return leiden_communities, "graspologic_leiden"
+
     try:
         communities = nx.algorithms.community.louvain_communities(
             graph,
@@ -108,6 +112,39 @@ def _partition(graph: nx.Graph) -> tuple[list[set[str]], str]:
             weight="weight",
         )
         return [set(community) for community in communities], "networkx_greedy_modularity"
+
+
+def _graspologic_leiden_communities(graph: nx.Graph) -> list[set[str]] | None:
+    try:
+        from graspologic.partition import leiden
+    except ImportError:
+        return None
+
+    try:
+        try:
+            partition = leiden(
+                graph,
+                weight_attribute="weight",
+                random_seed=42,
+            )
+        except TypeError:
+            partition = leiden(graph, weight_attribute="weight")
+    except Exception:
+        return None
+
+    if not isinstance(partition, dict):
+        return None
+
+    by_cluster: dict[object, set[str]] = {}
+    for node_id, cluster_id in partition.items():
+        by_cluster.setdefault(cluster_id, set()).add(str(node_id))
+
+    assigned_node_ids = set().union(*by_cluster.values()) if by_cluster else set()
+    missing_node_ids = {str(node_id) for node_id in graph.nodes} - assigned_node_ids
+    for node_id in missing_node_ids:
+        by_cluster[f"singleton:{node_id}"] = {node_id}
+
+    return [community for community in by_cluster.values() if community]
 
 
 def _rank_communities(

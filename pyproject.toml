@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "aiosqlite>=0.20.0",
+  "click>=8.1.0",
   "fastapi>=0.115.0",
+  "graspologic>=3.4.4; python_version < '3.13'",
   "litellm>=1.60.0",
   "networkx>=3.4.0",
   "pathspec>=0.12.1",
@@ -19,6 +21,9 @@ dependencies = [
   "tree-sitter-typescript>=0.23.2",
   "uvicorn[standard]>=0.34.0",
 ]
+
+[project.scripts]
+codewiki = "backend.app.cli:main"
 
 [project.optional-dependencies]
 dev = [

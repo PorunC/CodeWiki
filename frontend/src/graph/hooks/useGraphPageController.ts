@@ -496,6 +496,7 @@ export function useGraphPageController({
       showHiddenNode,
       showAllHiddenNodes,
       clearHighlights,
+      openFileDetail,
       handleNodeClick,
       handleNodeDoubleClick,
       handleNavigateToNode

@@ -38,7 +38,7 @@ export function dispatchHighlightRelatedNodes(detail: HighlightRelatedNodesDetai
 export function dispatchOpenSourceRef(detail: SourceRefNavigationDetail, options: { navigateToGraph?: boolean } = {}) {
   dispatchNavigationEvent(OPEN_SOURCE_REF_EVENT, detail);
   if (options.navigateToGraph) {
-    navigateToGraph();
+    navigateToGraph(detail.repoId);
   }
 }
 
@@ -60,7 +60,12 @@ export function onOpenSourceRef(handler: (detail: Partial<SourceRefNavigationDet
   return listenNavigationEvent<Partial<SourceRefNavigationDetail>>(OPEN_SOURCE_REF_EVENT, handler);
 }
 
-export function navigateToGraph() {
+export function navigateToGraph(repoId?: string) {
+  if (repoId) {
+    window.history.pushState(null, "", `/repos/${encodeURIComponent(repoId)}/graph`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    return;
+  }
   if (window.location.hash !== "#graph") {
     window.location.hash = "graph";
   }

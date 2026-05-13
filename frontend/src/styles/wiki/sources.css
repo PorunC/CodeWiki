@@ -48,8 +48,11 @@
 }
 
 .workspace.is-section-wiki .wiki-catalog {
+  align-self: start;
+  max-height: calc(100vh - 112px);
+  overflow: auto;
   position: sticky;
-  top: 0;
+  top: 16px;
 }
 
 .wiki-list {
@@ -79,5 +82,4 @@
   font-size: 12px;
   text-transform: uppercase;
 }
-
 

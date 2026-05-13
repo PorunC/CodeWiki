@@ -1,4 +1,5 @@
 import { GraphFiltersPanel } from "../graph/GraphFiltersPanel";
+import { GraphFilesPanel } from "../graph/GraphFilesPanel";
 import { GraphFlowCanvas } from "../graph/GraphFlowCanvas";
 import { GraphToolbar } from "../graph/GraphToolbar";
 import { NodeDetails } from "../graph/NodeDetails";
@@ -95,7 +96,14 @@ export function GraphPage({
           onResetFilters={actions.resetFilters}
           onShowHiddenNode={actions.showHiddenNode}
           onShowAllHiddenNodes={actions.showAllHiddenNodes}
-        />
+        >
+          <GraphFilesPanel
+            selectedRepoId={selectedRepoId}
+            graph={graph}
+            selectedFileId={selectedFileId}
+            onOpenFile={actions.openFileDetail}
+          />
+        </GraphFiltersPanel>
 
         <GraphFlowCanvas
           isLoading={isLoading}
