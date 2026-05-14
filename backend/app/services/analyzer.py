@@ -2,10 +2,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from backend.app.config import Settings, get_settings
 from backend.app.database import SQLiteStore
 from backend.app.services.ast_parser import AstParser, AstSymbol
 from backend.app.services.community_detector import CommunityDetector
+from backend.app.services.community_namer import CommunityNamer
+from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.graph_builder import CodeGraph, GraphBuilder
+from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -32,6 +36,12 @@ class AnalysisResult:
         }
 
 
+@dataclass(frozen=True)
+class AnalysisWithCommunitySummariesResult:
+    analysis: AnalysisResult
+    community_naming: CommunityNamingResult | None = None
+
+
 class AnalysisService:
     def __init__(
         self,
@@ -47,6 +57,48 @@ class AnalysisService:
         self.parser = parser or AstParser()
         self.graph_builder = graph_builder or GraphBuilder()
         self.community_detector = community_detector or CommunityDetector()
+
+    async def analyze_with_community_summaries(
+        self,
+        repo_id: str,
+        *,
+        name_communities: bool = True,
+        community_namer: CommunityNamer | None = None,
+        settings: Settings | None = None,
+    ) -> AnalysisWithCommunitySummariesResult:
+        result = self.analyze(repo_id)
+        if not name_communities:
+            return AnalysisWithCommunitySummariesResult(analysis=result)
+
+        settings = settings or get_settings()
+        if community_namer is None and not _llm_configured(settings):
+            naming_result = CommunityNamingResult(
+                repo_id=repo_id,
+                status="skipped",
+                renamed_count=0,
+                community_count=result.community_count,
+                errors=["LLM community naming skipped because no LLM endpoint or API key is configured."],
+            )
+            return AnalysisWithCommunitySummariesResult(
+                analysis=result,
+                community_naming=naming_result,
+            )
+
+        namer = community_namer or CommunityNamer(LLMGateway(settings), store=self.store)
+        try:
+            naming_result = await namer.name_communities(repo_id)
+        except Exception as exc:
+            naming_result = CommunityNamingResult(
+                repo_id=repo_id,
+                status="failed",
+                renamed_count=0,
+                community_count=result.community_count,
+                errors=[str(exc)],
+            )
+        return AnalysisWithCommunitySummariesResult(
+            analysis=result,
+            community_naming=naming_result,
+        )
 
     def analyze(self, repo_id: str) -> AnalysisResult:
         repo = self.store.get_repo(repo_id)
@@ -108,3 +160,12 @@ class AnalysisService:
             if parsed_symbols:
                 symbols.extend(parsed_symbols)
         return symbols, errors
+
+
+def _llm_configured(settings: Settings) -> bool:
+    return bool(
+        settings.llm_api_key
+        or settings.llm_base_url
+        or (settings.llm_mode == "proxy" and settings.litellm_proxy_base_url)
+        or not settings.llm_default_model.startswith("provider/")
+    )

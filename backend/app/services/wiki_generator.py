@@ -5,6 +5,11 @@ from backend.app.services.wiki.catalog import (
 from backend.app.services.wiki.diagrams import _graph_refs_from_trace, _mermaid_from_trace
 from backend.app.services.wiki.generator import PageGenerationResult, WikiGenerator
 from backend.app.services.wiki.markdown import _strip_llm_mermaid, _validate_page_markdown
+from backend.app.services.wiki.mermaid_validation import (
+    validate_mermaid,
+    validate_mermaid_blocks,
+    validate_mermaid_blocks_async,
+)
 from backend.app.services.wiki.sources import (
     _include_markdown_citation_refs,
     _replace_citation_markers,
@@ -26,5 +31,8 @@ __all__ = [
     "_slugify",
     "_strip_llm_mermaid",
     "_validate_page_markdown",
+    "validate_mermaid",
+    "validate_mermaid_blocks",
+    "validate_mermaid_blocks_async",
     "_validate_source_refs",
 ]

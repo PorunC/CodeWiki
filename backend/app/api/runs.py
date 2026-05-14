@@ -5,8 +5,9 @@ from pydantic import BaseModel
 
 from backend.app.config import get_settings
 from backend.app.database import get_store
-from backend.app.services.analyzer import AnalysisService
+from backend.app.services.analyzer import AnalysisService, _llm_configured
 from backend.app.services.community_namer import CommunityNamer
+from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.incremental_updater import IncrementalUpdater
 from backend.app.services.llm_gateway import LLMGateway
 
@@ -14,12 +15,12 @@ router = APIRouter()
 
 
 class AnalyzeRepoRequest(BaseModel):
-    name_communities: bool = False
+    name_communities: bool = True
 
 
 class IncrementalUpdateRequest(BaseModel):
     refresh_chunks: bool = True
-    name_communities: bool = False
+    name_communities: bool = True
     regenerate_wiki: bool = True
 
 
@@ -30,12 +31,12 @@ async def analyze_repo(repo_id: str, payload: AnalyzeRepoRequest | None = None) 
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     request = payload or AnalyzeRepoRequest()
     try:
-        result = AnalysisService(store=store).analyze(repo_id)
-        naming_result = (
-            await CommunityNamer(LLMGateway(get_settings()), store=store).name_communities(repo_id)
-            if request.name_communities
-            else None
+        analysis = await AnalysisService(store=store).analyze_with_community_summaries(
+            repo_id,
+            name_communities=request.name_communities,
         )
+        result = analysis.analysis
+        naming_result = analysis.community_naming
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     response = {
@@ -69,11 +70,7 @@ async def update_repo(
             refresh_chunks=request.refresh_chunks,
             regenerate_wiki=request.regenerate_wiki,
         )
-        naming_result = (
-            await CommunityNamer(LLMGateway(get_settings()), store=store).name_communities(repo_id)
-            if request.name_communities
-            else None
-        )
+        naming_result = await _name_communities(repo_id) if request.name_communities else None
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     response = {
@@ -95,6 +92,28 @@ async def update_repo(
     if naming_result is not None:
         response["community_naming"] = asdict(naming_result)
     return response
+
+
+async def _name_communities(repo_id: str) -> CommunityNamingResult:
+    settings = get_settings()
+    if not _llm_configured(settings):
+        return CommunityNamingResult(
+            repo_id=repo_id,
+            status="skipped",
+            renamed_count=0,
+            community_count=len(get_store().list_graph_communities(repo_id)),
+            errors=["LLM community naming skipped because no LLM endpoint or API key is configured."],
+        )
+    try:
+        return await CommunityNamer(LLMGateway(settings), store=get_store()).name_communities(repo_id)
+    except Exception as exc:
+        return CommunityNamingResult(
+            repo_id=repo_id,
+            status="failed",
+            renamed_count=0,
+            community_count=len(get_store().list_graph_communities(repo_id)),
+            errors=[str(exc)],
+        )
 
 
 @router.get("/{repo_id}/runs")

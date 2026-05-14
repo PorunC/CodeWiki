@@ -11,6 +11,7 @@ dependencies = [
   "graspologic>=3.4.4; python_version < '3.13'",
   "httpx[socks]>=0.28.1",
   "litellm>=1.60.0",
+  "mermaid-parser-py>=0.0.4",
   "networkx>=3.4.0",
   "pathspec>=0.12.1",
   "pydantic>=2.10.0",

@@ -101,6 +101,35 @@ async def test_wiki_generator_marks_page_draft_when_source_refs_are_invalid(
 
 
 @pytest.mark.asyncio
+async def test_wiki_generator_marks_page_draft_when_server_mermaid_is_invalid(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Request Handler",
+            "markdown": "# Request Handler\n\n## Purpose and Scope\n\nThe handler delegates to answer().",
+            "source_refs": [{"file_path": "api.py", "start_line": 3, "end_line": 4}],
+        }
+    )
+    monkeypatch.setattr(
+        "backend.app.services.wiki.page_generator._mermaid_from_trace",
+        lambda *_args, **_kwargs: "## Graph\n\n```mermaid\nflowchart TD\n  A -->\n```",
+    )
+    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+
+    result = await generator.generate_page(
+        repo.id,
+        {"title": "Request Handler", "slug": "request-handler", "topic": "handler answer"},
+    )
+
+    assert result.page.status == "draft"
+    assert any(error.startswith("Mermaid block 1:") for error in result.validation_errors)
+    assert "Validation Errors" in result.page.markdown
+
+
+@pytest.mark.asyncio
 async def test_wiki_generator_generates_leaf_pages_for_category_catalog(
     tmp_path: Path,
 ) -> None:

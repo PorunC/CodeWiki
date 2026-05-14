@@ -1,8 +1,12 @@
 from pathlib import Path
 
+import pytest
+
+from backend.app.config import Settings
 from backend.app.database import SQLiteStore
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.community_detector import _community_name
+from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.graph_builder import CodeGraphNode
 from backend.app.services.repo_scanner import RepoScanner
 
@@ -87,6 +91,53 @@ def test_store_lists_analysis_runs(tmp_path: Path) -> None:
     assert runs[0].stats["community_count"] == result.community_count
 
 
+@pytest.mark.asyncio
+async def test_analyze_with_community_summaries_invokes_llm_namer(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "main.py").write_text("def main():\n    return 1\n")
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    namer = _FakeCommunityNamer()
+
+    result = await AnalysisService(store=store).analyze_with_community_summaries(
+        repo.id,
+        community_namer=namer,
+    )
+
+    assert result.analysis.status == "done"
+    assert result.community_naming is not None
+    assert result.community_naming.status == "renamed"
+    assert namer.repo_ids == [repo.id]
+
+
+@pytest.mark.asyncio
+async def test_analyze_with_community_summaries_skips_llm_when_unconfigured(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "main.py").write_text("def main():\n    return 1\n")
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+
+    result = await AnalysisService(store=store).analyze_with_community_summaries(
+        repo.id,
+        settings=Settings(
+            llm_api_key=None,
+            llm_base_url=None,
+            litellm_proxy_base_url=None,
+            llm_default_model="provider/strong-coding-model",
+        ),
+    )
+
+    assert result.analysis.status == "done"
+    assert result.community_naming is not None
+    assert result.community_naming.status == "skipped"
+
+
 def test_analyze_resolves_local_typescript_imports_and_fact_edges(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -153,3 +204,19 @@ def test_analyze_resolves_local_python_imports(tmp_path: Path) -> None:
         edge for edge in edges if edge.type == "imports" and edge.metadata.get("resolved") is True
     ]
     assert any(edge.source_id.endswith(":file:api.py") and edge.target_id.endswith(":file:service.py") for edge in local_import_edges)
+
+
+class _FakeCommunityNamer:
+    def __init__(self) -> None:
+        self.repo_ids: list[str] = []
+
+    async def name_communities(self, repo_id: str) -> CommunityNamingResult:
+        self.repo_ids.append(repo_id)
+        return CommunityNamingResult(
+            repo_id=repo_id,
+            status="renamed",
+            renamed_count=1,
+            community_count=1,
+            llm_run_ids=["run-1"],
+            errors=[],
+        )

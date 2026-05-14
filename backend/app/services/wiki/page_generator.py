@@ -20,6 +20,7 @@ from backend.app.services.wiki.diagrams import (
     _mermaid_from_trace,
 )
 from backend.app.services.wiki.markdown import _strip_llm_mermaid, _validate_page_markdown
+from backend.app.services.wiki.mermaid_validation import validate_mermaid_blocks_async
 from backend.app.services.wiki.prompts import _json_object, _load_prompt, _page_messages
 from backend.app.services.wiki.sources import (
     _compose_page_markdown,
@@ -141,6 +142,11 @@ class WikiPageGenerator:
             markdown = _replace_citation_markers(markdown, source_refs)
             graph_markdown = _mermaid_from_trace(trace, title=title, source_refs=source_refs)
             markdown = _compose_page_markdown(markdown, graph_markdown, source_refs)
+            mermaid_errors = await validate_mermaid_blocks_async(markdown)
+            if mermaid_errors:
+                validation_errors.extend(mermaid_errors)
+                status = "draft"
+                markdown = _draft_markdown(title, validation_errors)
         else:
             markdown = _draft_markdown(title, validation_errors)
 
