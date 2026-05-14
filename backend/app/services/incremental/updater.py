@@ -12,7 +12,13 @@ from backend.app.services.incremental.wiki_regeneration import (
     regenerate_stale_wiki_pages,
     skipped_wiki_regeneration,
 )
-from backend.app.services.repo_scanner import RepoDescriptor, RepoScanner
+from backend.app.services.repo_metadata import read_repo_metadata, write_repo_metadata
+from backend.app.services.repo_scanner import (
+    RepoDescriptor,
+    RepoScanResult,
+    RepoScanner,
+    git_diff_changed_paths,
+)
 
 
 class IncrementalUpdater:
@@ -37,13 +43,13 @@ class IncrementalUpdater:
         repo = self._repo(repo_id)
         scan = self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
         nodes, _edges = self.store.get_graph(repo_id)
-        return _plan_from_scan(repo_id, scan, nodes)
+        return self._plan_from_scan_with_metadata(repo, scan, nodes)
 
     def update(self, repo_id: str, *, refresh_chunks: bool = True) -> IncrementalUpdateResult:
         repo = self._repo(repo_id)
         scan = self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
         old_nodes, old_edges = self.store.get_graph(repo_id)
-        plan = _plan_from_scan(repo_id, scan, old_nodes)
+        plan = self._plan_from_scan_with_metadata(repo, scan, old_nodes)
         stale_graph_refs = _affected_graph_refs(old_nodes, old_edges, plan.changed_files + plan.deleted_files)
         run = self.store.create_analysis_run(repo_id)
 
@@ -64,6 +70,8 @@ class IncrementalUpdater:
                     chunk_count=chunk_count,
                 )
                 self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
+                self.store.upsert_repo(scan.repo)
+                write_repo_metadata(scan.repo)
                 return result
 
             changed_or_new = set(plan.changed_files + plan.new_files)
@@ -104,6 +112,8 @@ class IncrementalUpdater:
                 errors=parse_errors,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
+            self.store.upsert_repo(scan.repo)
+            write_repo_metadata(scan.repo)
             return result
         except Exception as exc:
             self.store.finish_analysis_run(run.id, status="failed", stats={}, error=str(exc))
@@ -129,6 +139,39 @@ class IncrementalUpdater:
         if repo is None:
             raise ValueError(f"Repository not found: {repo_id}")
         return repo
+
+    def _plan_from_scan_with_metadata(
+        self,
+        repo: RepoDescriptor,
+        scan: RepoScanResult,
+        nodes: list[CodeGraphNode],
+    ) -> IncrementalUpdatePlan:
+        candidate_paths, detection_strategy, base_commit, head_commit = self._git_diff_candidates(
+            repo,
+            scan,
+        )
+        return _plan_from_scan(
+            repo.id,
+            scan,
+            nodes,
+            candidate_paths=candidate_paths,
+            detection_strategy=detection_strategy,
+            base_commit=base_commit,
+            head_commit=head_commit,
+        )
+
+    def _git_diff_candidates(
+        self,
+        repo: RepoDescriptor,
+        scan: RepoScanResult,
+    ) -> tuple[set[str] | None, str, str | None, str | None]:
+        metadata = read_repo_metadata(repo.id)
+        base_commit = metadata.commit_hash if metadata is not None else repo.commit_hash
+        head_commit = scan.repo.commit_hash
+        diff_paths = git_diff_changed_paths(Path(scan.repo.path), base_commit, head_commit)
+        if diff_paths is None:
+            return None, "sha256", base_commit, head_commit
+        return diff_paths, "git_diff+sha256", base_commit, head_commit
 
     def _refresh_chunks(
         self,

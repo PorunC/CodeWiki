@@ -33,6 +33,7 @@ def parse_scanned_files(
                 Path(scanned_file.absolute_path),
                 repo_root=repo_root,
                 language=scanned_file.language,
+                file_hash=scanned_file.sha256,
             )
         except SyntaxError as exc:
             errors.append({"file_path": scanned_file.path, "error": str(exc)})

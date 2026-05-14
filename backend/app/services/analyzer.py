@@ -10,6 +10,7 @@ from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.graph import CodeGraph, GraphBuilder
 from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.repo_metadata import write_repo_metadata
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -130,6 +131,8 @@ class AnalysisService:
                 errors=parse_errors,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
+            self.store.upsert_repo(scan.repo)
+            write_repo_metadata(scan.repo)
             return result
         except Exception as exc:
             self.store.finish_analysis_run(

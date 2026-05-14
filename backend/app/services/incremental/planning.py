@@ -7,6 +7,11 @@ def _plan_from_scan(
     repo_id: str,
     scan: RepoScanResult,
     current_nodes: list[CodeGraphNode],
+    *,
+    candidate_paths: set[str] | None = None,
+    detection_strategy: str = "sha256",
+    base_commit: str | None = None,
+    head_commit: str | None = None,
 ) -> IncrementalUpdatePlan:
     current_file_hashes = {
         node.file_path: node.hash
@@ -15,13 +20,34 @@ def _plan_from_scan(
     }
     scanned_file_hashes = {scanned_file.path: scanned_file.sha256 for scanned_file in scan.files}
 
-    changed_files = sorted(
+    hash_changed_paths = {
         path
         for path, file_hash in scanned_file_hashes.items()
         if path in current_file_hashes and current_file_hashes[path] != file_hash
+    }
+    hash_new_paths = {path for path in scanned_file_hashes if path not in current_file_hashes}
+    hash_deleted_paths = {path for path in current_file_hashes if path not in scanned_file_hashes}
+    paths_to_check = candidate_paths
+    if paths_to_check is not None:
+        paths_to_check = set(paths_to_check) | hash_changed_paths | hash_new_paths | hash_deleted_paths
+
+    changed_files = sorted(
+        path
+        for path in (paths_to_check or set(scanned_file_hashes))
+        if path in scanned_file_hashes
+        and path in current_file_hashes
+        and current_file_hashes[path] != scanned_file_hashes[path]
     )
-    new_files = sorted(path for path in scanned_file_hashes if path not in current_file_hashes)
-    deleted_files = sorted(path for path in current_file_hashes if path not in scanned_file_hashes)
+    new_files = sorted(
+        path
+        for path in (paths_to_check or set(scanned_file_hashes))
+        if path in scanned_file_hashes and path not in current_file_hashes
+    )
+    deleted_files = sorted(
+        path
+        for path in (paths_to_check or set(current_file_hashes))
+        if path in current_file_hashes and path not in scanned_file_hashes
+    )
     unchanged_files = sorted(
         path
         for path, file_hash in scanned_file_hashes.items()
@@ -33,6 +59,9 @@ def _plan_from_scan(
         new_files=new_files,
         deleted_files=deleted_files,
         unchanged_files=unchanged_files,
+        detection_strategy=detection_strategy,
+        base_commit=base_commit,
+        head_commit=head_commit,
     )
 
 

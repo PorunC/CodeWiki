@@ -606,7 +606,7 @@ BACKENDS = {
 ### 缓存策略
 
 - 基于 `(model, task_type, input_hash)` 做 LLM 调用缓存。
-- AST 提取结果缓存到 `graphify-out/cache/ast/{sha256}.json`（借鉴 graphify）。
+- AST 提取结果缓存到 `storage/cache/ast/{sha256}.json`（借鉴 graphify）。
 - Embedding 按 `content_hash` 去重，避免重复计算。
 
 ### 自适应上下文重试

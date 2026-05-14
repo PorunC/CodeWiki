@@ -1,11 +1,15 @@
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from backend.app.config import get_settings
 from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.ast_parser import AstParser
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.incremental import IncrementalUpdater
+from backend.app.services.repo_metadata import read_repo_metadata
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -95,6 +99,61 @@ def test_incremental_update_removes_deleted_files_and_chunks(tmp_path: Path) -> 
     assert not any(chunk.file_path == "service.py" for chunk in store.list_code_chunks(repo.id))
 
 
+def test_incremental_update_uses_metadata_git_diff_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage_dir = tmp_path / "storage"
+    monkeypatch.setenv("CODEWIKI_STORAGE_DIR", str(storage_dir))
+    get_settings.cache_clear()
+
+    try:
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        _git(repo_dir, "init")
+        _git(repo_dir, "config", "user.email", "test@example.com")
+        _git(repo_dir, "config", "user.name", "Test User")
+        (repo_dir / "service.py").write_text("def answer():\n    return 42\n")
+        (repo_dir / "old.py").write_text("def legacy():\n    return 'old'\n")
+        _git(repo_dir, "add", ".")
+        _git(repo_dir, "commit", "-m", "initial")
+        initial_commit = _git_output(repo_dir, "rev-parse", "HEAD")
+
+        store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+        scanner = RepoScanner()
+        parser = AstParser(cache_dir=tmp_path / "cache" / "ast")
+        repo = store.upsert_repo(scanner.describe(str(repo_dir)))
+        AnalysisService(store=store, scanner=scanner, parser=parser).analyze(repo.id)
+
+        initial_metadata = read_repo_metadata(repo.id)
+        assert initial_metadata is not None
+        assert initial_metadata.commit_hash == initial_commit
+        assert (storage_dir / "repos" / repo.id / "metadata.json").is_file()
+
+        (repo_dir / "service.py").write_text("def answer():\n    return 43\n")
+        (repo_dir / "old.py").unlink()
+        (repo_dir / "util.py").write_text("def helper():\n    return 'ok'\n")
+        _git(repo_dir, "add", "-A")
+        _git(repo_dir, "commit", "-m", "update files")
+        updated_commit = _git_output(repo_dir, "rev-parse", "HEAD")
+
+        result = IncrementalUpdater(store=store, scanner=scanner, parser=parser).update(repo.id)
+        updated_metadata = read_repo_metadata(repo.id)
+
+        assert result.plan.detection_strategy == "git_diff+sha256"
+        assert result.plan.base_commit == initial_commit
+        assert result.plan.head_commit == updated_commit
+        assert result.plan.changed_files == ["service.py"]
+        assert result.plan.new_files == ["util.py"]
+        assert result.plan.deleted_files == ["old.py"]
+        assert result.parsed_file_count == 2
+        assert updated_metadata is not None
+        assert updated_metadata.commit_hash == updated_commit
+        assert store.get_repo(repo.id).commit_hash == updated_commit
+    finally:
+        get_settings.cache_clear()
+
+
 @pytest.mark.asyncio
 async def test_incremental_update_with_wiki_regeneration_refreshes_stale_pages(
     tmp_path: Path,
@@ -147,3 +206,24 @@ async def test_incremental_update_with_wiki_regeneration_refreshes_stale_pages(
     assert captured == {"store": store, "repo_id": repo.id, "stale_pages": ["service"]}
     assert wiki_regeneration["requested"] is True
     assert wiki_regeneration["pages"] == [{"slug": "service", "status": "generated"}]
+
+
+def _git(repo_dir: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo_dir), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _git_output(repo_dir: Path, *args: str) -> str:
+    process = subprocess.run(
+        ["git", "-C", str(repo_dir), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return process.stdout.strip()

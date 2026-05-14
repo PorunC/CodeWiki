@@ -1,7 +1,11 @@
 from pathlib import Path
 
+from backend.app.config import get_settings
+from backend.app.services.ast_cache import AstParseCache
 from backend.app.services.ast_parsers.base import AstSymbol, LanguageParser
+from backend.app.services.ast_parsers.common import relative_path
 from backend.app.services.language_detector import LanguageDetector
+from backend.app.services.repo_scanner.file_info import sha256_file
 
 
 class AstParserRegistry:
@@ -40,9 +44,16 @@ class AstParser:
         *,
         registry: AstParserRegistry | None = None,
         language_detector: LanguageDetector | None = None,
+        cache_dir: Path | None = None,
+        cache_enabled: bool = True,
     ) -> None:
         self.registry = registry or AstParserRegistry.default()
         self.language_detector = language_detector or LanguageDetector()
+        self.cache = (
+            AstParseCache(cache_dir or get_settings().storage_dir / "cache" / "ast")
+            if cache_enabled
+            else None
+        )
 
     def parse_file(
         self,
@@ -50,9 +61,28 @@ class AstParser:
         *,
         repo_root: Path | None = None,
         language: str | None = None,
+        file_hash: str | None = None,
     ) -> list[AstSymbol]:
         detected_language = language or self.language_detector.detect(path)
         parser = self.registry.get(detected_language)
         if parser is None:
             return []
-        return parser.parse(path, repo_root=repo_root)
+        relative_file_path = relative_path(path, repo_root)
+        cache_hash = file_hash or sha256_file(path)
+        if self.cache is not None:
+            cached_symbols = self.cache.read(
+                cache_hash,
+                file_path=relative_file_path,
+                language=detected_language,
+            )
+            if cached_symbols is not None:
+                return cached_symbols
+        symbols = parser.parse(path, repo_root=repo_root)
+        if self.cache is not None:
+            self.cache.write(
+                cache_hash,
+                file_path=relative_file_path,
+                language=detected_language,
+                symbols=symbols,
+            )
+        return symbols

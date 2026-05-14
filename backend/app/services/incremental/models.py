@@ -9,6 +9,9 @@ class IncrementalUpdatePlan:
     new_files: list[str] = field(default_factory=list)
     deleted_files: list[str] = field(default_factory=list)
     unchanged_files: list[str] = field(default_factory=list)
+    detection_strategy: str = "sha256"
+    base_commit: str | None = None
+    head_commit: str | None = None
 
     @property
     def affected_files(self) -> list[str]:
@@ -22,6 +25,9 @@ class IncrementalUpdatePlan:
             "deleted_files": self.deleted_files,
             "unchanged_files": self.unchanged_files,
             "affected_files": self.affected_files,
+            "detection_strategy": self.detection_strategy,
+            "base_commit": self.base_commit,
+            "head_commit": self.head_commit,
         }
 
 

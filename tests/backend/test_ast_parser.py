@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from backend.app.services.ast_parser import AstParser
+from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol
+from backend.app.services.repo_scanner.file_info import sha256_file
 
 
 def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> None:
@@ -81,3 +82,47 @@ def test_registry_reports_supported_languages() -> None:
 
     assert "python" in parser.registry.supported_languages()
     assert "typescript" in parser.registry.supported_languages()
+
+
+def test_ast_parser_caches_symbols_by_file_hash(tmp_path: Path) -> None:
+    source = tmp_path / "cached.py"
+    source.write_text("print('cached')\n")
+    cache_dir = tmp_path / "cache" / "ast"
+    language_parser = _CountingParser()
+    registry = AstParserRegistry()
+    registry.register(language_parser)
+    parser = AstParser(registry=registry, cache_dir=cache_dir)
+
+    first = parser.parse_file(source, repo_root=tmp_path)
+    second = parser.parse_file(source, repo_root=tmp_path)
+
+    assert first == second
+    assert language_parser.parse_count == 1
+    assert (cache_dir / f"{sha256_file(source)}.json").is_file()
+
+    source.write_text("print('changed')\n")
+    parser.parse_file(source, repo_root=tmp_path)
+
+    assert language_parser.parse_count == 2
+
+
+class _CountingParser:
+    language = "python"
+
+    def __init__(self) -> None:
+        self.parse_count = 0
+
+    def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
+        self.parse_count += 1
+        return [
+            AstSymbol(
+                id=f"file:{path.relative_to(repo_root).as_posix() if repo_root else path.name}",
+                type="file",
+                name=path.name,
+                file_path=path.relative_to(repo_root).as_posix() if repo_root else path.name,
+                language=self.language,
+                start_line=1,
+                end_line=1,
+                hash=str(self.parse_count),
+            )
+        ]

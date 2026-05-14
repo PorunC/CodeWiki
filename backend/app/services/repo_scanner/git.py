@@ -19,6 +19,51 @@ def git_file_commit_times(repo_path: Path, file_paths: list[str]) -> dict[str, s
     return commit_times
 
 
+def git_diff_changed_paths(
+    repo_path: Path,
+    base_commit: str | None,
+    head_commit: str | None,
+) -> set[str] | None:
+    if not base_commit or not head_commit or not (repo_path / ".git").is_dir():
+        return None
+    if base_commit == head_commit:
+        return set()
+    try:
+        process = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_path),
+                "diff",
+                "--name-status",
+                "--find-renames",
+                base_commit,
+                head_commit,
+                "--",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if process.returncode != 0:
+        return None
+    paths: set[str] = set()
+    for raw_line in process.stdout.splitlines():
+        parts = raw_line.strip().split("\t")
+        if len(parts) < 2:
+            continue
+        status = parts[0]
+        if status.startswith(("R", "C")) and len(parts) >= 3:
+            paths.add(parts[1])
+            paths.add(parts[2])
+        else:
+            paths.add(parts[1])
+    return paths
+
+
 def git_origin_url(git_dir: Path) -> str | None:
     config_path = git_dir / "config"
     if not config_path.is_file():
