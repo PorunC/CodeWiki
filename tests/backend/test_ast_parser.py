@@ -43,9 +43,10 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
             [
                 "import { readFile } from 'node:fs/promises';",
                 "export interface UserDto { id: string; name?: string }",
+                "export interface Loadable { load(): Promise<string> }",
                 "export type Status = 'ok' | 'bad';",
-                "export class Loader extends BaseLoader {}",
-                "export function loadConfig() {",
+                "export class Loader extends BaseLoader implements Loadable {}",
+                "export function loadConfig(): UserDto {",
                 "  return readFile('config.json');",
                 "}",
                 "const parseConfig = (input: string) => JSON.parse(input);",
@@ -61,18 +62,21 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
     by_id = {symbol.id: symbol for symbol in symbols}
 
     assert by_id["file:app.ts"].imports == ["./parse", "node:fs/promises"]
-    assert by_id["file:app.ts"].exports == ["Loader", "Status", "UserDto", "loadConfig", "parse"]
+    assert by_id["file:app.ts"].exports == ["Loadable", "Loader", "Status", "UserDto", "loadConfig", "parse"]
     assert by_id["app.ts::UserDto"].type == "schema"
     assert by_id["app.ts::UserDto"].metadata["schema_kind"] == "interface"
+    assert by_id["app.ts::Loadable"].type == "schema"
     assert by_id["app.ts::Status"].type == "schema"
     assert by_id["app.ts::Loader"].type == "class"
     assert by_id["app.ts::Loader"].bases == ["BaseLoader"]
+    assert by_id["app.ts::Loader"].implements == ["Loadable"]
     assert by_id["app.ts::loadConfig"].type == "function"
+    assert "UserDto" in by_id["app.ts::loadConfig"].references
     assert by_id["app.ts::parseConfig"].type == "function"
-    endpoint = by_id["app.ts::endpoint:GET:/users/:id:9"]
+    endpoint = by_id["app.ts::endpoint:GET:/users/:id:10"]
     assert endpoint.type == "endpoint"
     assert endpoint.metadata["route_path"] == "/users/:id"
-    member_endpoint = by_id["app.ts::endpoint:POST:/teams/:id:11"]
+    member_endpoint = by_id["app.ts::endpoint:POST:/teams/:id:12"]
     assert member_endpoint.metadata["handler"] == "getTeam"
     assert member_endpoint.calls == ["getTeam"]
 

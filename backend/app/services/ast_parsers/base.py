@@ -18,8 +18,10 @@ class AstSymbol:
     imports: list[str] = field(default_factory=list)
     exports: list[str] = field(default_factory=list)
     bases: list[str] = field(default_factory=list)
+    implements: list[str] = field(default_factory=list)
     decorators: list[str] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
     hash: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 

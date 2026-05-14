@@ -105,8 +105,12 @@ def _edge_evidence(edge_type: str, metadata: dict[str, Any]) -> list[str]:
     for key in (
         "import",
         "base",
+        "interface",
         "call",
         "handler",
+        "reference",
+        "references",
+        "imports",
         "route_method",
         "route_path",
         "resolved",

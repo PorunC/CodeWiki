@@ -1,4 +1,5 @@
 import type { CodeNode, GraphResponse } from "../../api/types";
+import { isFileLikeNode } from "../formatters";
 import type { SourceRefNavigationDetail } from "../navigationEvents";
 
 export function normalizeSourceRefDetail(
@@ -22,7 +23,7 @@ export function findBestNodeForSourceRef(
   detail: SourceRefNavigationDetail
 ): { fileNode: CodeNode; targetNode: CodeNode } | null {
   const fileNode = graph.nodes
-    .filter((node) => node.type === "file")
+    .filter(isFileLikeNode)
     .find((node) => pathsMatch(node.file_path ?? node.name, detail.filePath));
   if (!fileNode) {
     return null;
@@ -74,7 +75,7 @@ export function findOverviewVisualIdForRawNode(graph: GraphResponse, rawNodeId: 
   if (node.type === "module") {
     return "dependency:external";
   }
-  if (node.type === "file" || node.type === "directory" || node.type === "repository") {
+  if (isFileLikeNode(node) || node.type === "directory" || node.type === "repository") {
     return node.id;
   }
 
@@ -86,7 +87,7 @@ export function findOverviewVisualIdForRawNode(graph: GraphResponse, rawNodeId: 
   let currentId: string | undefined = rawNodeId;
   while (currentId) {
     const currentNode = nodeById.get(currentId);
-    if (currentNode?.type === "file") {
+    if (currentNode && isFileLikeNode(currentNode)) {
       return currentNode.id;
     }
     currentId = parentByChild.get(currentId);
@@ -95,7 +96,7 @@ export function findOverviewVisualIdForRawNode(graph: GraphResponse, rawNodeId: 
 }
 
 export function canShowInFileDetail(node: CodeNode): boolean {
-  return node.type === "file" || node.type === "class" || node.type === "function" || node.type === "method";
+  return isFileLikeNode(node) || node.type === "class" || node.type === "function" || node.type === "method";
 }
 
 function compareSourceCandidates(

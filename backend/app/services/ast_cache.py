@@ -5,7 +5,7 @@ from typing import Any
 
 from backend.app.services.ast_parsers.base import AstSymbol
 
-AST_CACHE_SCHEMA_VERSION = 1
+AST_CACHE_SCHEMA_VERSION = 3
 _AST_SYMBOL_FIELDS = {field.name for field in fields(AstSymbol)}
 
 

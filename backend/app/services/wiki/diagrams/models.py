@@ -1,10 +1,19 @@
 from dataclasses import dataclass
 
 
-ABSTRACT_DIAGRAM_EDGE_TYPES = {"routes_to", "calls", "imports", "inherits", "exports"}
+ABSTRACT_DIAGRAM_EDGE_TYPES = {
+    "routes_to",
+    "calls",
+    "imports",
+    "uses_config",
+    "inherits",
+    "implements",
+    "exports",
+    "references",
+}
 SOURCE_EDGE_TYPES = ABSTRACT_DIAGRAM_EDGE_TYPES | {"contains", "defines"}
 SURFACE_NODE_TYPES = {"endpoint", "class", "schema", "interface"}
-EDGE_LABEL_ORDER = ("routes_to", "calls", "imports", "inherits", "exports")
+EDGE_LABEL_ORDER = ("routes_to", "calls", "imports", "uses_config", "inherits", "implements", "exports", "references")
 MAX_MERMAID_EDGES = 28
 MAX_MERMAID_COMPONENTS = 10
 MAX_MERMAID_ABSTRACT_EDGES = 14

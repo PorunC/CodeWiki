@@ -123,8 +123,11 @@ def _component_edge_sort_key(edge: _MermaidEdgeAggregate) -> tuple[float, str, s
         "routes_to": 6.0,
         "calls": 4.5,
         "imports": 3.5,
+        "uses_config": 3.0,
         "inherits": 2.8,
+        "implements": 2.6,
         "exports": 1.8,
+        "references": 1.4,
     }
     score = sum(type_weight.get(edge_type, 1.0) * min(count, 4) for edge_type, count in edge.counts.items())
     if edge.evidence_count:

@@ -19,19 +19,27 @@ def repository_node(repo: RepoDescriptor) -> CodeGraphNode:
     )
 
 
-def file_node(repo_id: str, scanned_file: ScannedFile, node_id: str) -> CodeGraphNode:
+def file_node(
+    repo_id: str,
+    scanned_file: ScannedFile,
+    node_id: str,
+    *,
+    node_type: str = "file",
+    extra_metadata: dict[str, object] | None = None,
+) -> CodeGraphNode:
     metadata = {
         "absolute_path": scanned_file.absolute_path,
         "is_source": scanned_file.is_source,
         "size_bytes": scanned_file.size_bytes,
         "modified_at": scanned_file.modified_at,
     }
+    metadata.update(extra_metadata or {})
     if scanned_file.last_commit_at is not None:
         metadata["last_commit_at"] = scanned_file.last_commit_at
     return CodeGraphNode(
         id=node_id,
         repo_id=repo_id,
-        type="file",
+        type=node_type,
         name=PurePosixPath(scanned_file.path).name,
         file_path=scanned_file.path,
         start_line=1,
@@ -70,8 +78,10 @@ def symbol_node(repo_id: str, symbol: AstSymbol, node_id: str) -> CodeGraphNode:
             "docstring": symbol.docstring,
             "exports": symbol.exports,
             "bases": symbol.bases,
+            "implements": symbol.implements,
             "decorators": symbol.decorators,
             "calls": symbol.calls,
+            "references": symbol.references,
             **symbol.metadata,
         },
     )
@@ -134,6 +144,9 @@ def node_provenance_defaults(
         return "repo_scanner", "synthetic_root", 1.0
     if node.type == "directory":
         return "repo_scanner", "synthetic_directory", 1.0
+    if node.type == "config":
+        confidence = metadata.get("config_confidence", 0.85)
+        return "repo_scanner", "config_file", float(confidence) if isinstance(confidence, (int, float)) else 0.85
     if node.type == "file":
         return "repo_scanner", "extracted", 1.0
     if node.type == "module":

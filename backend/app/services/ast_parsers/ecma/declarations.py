@@ -92,6 +92,7 @@ def symbol_from_declaration(
                 parent_id=parent_id,
                 signature=node_text(node, source).split("{", 1)[0].strip(),
                 calls=call_names(node, source),
+                references=reference_names(node, source),
                 hash=file_hash,
                 metadata={"exported": exported, "tree_sitter_type": node.type},
             )
@@ -138,6 +139,7 @@ def lexical_function_symbols(
                     parent_id=parent_id,
                     signature=node_text(declarator, source).split("=>", 1)[0].strip(),
                     calls=call_names(value, source),
+                    references=reference_names(declarator, source),
                     hash=file_hash,
                     metadata={"exported": exported, "tree_sitter_type": value.type},
                 )
@@ -159,7 +161,7 @@ def class_symbols(
     if not name:
         return []
     symbol_id = f"{file_path}::{name}"
-    bases = class_bases(node, source)
+    bases, implements = class_heritage(node, source)
     symbols = [
         AstSymbol(
             id=symbol_id,
@@ -172,7 +174,9 @@ def class_symbols(
             parent_id=parent_id,
             signature=node_text(node, source).split("{", 1)[0].strip(),
             bases=bases,
+            implements=implements,
             calls=call_names(node, source),
+            references=reference_names(node, source),
             hash=file_hash,
             metadata={"exported": exported, "tree_sitter_type": node.type},
         )
@@ -197,6 +201,7 @@ def class_symbols(
                     parent_id=symbol_id,
                     signature=node_text(method, source).split("{", 1)[0].strip(),
                     calls=call_names(method, source),
+                    references=reference_names(method, source),
                     hash=file_hash,
                     metadata={"tree_sitter_type": method.type},
                 )
@@ -218,17 +223,46 @@ def call_names(node, source: bytes) -> list[str]:
     return sorted(calls)
 
 
-def class_bases(node, source: bytes) -> list[str]:
+def reference_names(node, source: bytes) -> list[str]:
+    references: set[str] = set()
+    for descendant in descendants_of_type(
+        node,
+        {
+            "identifier",
+            "nested_type_identifier",
+            "property_identifier",
+            "shorthand_property_identifier",
+            "type_identifier",
+        },
+    ):
+        text = node_text(descendant, source).strip()
+        if text:
+            references.add(text.rsplit(".", 1)[-1])
+    return sorted(references)
+
+
+def class_heritage(node, source: bytes) -> tuple[list[str], list[str]]:
     bases: list[str] = []
+    implements: list[str] = []
     heritage = next((child for child in node.named_children if child.type == "class_heritage"), None)
     if heritage is None:
-        return bases
+        return bases, implements
     for child in heritage.named_children:
-        if child.type in {"extends_clause", "implements_clause"}:
-            for descendant in child.named_children:
-                if descendant.type in {"identifier", "type_identifier", "nested_type_identifier"}:
-                    bases.append(node_text(descendant, source))
-    return bases
+        if child.type == "extends_clause":
+            bases.extend(heritage_type_names(child, source))
+        elif child.type == "implements_clause":
+            implements.extend(heritage_type_names(child, source))
+    return sorted(set(bases)), sorted(set(implements))
+
+
+def heritage_type_names(node, source: bytes) -> list[str]:
+    names: list[str] = []
+    for descendant in node.named_children:
+        if descendant.type in {"identifier", "type_identifier", "nested_type_identifier"}:
+            names.append(node_text(descendant, source))
+        else:
+            names.extend(heritage_type_names(descendant, source))
+    return names
 
 
 def exported_names_from_statement(node, source: bytes) -> set[str]:

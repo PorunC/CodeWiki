@@ -1,5 +1,5 @@
 import type { CodeNode } from "../api/types";
-import { compactFilePath, fileDisplayName, filePathLabel, formatLineRange } from "./formatters";
+import { compactFilePath, fileDisplayName, filePathLabel, formatLineRange, isFileLikeNode } from "./formatters";
 import { nodeTone } from "./styles";
 import type { CodeVisualData, ContainmentIndex, NodeStats } from "./types";
 
@@ -22,16 +22,17 @@ export function toCodeVisualData(
   }
 ): CodeVisualData {
   const tone = nodeTone(node.type);
+  const isFileLike = isFileLikeNode(node);
   const statsLabel =
     options.statsLabel ??
     (options.stats ? `${options.stats.outgoing} out / ${options.stats.incoming} in` : "No visible edges");
 
   return {
     kind: "code",
-    label: options.label ?? (node.type === "file" ? fileDisplayName(node) : node.name),
+    label: options.label ?? (isFileLike ? fileDisplayName(node) : node.name),
     nodeType: node.type,
     summary: options.summary,
-    pathLabel: options.pathLabel ?? (node.type === "file" ? filePathLabel(node) : compactFilePath(node.file_path ?? node.name)),
+    pathLabel: options.pathLabel ?? (isFileLike ? filePathLabel(node) : compactFilePath(node.file_path ?? node.name)),
     lineLabel: options.lineLabel ?? formatLineRange(node),
     countLabel: options.countLabel,
     statsLabel,

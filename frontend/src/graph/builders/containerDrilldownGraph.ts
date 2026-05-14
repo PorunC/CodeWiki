@@ -9,7 +9,7 @@ import {
   SYMBOL_NODE_WIDTH
 } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
-import { fileDisplayName, filePathLabel, formatLineRange, nodeSummary } from "../formatters";
+import { fileDisplayName, filePathLabel, formatLineRange, isFileLikeNode, nodeSummary } from "../formatters";
 import { layoutBoxesCached, nodeSize } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { computeStatsByRawNode, computeStatsForNodeIds } from "../stats";
@@ -63,7 +63,7 @@ export async function buildContainerDrilldownGraph(
   const fileNodes = drilldownContainer.rawNodeIds
     .map((id) => containment.nodeById.get(id))
     .filter((node): node is CodeNode => Boolean(node))
-    .filter((node) => node.type === "file" && filtered.nodeIds.has(node.id))
+    .filter((node) => isFileLikeNode(node) && filtered.nodeIds.has(node.id))
     .sort(compareByPath);
 
   if (fileNodes.length === 0) {
@@ -144,12 +144,12 @@ export async function buildContainerDrilldownGraph(
       data: {
         kind: "container",
         title: fileDisplayName(context.file),
-        subtitle: "file container",
+        subtitle: context.file.type === "config" ? "config container" : "file container",
         containerType: "file",
         pathLabel: filePathLabel(context.file),
         countLabel: `${context.visibleSymbols.length}`,
         statsLabel: `${fileStats.calls} calls / ${fileStats.imports} imports`,
-        accentColor: nodeTone("file").border,
+        accentColor: nodeTone(context.file.type).border,
         fileId: context.file.id,
         primaryNodeId: context.file.id,
         rawNodeIds: fileRawIds,

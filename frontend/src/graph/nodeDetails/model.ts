@@ -1,5 +1,5 @@
 import type { CodeEdge, CodeNode } from "../../api/types";
-import { fileDisplayName, formatUnknown } from "../graphModel";
+import { fileDisplayName, formatUnknown, isFileLikeNode } from "../graphModel";
 
 export type NodeReference = {
   id: string;
@@ -77,7 +77,7 @@ export function buildUnresolvedReferences(
 }
 
 function referenceLabel(node: CodeNode): string {
-  if (node.type === "file") {
+  if (isFileLikeNode(node)) {
     return fileDisplayName(node);
   }
   return node.name || node.symbol_id || node.id;

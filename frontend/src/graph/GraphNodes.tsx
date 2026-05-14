@@ -5,6 +5,7 @@ import { memo, useRef, type MouseEvent } from "react";
 import {
   SOURCE_HANDLE_ID,
   TARGET_HANDLE_ID,
+  isFileLikeType,
   type CodeVisualData,
   type ContainerVisualData
 } from "./graphModel";
@@ -22,11 +23,11 @@ export const flowNodeTypes: NodeTypes = {
 const CONTAINER_DOUBLE_CLICK_MS = 500;
 
 function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
-  const isFileNode = data.nodeType === "file";
+  const isFileLike = isFileLikeType(data.nodeType);
   const symbolCountLabel = formatSymbolCount(data.countLabel);
   const className = [
     "code-node-card",
-    isFileNode ? "is-file" : "",
+    isFileLike ? "is-file" : "",
     data.isFocusMode ? "is-focus-mode" : "",
     data.isContained ? "is-contained" : "",
     data.isExternal ? "is-external" : "",
@@ -37,10 +38,10 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
   ]
     .filter(Boolean)
     .join(" ");
-  const title = isFileNode ? `${data.label}\n${data.summary}\n${symbolCountLabel}` : data.label;
+  const title = isFileLike ? `${data.label}\n${data.summary}\n${symbolCountLabel}` : data.label;
 
   const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (data.nodeType !== "file" || !data.fileId) {
+    if (!isFileLikeType(data.nodeType) || !data.fileId) {
       return;
     }
     event.stopPropagation();
@@ -58,7 +59,7 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
       <Handle id={TARGET_HANDLE_ID} type="target" position={Position.Left} className="code-node-handle" />
       <Handle id={SOURCE_HANDLE_ID} type="source" position={Position.Right} className="code-node-handle" />
       <div className="code-node-body">
-        {!isFileNode ? (
+        {!isFileLike ? (
           <div className="code-node-topline">
             <span className="code-node-type" style={{ color: data.accentColor }}>
               {data.nodeType}
@@ -68,7 +69,7 @@ function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
         ) : null}
         <div className="code-node-title">{data.label}</div>
         <div className="code-node-summary">{data.summary}</div>
-        {isFileNode ? (
+        {isFileLike ? (
           <div className="code-node-file-symbols">{symbolCountLabel}</div>
         ) : (
           <div className="code-node-meta">

@@ -1,11 +1,14 @@
-SOURCE_NODE_TYPES = {"file", "class", "function", "method", "schema", "endpoint"}
+SOURCE_NODE_TYPES = {"file", "config", "class", "function", "method", "schema", "endpoint"}
 SEED_NODE_TYPES = SOURCE_NODE_TYPES | {"module"}
 EDGE_WEIGHTS = {
     "calls": 1.0,
     "routes_to": 1.0,
     "inherits": 0.9,
+    "implements": 0.86,
     "imports": 0.82,
     "exports": 0.78,
+    "references": 0.7,
+    "uses_config": 0.66,
     "defines": 0.72,
     "contains": 0.58,
 }

@@ -27,6 +27,7 @@ def schema_symbol(
         start_line=start_line(node),
         end_line=end_line(node),
         signature=node_text(node, source).split("{", 1)[0].strip(),
+        references=schema_references(node, source),
         hash=file_hash,
         metadata={
             "exported": exported,
@@ -53,3 +54,21 @@ def schema_fields(node, source: bytes) -> list[str]:
             if identifier is not None:
                 fields.append(node_text(identifier, source))
     return fields
+
+
+def schema_references(node, source: bytes) -> list[str]:
+    references: set[str] = set()
+    for child in node.named_children:
+        if child.type in {"identifier", "type_identifier"}:
+            text = node_text(child, source).strip()
+            if text:
+                references.add(text)
+    body = node.child_by_field_name("body")
+    if body is not None:
+        for child in body.named_children:
+            type_node = child.child_by_field_name("type")
+            if type_node is not None:
+                text = node_text(type_node, source).strip()
+                if text:
+                    references.add(text.rsplit(".", 1)[-1])
+    return sorted(references)

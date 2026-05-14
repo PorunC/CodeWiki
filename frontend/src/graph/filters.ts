@@ -2,7 +2,27 @@ import type { GraphResponse } from "../api/types";
 import type { FilteredGraph } from "./types";
 
 const DEFAULT_HIDDEN_EDGE_TYPES = new Set(["define", "defines"]);
-const READABLE_EDGE_TYPES = new Set(["calls", "routes_to", "imports", "exports", "inherits"]);
+const KNOWN_EDGE_TYPES = [
+  "calls",
+  "routes_to",
+  "imports",
+  "uses_config",
+  "exports",
+  "inherits",
+  "implements",
+  "references",
+  "contains",
+  "defines"
+];
+const READABLE_EDGE_TYPES = new Set([
+  "calls",
+  "routes_to",
+  "imports",
+  "uses_config",
+  "exports",
+  "inherits",
+  "implements"
+]);
 
 export function filterRawGraph(
   graph: GraphResponse | null,
@@ -31,6 +51,11 @@ export function filterRawGraph(
 
 export function collectTypes(items: Array<{ type: string }>): string[] {
   return [...new Set(items.map((item) => item.type))].sort((left, right) => left.localeCompare(right));
+}
+
+export function collectEdgeTypes(edges: Array<{ type: string }>): string[] {
+  const edgeTypes = new Set([...KNOWN_EDGE_TYPES, ...edges.map((edge) => edge.type)]);
+  return [...edgeTypes].sort((left, right) => left.localeCompare(right));
 }
 
 export function defaultReadableEdgeTypes(edgeTypes: string[]): Set<string> {

@@ -6,12 +6,14 @@ import { useRepos } from "../../hooks/useRepos";
 import type { HiddenVisualNodeOption } from "../GraphFiltersPanel";
 import {
   collectTypes,
+  collectEdgeTypes,
   defaultFullEdgeTypes,
   defaultReadableEdgeTypes,
   deriveContainment,
   drilldownRootVisualId,
   filterKey,
   filterRawGraph,
+  isFileLikeNode,
   summarizeVisualGraph,
   toggleSetValue,
   type DrilldownContainerSelection,
@@ -91,7 +93,13 @@ export function useGraphPageController({
     const visualNode = repoGraph.nodes.find((node) => node.id === visualId) ?? null;
     setSelectedNodeId(firstNodeId);
     setSelectedVisualId(visualId);
-    setSelectedFileId(firstNode?.type === "file" ? firstNode.id : visualNode?.type === "file" ? visualNode.id : null);
+    setSelectedFileId(
+      firstNode && isFileLikeNode(firstNode)
+        ? firstNode.id
+        : visualNode && isFileLikeNode(visualNode)
+          ? visualNode.id
+          : null
+    );
     setFocusNodeId(firstNodeId);
     setViewMode("overview");
   }, []);
@@ -109,7 +117,7 @@ export function useGraphPageController({
     setError(null);
     setHighlightLabel("Wiki source");
     setHighlightedRawNodeIds(new Set([targetNode.id]));
-    setSelectedNodeTypes((current) => new Set([...current, "file", targetNode.type]));
+    setSelectedNodeTypes((current) => new Set([...current, fileNode.type, targetNode.type]));
     setHiddenVisualIds((current) => {
       const next = new Set(current);
       next.delete(fileNode.id);
@@ -119,7 +127,7 @@ export function useGraphPageController({
     });
     setSelectedFileId(fileNode.id);
     setSelectedNodeId(targetNode.id);
-    setSelectedVisualId(targetNode.type === "file" ? `file-detail:${fileNode.id}` : targetNode.id);
+    setSelectedVisualId(isFileLikeNode(targetNode) ? `file-detail:${fileNode.id}` : targetNode.id);
     setFocusNodeId(targetNode.id);
     setViewMode("file");
   }, []);
@@ -137,15 +145,15 @@ export function useGraphPageController({
   const handleGraphLoaded = useCallback(
     (repoGraph: GraphResponse) => {
       setError(null);
-      const firstFile = repoGraph.nodes.find((node) => node.type === "file") ?? repoGraph.nodes[0] ?? null;
+      const firstFile = repoGraph.nodes.find(isFileLikeNode) ?? repoGraph.nodes[0] ?? null;
 
       setSelectedNodeTypes(defaultSelectedNodeTypes(repoGraph.nodes.map((node) => node.type)));
-      setSelectedEdgeTypes(defaultReadableEdgeTypes(collectTypes(repoGraph.edges)));
+      setSelectedEdgeTypes(defaultReadableEdgeTypes(collectEdgeTypes(repoGraph.edges)));
       setShowInferredCalls(false);
       setDensityMode("readable");
       setSelectedNodeId(firstFile?.id ?? null);
       setSelectedVisualId(null);
-      setSelectedFileId(firstFile?.type === "file" ? firstFile.id : null);
+      setSelectedFileId(firstFile && isFileLikeNode(firstFile) ? firstFile.id : null);
       setFocusNodeId(firstFile?.id ?? null);
       setDrilldownContainer(null);
       setHiddenVisualIds(new Set());
@@ -173,7 +181,7 @@ export function useGraphPageController({
 
   const containment = useMemo(() => deriveContainment(graph), [graph]);
   const nodeTypes = useMemo(() => collectTypes(graph?.nodes ?? []), [graph?.nodes]);
-  const edgeTypes = useMemo(() => collectTypes(graph?.edges ?? []), [graph?.edges]);
+  const edgeTypes = useMemo(() => (graph ? collectEdgeTypes(graph.edges) : []), [graph]);
 
   const filteredGraph = useMemo(
     () => filterRawGraph(graph, selectedNodeTypes, selectedEdgeTypes, showInferredCalls),
@@ -184,7 +192,7 @@ export function useGraphPageController({
     if (!graph || viewMode !== "file" || selectedFileId) {
       return;
     }
-    const nextFile = graph.nodes.find((node) => node.type === "file");
+    const nextFile = graph.nodes.find(isFileLikeNode);
     if (nextFile) {
       setSelectedFileId(nextFile.id);
       setSelectedNodeId(nextFile.id);
@@ -242,10 +250,10 @@ export function useGraphPageController({
         return;
       }
 
-      const targetFileId = targetNode.type === "file" ? targetNode.id : containment.fileByNode.get(targetNode.id) ?? null;
+      const targetFileId = isFileLikeNode(targetNode) ? targetNode.id : containment.fileByNode.get(targetNode.id) ?? null;
       const showInFileDetail = Boolean(targetFileId && canShowInFileDetail(targetNode));
       const nextVisualId = showInFileDetail
-        ? targetNode.type === "file"
+        ? isFileLikeNode(targetNode)
           ? `file-detail:${targetFileId}`
           : targetNode.id
         : targetNode.id;
@@ -257,7 +265,10 @@ export function useGraphPageController({
         const next = new Set(current);
         next.add(targetNode.type);
         if (targetFileId) {
-          next.add("file");
+          const fileNode = containment.nodeById.get(targetFileId);
+          if (fileNode) {
+            next.add(fileNode.type);
+          }
         }
         return next;
       });
@@ -296,7 +307,7 @@ export function useGraphPageController({
       setSelectedVisualId(nextVisualId);
       setViewMode(showInFileDetail ? "file" : "focus");
     },
-    [baseVisualGraph.nodes, containment.fileByNode, graph]
+    [baseVisualGraph.nodes, containment.fileByNode, containment.nodeById, graph]
   );
 
   const hiddenNodes = useMemo<HiddenVisualNodeOption[]>(() => {
@@ -393,7 +404,10 @@ export function useGraphPageController({
   const openContainerDrilldown = useCallback(
     (container: DrilldownContainerSelection) => {
       const firstFileId =
-        container.rawNodeIds.find((rawNodeId) => containment.nodeById.get(rawNodeId)?.type === "file") ?? null;
+        container.rawNodeIds.find((rawNodeId) => {
+          const rawNode = containment.nodeById.get(rawNodeId);
+          return Boolean(rawNode && isFileLikeNode(rawNode));
+        }) ?? null;
       setDrilldownContainer(container);
       setSelectedVisualId(drilldownRootVisualId(container.id));
       setSelectedNodeId(firstFileId);
@@ -554,6 +568,10 @@ export function useGraphPageController({
           containerType: data.containerType,
           rawNodeIds: data.rawNodeIds
         });
+        setSelectedVisualId(node.id);
+        setSelectedNodeId(null);
+        setSelectedFileId(null);
+        return;
       }
 
       setSelectedVisualId(node.id);
@@ -569,7 +587,7 @@ export function useGraphPageController({
   const handleNodeDoubleClick = useCallback(
     (_: MouseEvent, node: FlowNode) => {
       const data = node.data;
-      if (data.kind === "code" && data.nodeType === "file" && data.fileId) {
+      if (data.kind === "code" && isFileLikeNode(data.codeNode) && data.fileId) {
         openFileDetail(data.fileId);
         return;
       }

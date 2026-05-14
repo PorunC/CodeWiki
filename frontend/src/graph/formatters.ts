@@ -53,6 +53,18 @@ export function compactFilePath(path: string): string {
   return `${parts[0]}/.../${parts.slice(-2).join("/")}`;
 }
 
+export function isFileLikeType(type: string): boolean {
+  return type === "file" || type === "config";
+}
+
+export function isFileLikeNode(node: Pick<CodeNode, "type">): boolean {
+  return isFileLikeType(node.type);
+}
+
+export function graphTypeLabel(type: string): string {
+  return type.replaceAll("_", " ");
+}
+
 export function fileDisplayName(node: CodeNode): string {
   const rawPath = node.file_path || node.name || node.symbol_id || "unnamed";
   const normalized = rawPath.replaceAll("\\", "/");
@@ -76,7 +88,11 @@ export function nodeSummary(node: CodeNode): string {
   if (node.type === "module") {
     return "External dependency";
   }
-  if (node.type === "file") {
+  if (node.type === "config") {
+    const kind = typeof node.metadata.config_kind === "string" ? node.metadata.config_kind : "configuration";
+    return `${kind} config`;
+  }
+  if (isFileLikeNode(node)) {
     return filePathLabel(node);
   }
   return compactFilePath(node.file_path ?? node.name);

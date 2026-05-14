@@ -6,6 +6,7 @@ import {
   computeStatsForNodeIds,
   formatLineRange,
   getPrimaryNode,
+  isFileLikeNode,
   listFromUnknown,
   type ContainmentIndex,
   type VisualNodeData
@@ -74,8 +75,8 @@ export function NodeDetails({
     );
   }
 
-  const descendantCount =
-    detailNode.type === "file" ? containment.descendantsByFile.get(detailNode.id)?.length ?? 0 : 0;
+  const isFileLike = isFileLikeNode(detailNode);
+  const descendantCount = isFileLike ? containment.descendantsByFile.get(detailNode.id)?.length ?? 0 : 0;
   const nodeById = new Map(graph?.nodes.map((graphNode) => [graphNode.id, graphNode]) ?? []);
   const selectedRawIds = new Set(rawNodeIds);
   const imports = buildEdgeReferences(edges, "imports", "import", selectedRawIds, nodeById);
@@ -87,12 +88,22 @@ export function NodeDetails({
       buildResolvedMetadataValues(edges, "calls", "call")
     )
   ];
+  const references = [
+    ...buildEdgeReferences(edges, "references", "reference", selectedRawIds, nodeById),
+    ...buildUnresolvedReferences(
+      "references",
+      listFromUnknown(detailNode.metadata.references),
+      buildResolvedMetadataValues(edges, "references", "reference")
+    )
+  ];
+  const implementsReferences = buildEdgeReferences(edges, "implements", "interface", selectedRawIds, nodeById);
+  const configUses = buildEdgeReferences(edges, "uses_config", "imports", selectedRawIds, nodeById);
 
   return (
     <aside className="node-details">
       <div className="detail-heading">
         <span className="node-type-pill">{detailNode.type}</span>
-        <h3>{detailNode.type === "file" ? fileDisplayName(detailNode) : detailNode.name}</h3>
+        <h3>{isFileLike ? fileDisplayName(detailNode) : detailNode.name}</h3>
       </div>
 
       <dl className="detail-list">
@@ -106,6 +117,9 @@ export function NodeDetails({
 
       <ReferenceSection title="Imports" references={imports} onNavigateToNode={onNavigateToNode} />
       <ReferenceSection title="Calls" references={calls} onNavigateToNode={onNavigateToNode} />
+      <ReferenceSection title="Implements" references={implementsReferences} onNavigateToNode={onNavigateToNode} />
+      <ReferenceSection title="References" references={references} onNavigateToNode={onNavigateToNode} />
+      <ReferenceSection title="Config" references={configUses} onNavigateToNode={onNavigateToNode} />
       <RawMetadata metadata={detailNode.metadata} />
     </aside>
   );

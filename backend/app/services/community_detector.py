@@ -7,13 +7,16 @@ import networkx as nx
 from backend.app.db.records import GraphCommunityRecord
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
-COMMUNITY_NODE_TYPES = {"file", "class", "function", "method", "schema", "endpoint"}
+COMMUNITY_NODE_TYPES = {"file", "config", "class", "function", "method", "schema", "endpoint"}
 COMMUNITY_EDGE_WEIGHTS = {
     "calls": 1.0,
     "routes_to": 1.0,
     "inherits": 0.9,
+    "implements": 0.86,
     "imports": 0.75,
     "exports": 0.65,
+    "references": 0.62,
+    "uses_config": 0.58,
     "defines": 0.5,
     "contains": 0.42,
 }

@@ -145,6 +145,7 @@ def test_analyze_resolves_local_typescript_imports_and_fact_edges(tmp_path: Path
         "\n".join(
             [
                 "export interface User { id: string }",
+                "export interface Loadable { load(): Promise<string> }",
                 "export class BaseLoader {}",
             ]
         )
@@ -154,7 +155,8 @@ def test_analyze_resolves_local_typescript_imports_and_fact_edges(tmp_path: Path
         "\n".join(
             [
                 "import { BaseLoader, User } from './models';",
-                "export class Loader extends BaseLoader {}",
+                "import { Loadable } from './models';",
+                "export class Loader extends BaseLoader implements Loadable {}",
                 "router.get('/users/:id', getUser);",
                 "export function getUser(): User {",
                 "  return { id: '1' };",
@@ -175,7 +177,11 @@ def test_analyze_resolves_local_typescript_imports_and_fact_edges(tmp_path: Path
     assert any(node.type == "endpoint" and node.name == "GET /users/:id" for node in nodes)
 
     edge_types = {edge.type for edge in edges}
-    assert {"defines", "exports", "imports", "inherits", "routes_to"} <= edge_types
+    assert {"defines", "exports", "imports", "inherits", "implements", "routes_to"} <= edge_types
+
+    implements_edges = [edge for edge in edges if edge.type == "implements" and edge.metadata.get("interface") == "Loadable"]
+    assert implements_edges
+    assert implements_edges[0].is_inferred is False
 
     local_import_edges = [
         edge
@@ -204,6 +210,51 @@ def test_analyze_resolves_local_python_imports(tmp_path: Path) -> None:
         edge for edge in edges if edge.type == "imports" and edge.metadata.get("resolved") is True
     ]
     assert any(edge.source_id.endswith(":file:api.py") and edge.target_id.endswith(":file:service.py") for edge in local_import_edges)
+
+
+def test_analyze_infers_references_and_config_usage(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "config.json").write_text('{"feature": true}\n')
+    (repo_dir / "models.ts").write_text("export interface Settings { feature: boolean }\n")
+    (repo_dir / "app.ts").write_text(
+        "\n".join(
+            [
+                "import settings from './config.json';",
+                "import { Settings } from './models';",
+                "",
+                "export function loadSettings(): Settings {",
+                "  return settings as Settings;",
+                "}",
+            ]
+        )
+        + "\n"
+    )
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+
+    AnalysisService(store=store).analyze(repo.id)
+    nodes, edges = store.get_graph(repo.id)
+
+    config_node = next(node for node in nodes if node.type == "config" and node.file_path == "config.json")
+    schema_node = next(node for node in nodes if node.type == "schema" and node.name == "Settings")
+    function_node = next(node for node in nodes if node.type == "function" and node.name == "loadSettings")
+
+    assert config_node.metadata["config"] is True
+    assert any(
+        edge.type == "uses_config"
+        and edge.target_id == config_node.id
+        and edge.is_inferred
+        for edge in edges
+    )
+    assert any(
+        edge.type == "references"
+        and edge.source_id == function_node.id
+        and edge.target_id == schema_node.id
+        and edge.is_inferred
+        for edge in edges
+    )
 
 
 class _FakeCommunityNamer:

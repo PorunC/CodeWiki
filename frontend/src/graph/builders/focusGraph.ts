@@ -1,7 +1,7 @@
 import type { GraphResponse } from "../../api/types";
 import { FILE_NODE_WIDTH, FOCUS_NODE_HEIGHT } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
-import { formatLineRange, nodeSummary } from "../formatters";
+import { formatLineRange, isFileLikeNode, nodeSummary } from "../formatters";
 import { layoutBoxesCached, nodeSize } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { computeStatsByRawNode } from "../stats";
@@ -33,7 +33,7 @@ export async function buildFocusGraph(
   });
 
   const fileId = containment.fileByNode.get(focusNode.id);
-  if (focusNode.type === "file") {
+  if (isFileLikeNode(focusNode)) {
     for (const childId of containment.descendantsByFile.get(focusNode.id) ?? []) {
       if (filtered.nodeIds.has(childId)) {
         relevantNodeIds.add(childId);
@@ -85,7 +85,7 @@ export async function buildFocusGraph(
       fileId: containment.fileByNode.get(node.id),
       rawNodeIds: [node.id],
       summary: nodeSummary(node),
-      countLabel: node.type === "file" ? `${containment.descendantsByFile.get(node.id)?.length ?? 0}` : formatLineRange(node),
+      countLabel: isFileLikeNode(node) ? `${containment.descendantsByFile.get(node.id)?.length ?? 0}` : formatLineRange(node),
       stats: statsByRawNode.get(node.id),
       isContained: false,
       isExternal: node.type === "module",

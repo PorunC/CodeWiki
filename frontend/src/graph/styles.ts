@@ -16,6 +16,8 @@ export function nodeTone(type: string): { border: string; background: string } {
       return { background: "#172129", border: "#5aa9c8" };
     case "file":
       return { background: "#151f2d", border: "#6e9ee8" };
+    case "config":
+      return { background: "#201f12", border: "#c7aa4a" };
     case "module":
       return { background: "#281d2c", border: "#c78be8" };
     case "class":
@@ -37,6 +39,12 @@ export function edgeTone(type: string): { stroke: string; active: string; label:
       return { stroke: "#6e9ee8", active: "#a9c6f5", label: "#a9c6f5" };
     case "calls":
       return { stroke: "#63c08a", active: "#a7dfba", label: "#a7dfba" };
+    case "references":
+      return { stroke: "#c7aa4a", active: "#ead67d", label: "#ead67d" };
+    case "implements":
+      return { stroke: "#9ea4f0", active: "#c3c7ff", label: "#c3c7ff" };
+    case "uses_config":
+      return { stroke: "#d08a58", active: "#efbc8d", label: "#efbc8d" };
     default:
       return { stroke: "rgba(163, 151, 135, 0.58)", active: "#e8c49a", label: "#a39787" };
   }

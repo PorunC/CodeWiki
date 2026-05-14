@@ -8,7 +8,7 @@ import {
   OVERVIEW_EDGE_LIMIT
 } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
-import { compactFilePath, filePathLabel } from "../formatters";
+import { compactFilePath, filePathLabel, isFileLikeNode } from "../formatters";
 import { layoutBoxesCached, nodeSize } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { computeStatsByRawNode, computeStatsForNodeIds } from "../stats";
@@ -374,7 +374,7 @@ function communityCandidate(
   const fileIds = new Set<string>();
   rawNodeIds.forEach((nodeId) => {
     const node = containment.nodeById.get(nodeId);
-    const fileId = node?.type === "file" ? node.id : containment.fileByNode.get(nodeId);
+    const fileId = node && isFileLikeNode(node) ? node.id : containment.fileByNode.get(nodeId);
     if (fileId) {
       fileIds.add(fileId);
     }
@@ -447,7 +447,7 @@ function communityPathLabel(fileIds: string[], containment: ContainmentIndex): s
 function primaryNodeId(rawNodeIds: string[], containment: ContainmentIndex): string | undefined {
   const fileNode = rawNodeIds
     .map((nodeId) => containment.nodeById.get(nodeId))
-    .find((node) => node?.type === "file");
+    .find((node): node is CodeNode => Boolean(node && isFileLikeNode(node)));
   return fileNode?.id ?? rawNodeIds[0];
 }
 

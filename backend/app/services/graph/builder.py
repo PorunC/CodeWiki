@@ -7,12 +7,17 @@ from backend.app.services.graph.call_resolver import (
     resolve_call,
     resolve_type_reference,
 )
+from backend.app.services.graph.config_detector import (
+    ConfigDetection,
+    detect_config_file,
+    is_config_reference,
+)
 from backend.app.services.graph.ids import (
     edge_id,
     file_node_id,
     symbol_node_id as make_symbol_node_id,
 )
-from backend.app.services.graph.import_resolver import add_import_edges
+from backend.app.services.graph.import_resolver import add_import_edges, resolve_import_target
 from backend.app.services.graph.models import CodeGraph, CodeGraphEdge, CodeGraphNode
 from backend.app.services.graph.node_factory import (
     ensure_directory_nodes,
@@ -31,6 +36,8 @@ class GraphBuilder:
         node_index: dict[str, CodeGraphNode] = {}
         edge_index: dict[str, CodeGraphEdge] = {}
         file_nodes: dict[str, str] = {}
+        config_nodes: dict[str, str] = {}
+        config_detection_by_path: dict[str, ConfigDetection] = {}
         directory_nodes: dict[str, str] = {}
         symbol_nodes: dict[str, str] = {}
         symbols_by_file: dict[str, list[AstSymbol]] = {}
@@ -73,7 +80,28 @@ class GraphBuilder:
         for scanned_file in scan.files:
             current_file_node_id = file_node_id(repo_id, scanned_file.path)
             file_nodes[scanned_file.path] = current_file_node_id
-            add_node(file_node(repo_id, scanned_file, current_file_node_id))
+            config_detection = detect_config_file(scanned_file)
+            extra_metadata: dict[str, object] = {}
+            node_type = "file"
+            if config_detection.is_config:
+                node_type = "config"
+                config_nodes[scanned_file.path] = current_file_node_id
+                config_detection_by_path[scanned_file.path] = config_detection
+                extra_metadata = {
+                    "config": True,
+                    "config_kind": config_detection.kind,
+                    "config_reason": config_detection.reason,
+                    "config_confidence": config_detection.confidence,
+                }
+            add_node(
+                file_node(
+                    repo_id,
+                    scanned_file,
+                    current_file_node_id,
+                    node_type=node_type,
+                    extra_metadata=extra_metadata,
+                )
+            )
             parent_id = ensure_directory_nodes(
                 repo_id=repo_id,
                 file_path=scanned_file.path,
@@ -95,15 +123,32 @@ class GraphBuilder:
         call_index = build_call_index(symbols, symbol_nodes)
         for symbol in symbols:
             if symbol.type == "file":
+                current_file_id = file_nodes.get(symbol.file_path)
                 add_import_edges(
                     repo_id=repo_id,
-                    file_node_id=file_nodes.get(symbol.file_path),
+                    file_node_id=current_file_id,
                     from_file_path=symbol.file_path,
                     imports=symbol.imports,
                     file_nodes=file_nodes,
                     add_node=add_node,
                     add_edge=add_edge,
                 )
+                for config_target_id in config_targets_for_import(
+                    symbol.imports,
+                    from_file_path=symbol.file_path,
+                    file_nodes=file_nodes,
+                    config_nodes=config_nodes,
+                ):
+                    if not current_file_id:
+                        continue
+                    add_edge(
+                        current_file_id,
+                        config_target_id,
+                        "uses_config",
+                        confidence=0.78,
+                        is_inferred=True,
+                        metadata={"imports": symbol.imports},
+                    )
                 continue
 
             symbol_node_id = symbol_nodes.get(symbol.id)
@@ -139,6 +184,24 @@ class GraphBuilder:
                         confidence=1.0 if not inherited_external else 0.65,
                         is_inferred=inherited_external,
                         metadata={"base": base},
+                    )
+
+            for interface in symbol.implements:
+                target_id, implemented_external = resolve_type_reference(
+                    interface,
+                    symbols=symbols,
+                    symbol_nodes=symbol_nodes,
+                    repo_id=repo_id,
+                    add_node=add_node,
+                )
+                if target_id:
+                    add_edge(
+                        symbol_node_id,
+                        target_id,
+                        "implements",
+                        confidence=1.0 if not implemented_external else 0.65,
+                        is_inferred=implemented_external,
+                        metadata={"interface": interface},
                     )
 
             if symbol.type == "endpoint":
@@ -182,8 +245,127 @@ class GraphBuilder:
                         metadata={"call": call},
                     )
 
+            for reference in symbol.references:
+                if should_skip_reference(symbol, reference):
+                    continue
+                target_id, confidence = resolve_call(
+                    call=reference,
+                    file_path=symbol.file_path,
+                    call_index=call_index,
+                )
+                if target_id and target_id != source_id:
+                    add_edge(
+                        source_id,
+                        target_id,
+                        "references",
+                        confidence=min(confidence, 0.72),
+                        is_inferred=True,
+                        metadata={"reference": reference},
+                    )
+
+            for config_target_id in config_targets_for_references(
+                [*symbol.calls, *symbol.references],
+                config_nodes=config_nodes,
+                config_detection_by_path=config_detection_by_path,
+            ):
+                add_edge(
+                    source_id,
+                    config_target_id,
+                    "uses_config",
+                    confidence=0.58,
+                    is_inferred=True,
+                    metadata={"references": sorted(set([*symbol.calls, *symbol.references]))},
+                )
+
         return CodeGraph(
             repo_id=repo_id,
             nodes=sorted(node_index.values(), key=lambda node: (node.type, node.file_path, node.name)),
             edges=sorted(edge_index.values(), key=lambda edge: (edge.type, edge.source_id, edge.target_id)),
         )
+
+
+def should_skip_reference(symbol: AstSymbol, reference: str) -> bool:
+    if not reference or reference == symbol.name:
+        return True
+    ignored = {
+        *symbol.calls,
+        *symbol.bases,
+        *symbol.implements,
+        *symbol.decorators,
+        "self",
+        "this",
+        "cls",
+        "None",
+        "True",
+        "False",
+        "null",
+        "undefined",
+    }
+    return reference in ignored or (not reference[:1].isupper() and is_config_reference(reference))
+
+
+def config_targets_for_import(
+    imports: list[str],
+    *,
+    from_file_path: str,
+    file_nodes: dict[str, str],
+    config_nodes: dict[str, str],
+) -> set[str]:
+    targets: set[str] = set()
+    config_node_ids = set(config_nodes.values())
+    for import_name in imports:
+        target_id = resolve_import_target(
+            import_name,
+            from_file_path=from_file_path,
+            file_nodes=file_nodes,
+        )
+        if target_id in config_node_ids:
+            targets.add(target_id)
+            continue
+        if is_config_reference(import_name):
+            targets.update(match_config_nodes(import_name, config_nodes))
+    return targets
+
+
+def config_targets_for_references(
+    references: list[str],
+    *,
+    config_nodes: dict[str, str],
+    config_detection_by_path: dict[str, ConfigDetection],
+) -> set[str]:
+    targets: set[str] = set()
+    for reference in references:
+        if reference[:1].isupper() or not is_config_reference(reference):
+            continue
+        matches = match_config_nodes(reference, config_nodes, config_detection_by_path=config_detection_by_path)
+        if matches:
+            targets.update(matches)
+        elif len(config_nodes) == 1:
+            targets.update(config_nodes.values())
+    return targets
+
+
+def match_config_nodes(
+    value: str,
+    config_nodes: dict[str, str],
+    *,
+    config_detection_by_path: dict[str, ConfigDetection] | None = None,
+) -> set[str]:
+    normalized = value.replace("\\", "/").lower()
+    matches: set[str] = set()
+    for path, node_id in config_nodes.items():
+        lower_path = path.lower()
+        detection = (config_detection_by_path or {}).get(path)
+        if normalized in lower_path or any(part and part in lower_path for part in normalized.split("/")):
+            matches.add(node_id)
+            continue
+        if "env" in normalized and (
+            lower_path.endswith(".env") or (detection is not None and detection.kind == "environment")
+        ):
+            matches.add(node_id)
+            continue
+        if any(term in normalized for term in ("config", "settings")) and any(
+            term in lower_path for term in ("config", "settings")
+        ):
+            matches.add(node_id)
+    return matches

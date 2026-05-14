@@ -2,6 +2,7 @@ import { MarkerType } from "@xyflow/react";
 
 import type { CodeEdge } from "../api/types";
 import { SOURCE_HANDLE_ID, TARGET_HANDLE_ID } from "./constants";
+import { graphTypeLabel } from "./formatters";
 import { edgeTone } from "./styles";
 import type { EdgeBucket, FlowEdge, GraphViewMode } from "./types";
 
@@ -69,7 +70,7 @@ export function toFlowEdge(bucket: EdgeBucket, sourceOverride?: string, targetOv
       hasInferred: bucket.hasInferred,
       isFlowing
     }),
-    label: `${bucket.type}${countLabel}`,
+    label: `${graphTypeLabel(bucket.type)}${countLabel}`,
     labelBgBorderRadius: 6,
     labelBgPadding: [7, 4],
     labelBgStyle: { fill: "rgba(12, 13, 13, 0.92)" },

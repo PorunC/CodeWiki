@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { graphTypeLabel } from "./formatters";
+
 export function ModeButton({
   active,
   disabled,
@@ -53,7 +55,7 @@ export function FilterGroup({
               checked={selectedValues.has(value)}
               onChange={() => onToggle(value)}
             />
-            <span>{value}</span>
+            <span>{graphTypeLabel(value)}</span>
           </label>
         ))}
       </div>

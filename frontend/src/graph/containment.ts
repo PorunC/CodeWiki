@@ -1,6 +1,7 @@
 import type { CodeNode, GraphResponse } from "../api/types";
-import type { ContainmentIndex, VisualNodeData } from "./types";
 import { compareBySourceOrder } from "./fileGrouping";
+import { isFileLikeNode } from "./formatters";
+import type { ContainmentIndex, VisualNodeData } from "./types";
 
 export function nearestAncestorOfType(
   nodeId: string,
@@ -48,7 +49,7 @@ export function deriveContainment(graph: GraphResponse | null): ContainmentIndex
       }
     });
 
-  const fileNodes = graph.nodes.filter((node) => node.type === "file");
+  const fileNodes = graph.nodes.filter(isFileLikeNode);
   fileNodes.forEach((file) => {
     fileByNode.set(file.id, file.id);
     descendantsByFile.set(file.id, []);
@@ -83,7 +84,7 @@ function findFileAncestor(
   if (!node) {
     return null;
   }
-  if (node.type === "file") {
+  if (isFileLikeNode(node)) {
     return node.id;
   }
 
@@ -96,7 +97,7 @@ function findFileAncestor(
       break;
     }
     const parent = nodeById.get(parentId);
-    if (parent?.type === "file") {
+    if (parent && isFileLikeNode(parent)) {
       return parent.id;
     }
     currentId = parentId;

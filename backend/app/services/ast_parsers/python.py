@@ -66,6 +66,7 @@ class _PythonSymbolVisitor(py_ast.NodeVisitor):
                 bases=bases,
                 decorators=decorators,
                 calls=_python_calls(node),
+                references=_python_references(node),
                 hash=self.file_hash,
                 metadata={"python_node_type": "ClassDef"},
             )
@@ -102,6 +103,7 @@ class _PythonSymbolVisitor(py_ast.NodeVisitor):
                 docstring=py_ast.get_docstring(node),
                 decorators=decorators,
                 calls=calls,
+                references=_python_references(node),
                 hash=self.file_hash,
                 metadata={"python_node_type": type(node).__name__},
             )
@@ -170,6 +172,28 @@ def _python_calls(node: py_ast.AST) -> list[str]:
             elif isinstance(child.func, py_ast.Attribute):
                 calls.add(child.func.attr)
     return sorted(calls)
+
+
+def _python_references(node: py_ast.AST) -> list[str]:
+    references: set[str] = set()
+    for child in py_ast.walk(node):
+        if isinstance(child, py_ast.Name) and isinstance(child.ctx, py_ast.Load):
+            references.add(child.id)
+        elif isinstance(child, py_ast.Attribute):
+            references.add(child.attr)
+        elif isinstance(child, py_ast.arg) and child.annotation is not None:
+            reference = _python_expr_name(child.annotation)
+            if reference:
+                references.add(reference.rsplit(".", 1)[-1])
+        elif isinstance(child, (py_ast.FunctionDef, py_ast.AsyncFunctionDef)) and child.returns is not None:
+            reference = _python_expr_name(child.returns)
+            if reference:
+                references.add(reference.rsplit(".", 1)[-1])
+        elif isinstance(child, py_ast.AnnAssign):
+            reference = _python_expr_name(child.annotation)
+            if reference:
+                references.add(reference.rsplit(".", 1)[-1])
+    return sorted(reference for reference in references if reference)
 
 
 def _python_endpoint_decorators(node: py_ast.FunctionDef | py_ast.AsyncFunctionDef) -> list[dict[str, str]]:

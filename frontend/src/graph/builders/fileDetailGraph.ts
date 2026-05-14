@@ -6,7 +6,7 @@ import {
   MAX_PORTAL_NODES
 } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
-import { fileDisplayName, filePathLabel } from "../formatters";
+import { fileDisplayName, filePathLabel, isFileLikeNode } from "../formatters";
 import { nodeSize } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { collectFilePortals, portalToNode } from "../portals";
@@ -27,7 +27,7 @@ export function buildFileDetailGraph(
 ): VisualGraph {
   const fileNode =
     (selectedFileId ? containment.nodeById.get(selectedFileId) : null) ??
-    graph.nodes.find((node) => node.type === "file") ??
+    graph.nodes.find(isFileLikeNode) ??
     null;
 
   if (!fileNode) {
@@ -59,12 +59,12 @@ export function buildFileDetailGraph(
       data: {
         kind: "container",
         title: fileDisplayName(fileNode),
-        subtitle: "file detail",
+        subtitle: fileNode.type === "config" ? "config detail" : "file detail",
         containerType: "file",
         pathLabel: filePathLabel(fileNode),
         countLabel: `${visibleSymbols.length}`,
         statsLabel: `${stats.calls} calls / ${stats.imports} imports`,
-        accentColor: nodeTone("file").border,
+        accentColor: nodeTone(fileNode.type).border,
         fileId: fileNode.id,
         primaryNodeId: fileNode.id,
         rawNodeIds: [fileNode.id, ...descendantIds],

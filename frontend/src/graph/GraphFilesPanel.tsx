@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getRepoFiles } from "../api/files";
 import type { GraphResponse, RepoFileRecord, RepoFilesResponse, RepoFileTreeNode } from "../api/types";
+import { isFileLikeNode } from "./formatters";
 
 type TreeRow = {
   node: RepoFileTreeNode;
@@ -63,7 +64,7 @@ export function GraphFilesPanel({
   const fileNodeIdByPath = useMemo(() => {
     const byPath = new Map<string, string>();
     for (const node of graph?.nodes ?? []) {
-      if (node.type === "file" && node.file_path) {
+      if (isFileLikeNode(node) && node.file_path) {
         byPath.set(node.file_path, node.id);
       }
     }
