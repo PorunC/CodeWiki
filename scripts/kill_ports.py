@@ -55,8 +55,34 @@ def pids_from_lsof(port: int) -> set[int]:
 
 
 def pids_from_fuser(port: int) -> set[int]:
-    output = run(["fuser", f"{port}/tcp"])
-    return {int(match) for match in re.findall(r"\b\d+\b", output)}
+    try:
+        result = subprocess.run(
+            ["fuser", f"{port}/tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return set()
+    return parse_fuser_pids(port, result.stdout, result.stderr)
+
+
+def parse_fuser_pids(port: int, stdout: str, stderr: str = "") -> set[int]:
+    pids: set[int] = set()
+    port_label = f"{port}/tcp"
+    for line in f"{stdout}\n{stderr}".splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if port_label in stripped:
+            _prefix, _separator, tail = stripped.partition(port_label)
+            tail = tail.split(":", 1)[1] if ":" in tail else ""
+        else:
+            tail = stripped
+        tokens = tail.split()
+        if tokens and all(token.isdigit() for token in tokens):
+            pids.update(int(token) for token in tokens)
+    return pids
 
 
 def pids_from_ss_or_netstat(ports: list[int]) -> set[int]:
@@ -89,7 +115,10 @@ def kill_process(pid: int) -> None:
             check=False,
         )
         return
-    os.kill(pid, signal.SIGTERM)
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        print(f"PID {pid} already exited")
 
 
 def run(command: list[str]) -> str:

@@ -2,6 +2,7 @@ from backend.app.database import CodeChunkSearchHit, SQLiteStore
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graphrag.models import ChunkHit
+from backend.app.services.graphrag.ranking import rank_source_chunks
 from backend.app.services.graphrag.utils import estimate_tokens
 
 
@@ -11,36 +12,27 @@ def select_source_chunks(
     repo_id: str,
     selected_ids: set[str],
     seed_ids: set[str],
-    node_scores: dict[str, float],
+    nodes: list[CodeGraphNode],
+    edges: list[CodeGraphEdge],
+    hops: dict[str, int],
     fts_hits: list[CodeChunkSearchHit],
     vector_hits: list[CodeChunkSearchHit],
     max_source_chunks: int,
     context_token_budget: int,
 ) -> list[ChunkHit]:
-    chunk_hits: dict[str, ChunkHit] = {}
-
-    def add_chunk(chunk, score: float, reason: str) -> None:
-        existing = chunk_hits.get(chunk.id)
-        if existing:
-            existing.score = max(existing.score, score)
-            existing.reasons.add(reason)
-        else:
-            chunk_hits[chunk.id] = ChunkHit(chunk=chunk, score=score, reasons={reason})
-
-    for hit in fts_hits:
-        add_chunk(hit.chunk, hit.score, hit.match_type)
-    for hit in vector_hits:
-        add_chunk(hit.chunk, hit.score, hit.match_type)
+    candidates = {hit.chunk.id: hit.chunk for hit in [*fts_hits, *vector_hits]}
 
     for chunk in store.get_code_chunks_by_node_ids(repo_id, list(selected_ids)):
-        node_id = chunk.node_id or ""
-        graph_score = node_scores.get(node_id, 0.2)
-        reason = "seed_node" if node_id in seed_ids else "expanded_node"
-        add_chunk(chunk, graph_score * (0.78 if node_id in seed_ids else 0.52), reason)
+        candidates.setdefault(chunk.id, chunk)
 
-    selected_chunks = sorted(
-        chunk_hits.values(),
-        key=lambda item: (-item.score, item.chunk.file_path, item.chunk.start_line),
+    selected_chunks = rank_source_chunks(
+        list(candidates.values()),
+        nodes=nodes,
+        edges=edges,
+        seed_ids=seed_ids,
+        hops=hops,
+        fts_hits=fts_hits,
+        vector_hits=vector_hits,
     )
     packed: list[ChunkHit] = []
     token_total = 0
@@ -173,5 +165,9 @@ def chunk_payload(hit: ChunkHit) -> dict[str, object]:
         "content_hash": chunk.content_hash,
         "token_count": chunk.token_count,
         "score": round(hit.score, 4),
+        "score_components": {
+            key: round(value, 4)
+            for key, value in hit.score_components.items()
+        },
         "reasons": sorted(hit.reasons),
     }

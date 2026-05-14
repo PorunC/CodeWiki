@@ -1,0 +1,98 @@
+from dataclasses import dataclass
+
+from backend.app.database import (
+    CodeChunkEmbeddingRecord,
+    CodeChunkRecord,
+    CodeChunkSearchHit,
+    SQLiteStore,
+)
+from backend.app.services.graphrag.utils import batched, embedding_text, stable_id
+from backend.app.services.llm_gateway import LLMGateway
+
+
+@dataclass(frozen=True)
+class EmbeddingIndexBuildResult:
+    count: int
+    model: str
+
+
+class EmbeddingIndex:
+    def __init__(
+        self,
+        store: SQLiteStore,
+        llm: LLMGateway,
+        *,
+        batch_size: int = 32,
+    ) -> None:
+        self.store = store
+        self.llm = llm
+        self.batch_size = batch_size
+
+    async def build(
+        self,
+        repo_id: str,
+        chunks: list[CodeChunkRecord],
+    ) -> EmbeddingIndexBuildResult:
+        model = self.model
+        records: list[CodeChunkEmbeddingRecord] = []
+        for batch in batched(chunks, self.batch_size):
+            texts = [embedding_text(chunk) for chunk in batch]
+            vectors = await self.llm.embed(texts, task_type="embedding")
+            for chunk, vector in zip(batch, vectors, strict=True):
+                records.append(
+                    CodeChunkEmbeddingRecord(
+                        id=stable_id(repo_id, "embedding", model, chunk.id, chunk.content_hash),
+                        repo_id=repo_id,
+                        chunk_id=chunk.id,
+                        model=model,
+                        dimensions=len(vector),
+                        embedding=vector,
+                        content_hash=chunk.content_hash,
+                        created_at=None,
+                    )
+                )
+        self.store.replace_code_chunk_embeddings(repo_id, model=model, embeddings=records)
+        return EmbeddingIndexBuildResult(count=len(records), model=model)
+
+    async def ensure(
+        self,
+        repo_id: str,
+        chunks: list[CodeChunkRecord],
+    ) -> EmbeddingIndexBuildResult | None:
+        model = self.model
+        if self.store.list_code_chunk_embeddings(repo_id, model=model) or not chunks:
+            return None
+        return await self.build(repo_id, chunks)
+
+    async def search(
+        self,
+        repo_id: str,
+        query: str,
+        chunks: list[CodeChunkRecord],
+        *,
+        limit: int,
+    ) -> list[CodeChunkSearchHit]:
+        await self.ensure(repo_id, chunks)
+        vectors = await self.llm.embed([query], task_type="embedding")
+        if not vectors:
+            return []
+        return self.store.search_code_chunk_embeddings(
+            repo_id,
+            model=self.model,
+            query_embedding=vectors[0],
+            limit=limit,
+        )
+
+    @property
+    def model(self) -> str:
+        return self.llm.router.profile_for("embedding").model
+
+
+async def embed_chunks(
+    store: SQLiteStore,
+    llm: LLMGateway,
+    repo_id: str,
+    chunks: list[CodeChunkRecord],
+) -> tuple[int, str]:
+    result = await EmbeddingIndex(store, llm).build(repo_id, chunks)
+    return result.count, result.model

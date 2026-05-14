@@ -20,6 +20,7 @@ class ScannedFile:
     size_bytes: int
     sha256: str
     modified_at: str
+    last_commit_at: str | None = None
 
 
 @dataclass(frozen=True)

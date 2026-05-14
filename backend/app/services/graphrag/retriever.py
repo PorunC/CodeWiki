@@ -108,7 +108,9 @@ class GraphRAGRetriever:
             repo_id=repo_id,
             selected_ids=selected_ids,
             seed_ids=set(seed_hits),
-            node_scores=scores,
+            nodes=nodes,
+            edges=edges,
+            hops=hops,
             fts_hits=fts_hits,
             vector_hits=vector_hits,
             max_source_chunks=self._max_source_chunks(),
@@ -162,7 +164,7 @@ class GraphRAGRetriever:
         repo_path: str,
         nodes: list[CodeGraphNode],
     ) -> list[CodeChunkRecord]:
-        from backend.app.services.graphrag.chunking import build_source_chunks
+        from backend.app.services.chunk_builder import build_source_chunks
 
         return build_source_chunks(repo_id=repo_id, repo_path=repo_path, nodes=nodes)
 

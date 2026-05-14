@@ -5,11 +5,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.config import get_settings
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeChunkRecord, CodeChunkSearchHit, SQLiteStore
 from backend.app.db.store import get_store
 from backend.app.main import create_app
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.chunk_builder import ChunkBuilder
+from backend.app.services.embedding_index import EmbeddingIndex
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graphrag.ranking import rank_source_chunks
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -60,6 +64,17 @@ async def test_graphrag_retrieve_lazily_builds_chunks_and_returns_context(tmp_pa
     assert trace.context_pack["chunk_count"] == len(trace.source_chunks)
     assert trace.context_pack["community_count"] == len(trace.community_summaries)
     assert "Graph Facts:" in trace.context_pack["text"]
+    assert all(
+        {
+            "semantic_score",
+            "keyword_score",
+            "graph_proximity_score",
+            "node_importance_score",
+            "source_freshness_score",
+        }
+        <= set(chunk["score_components"])
+        for chunk in trace.source_chunks
+    )
 
 
 @pytest.mark.asyncio
@@ -79,6 +94,88 @@ async def test_graphrag_builds_optional_litellm_embedding_index(tmp_path: Path) 
     assert result.embedding_count == result.chunk_count
     assert store.list_code_chunk_embeddings(repo.id, model="fake/embed")
     assert any("vector" in chunk["reasons"] for chunk in trace.source_chunks)
+
+
+@pytest.mark.asyncio
+async def test_chunk_builder_and_embedding_index_are_standalone_services(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    node = CodeGraphNode(
+        id=f"{repo.id}:function:answer",
+        repo_id=repo.id,
+        type="function",
+        name="answer",
+        file_path="main.py",
+        start_line=1,
+        end_line=2,
+    )
+
+    chunks = ChunkBuilder().build_source_chunks(
+        repo_id=repo.id,
+        repo_path=str(repo_dir),
+        nodes=[node],
+    )
+    store.replace_graph(repo.id, nodes=[node], edges=[])
+    store.replace_code_chunks(repo.id, chunks)
+    result = await EmbeddingIndex(store, _FakeLLM()).build(repo.id, chunks)
+
+    assert len(chunks) == 1
+    assert chunks[0].content == "def answer():\n    return 42\n"
+    assert result.count == 1
+    assert result.model == "fake/embed"
+    assert store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0].chunk_id == chunks[0].id
+
+
+def test_graphrag_hybrid_ranking_uses_five_factor_formula() -> None:
+    old_chunk = _chunk("old", "node-old", "old.py")
+    fresh_chunk = _chunk("fresh", "node-fresh", "fresh.py")
+    nodes = [
+        CodeGraphNode(
+            id="node-old",
+            repo_id="repo",
+            type="function",
+            name="old",
+            file_path="old.py",
+            metadata={"last_commit_at": "2024-01-01T00:00:00+00:00"},
+        ),
+        CodeGraphNode(
+            id="node-fresh",
+            repo_id="repo",
+            type="function",
+            name="fresh",
+            file_path="fresh.py",
+            metadata={"last_commit_at": "2024-01-11T00:00:00+00:00"},
+        ),
+        CodeGraphNode(id="node-helper", repo_id="repo", type="function", name="helper"),
+    ]
+    edges = [
+        CodeGraphEdge(id="edge-1", repo_id="repo", source_id="node-old", target_id="node-fresh", type="calls"),
+        CodeGraphEdge(id="edge-2", repo_id="repo", source_id="node-fresh", target_id="node-helper", type="calls"),
+    ]
+
+    ranked = rank_source_chunks(
+        [old_chunk, fresh_chunk],
+        nodes=nodes,
+        edges=edges,
+        seed_ids={"node-old"},
+        hops={"node-old": 0, "node-fresh": 1},
+        fts_hits=[CodeChunkSearchHit(chunk=old_chunk, score=0.8, match_type="fts")],
+        vector_hits=[CodeChunkSearchHit(chunk=fresh_chunk, score=0.6, match_type="vector")],
+    )
+
+    assert [hit.chunk.id for hit in ranked] == ["fresh", "old"]
+    assert ranked[0].score == pytest.approx(0.51)
+    assert ranked[0].score_components == {
+        "semantic_score": 0.6,
+        "keyword_score": 0.0,
+        "graph_proximity_score": 0.5,
+        "node_importance_score": 1.0,
+        "source_freshness_score": 1.0,
+    }
+    assert ranked[1].score == pytest.approx(0.45)
 
 
 def test_graphrag_retrieve_http_returns_real_context(tmp_path: Path, monkeypatch) -> None:
@@ -139,3 +236,17 @@ class _FakeLLM:
     async def embed(self, texts: list[str], *, task_type: str = "embedding") -> list[list[float]]:
         assert task_type == "embedding"
         return [[float(len(text) % 7 + 1), 1.0] for text in texts]
+
+
+def _chunk(chunk_id: str, node_id: str, file_path: str) -> CodeChunkRecord:
+    return CodeChunkRecord(
+        id=chunk_id,
+        repo_id="repo",
+        node_id=node_id,
+        file_path=file_path,
+        start_line=1,
+        end_line=1,
+        content=f"{chunk_id}\n",
+        content_hash=chunk_id,
+        token_count=1,
+    )

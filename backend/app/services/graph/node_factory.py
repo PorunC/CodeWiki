@@ -20,6 +20,14 @@ def repository_node(repo: RepoDescriptor) -> CodeGraphNode:
 
 
 def file_node(repo_id: str, scanned_file: ScannedFile, node_id: str) -> CodeGraphNode:
+    metadata = {
+        "absolute_path": scanned_file.absolute_path,
+        "is_source": scanned_file.is_source,
+        "size_bytes": scanned_file.size_bytes,
+        "modified_at": scanned_file.modified_at,
+    }
+    if scanned_file.last_commit_at is not None:
+        metadata["last_commit_at"] = scanned_file.last_commit_at
     return CodeGraphNode(
         id=node_id,
         repo_id=repo_id,
@@ -30,12 +38,7 @@ def file_node(repo_id: str, scanned_file: ScannedFile, node_id: str) -> CodeGrap
         language=scanned_file.language,
         symbol_id=f"file:{scanned_file.path}",
         hash=scanned_file.sha256,
-        metadata={
-            "absolute_path": scanned_file.absolute_path,
-            "is_source": scanned_file.is_source,
-            "size_bytes": scanned_file.size_bytes,
-            "modified_at": scanned_file.modified_at,
-        },
+        metadata=metadata,
     )
 
 

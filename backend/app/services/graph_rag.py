@@ -1,5 +1,6 @@
 from backend.app.services.graphrag import GraphRAGBuildResult, GraphRAGRetriever, RetrievalTrace, build_index
-from backend.app.services.graphrag.chunking import build_source_chunks as _build_source_chunks
+from backend.app.services.chunk_builder import build_source_chunks as _build_source_chunks
+from backend.app.services.embedding_index import embed_chunks as _embed_chunks
 from backend.app.services.graphrag.context import (
     chunk_payload as _chunk_payload,
     community_summaries as _community_summaries,
@@ -8,9 +9,9 @@ from backend.app.services.graphrag.context import (
     node_payload as _node_payload,
     select_source_chunks as _select_source_chunks,
 )
-from backend.app.services.graphrag.embedding import embed_chunks as _embed_chunks
 from backend.app.services.graphrag.expansion import expand as _expand, related_edges as _related_edges
 from backend.app.services.graphrag.models import ChunkHit as _ChunkHit, NodeHit as _NodeHit
+from backend.app.services.graphrag.ranking import rank_source_chunks as _rank_source_chunks
 from backend.app.services.graphrag.search import (
     add_overview_fallback_seeds as _add_overview_fallback_seeds,
     merge_chunk_hits_into_seeds as _merge_chunk_hits_into_seeds,
@@ -53,6 +54,7 @@ __all__ = [
     "_node_payload",
     "_node_type_boost",
     "_related_edges",
+    "_rank_source_chunks",
     "_search_fts",
     "_search_vectors",
     "_seed_from_symbols",

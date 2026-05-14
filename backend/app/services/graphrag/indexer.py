@@ -1,7 +1,7 @@
 from backend.app.config import Settings, get_settings
 from backend.app.database import SQLiteStore
-from backend.app.services.graphrag.chunking import build_source_chunks
-from backend.app.services.graphrag.embedding import embed_chunks
+from backend.app.services.chunk_builder import ChunkBuilder
+from backend.app.services.embedding_index import EmbeddingIndex
 from backend.app.services.graphrag.models import GraphRAGBuildResult
 from backend.app.services.llm_gateway import LLMGateway
 
@@ -22,14 +22,16 @@ async def build_index(
     if not nodes:
         return GraphRAGBuildResult(repo_id=repo_id, status="empty_graph", chunk_count=0)
 
-    chunks = build_source_chunks(repo_id=repo_id, repo_path=repo.path, nodes=nodes)
+    chunks = ChunkBuilder().build_source_chunks(repo_id=repo_id, repo_path=repo.path, nodes=nodes)
     store.replace_code_chunks(repo_id, chunks)
 
     embedding_count = 0
     embedding_model: str | None = None
     if include_embeddings and chunks:
         llm = llm or LLMGateway(settings or get_settings())
-        embedding_count, embedding_model = await embed_chunks(store, llm, repo_id, chunks)
+        result = await EmbeddingIndex(store, llm).build(repo_id, chunks)
+        embedding_count = result.count
+        embedding_model = result.model
 
     return GraphRAGBuildResult(
         repo_id=repo_id,

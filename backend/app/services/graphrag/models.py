@@ -38,3 +38,4 @@ class ChunkHit:
     chunk: CodeChunkRecord
     score: float
     reasons: set[str] = field(default_factory=set)
+    score_components: dict[str, float] = field(default_factory=dict)

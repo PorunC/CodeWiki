@@ -1,7 +1,7 @@
 from backend.app.database import CodeChunkRecord, CodeChunkSearchHit, SQLiteStore
+from backend.app.services.embedding_index import EmbeddingIndex
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import SEED_NODE_TYPES
-from backend.app.services.graphrag.embedding import embed_chunks
 from backend.app.services.graphrag.models import NodeHit
 from backend.app.services.graphrag.utils import fts_query, node_haystack, node_type_boost, terms
 from backend.app.services.llm_gateway import LLMGateway
@@ -62,18 +62,7 @@ async def search_vectors(
     *,
     limit: int,
 ) -> list[CodeChunkSearchHit]:
-    model = llm.router.profile_for("embedding").model
-    if not store.list_code_chunk_embeddings(repo_id, model=model) and chunks:
-        await embed_chunks(store, llm, repo_id, chunks)
-    vectors = await llm.embed([query], task_type="embedding")
-    if not vectors:
-        return []
-    return store.search_code_chunk_embeddings(
-        repo_id,
-        model=model,
-        query_embedding=vectors[0],
-        limit=limit,
-    )
+    return await EmbeddingIndex(store, llm).search(repo_id, query, chunks, limit=limit)
 
 
 def merge_chunk_hits_into_seeds(

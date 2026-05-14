@@ -1,10 +1,11 @@
 import hashlib
 import os
+from dataclasses import replace
 from pathlib import Path
 
 from backend.app.services.language_detector import LanguageDetector
 from backend.app.services.repo_scanner.file_info import is_probably_binary, scan_file
-from backend.app.services.repo_scanner.git import git_metadata
+from backend.app.services.repo_scanner.git import git_file_commit_times, git_metadata
 from backend.app.services.repo_scanner.ignore import IgnoreMatcher
 from backend.app.services.repo_scanner.models import RepoDescriptor, RepoScanResult, ScannedFile
 
@@ -73,6 +74,13 @@ class RepoScanner:
                     skipped_count += 1
                     continue
                 files.append(scan_file(root, file_path, self.language_detector))
+
+        commit_times = git_file_commit_times(root, [file.path for file in files if file.is_source])
+        if commit_times:
+            files = [
+                replace(file, last_commit_at=commit_times.get(file.path))
+                for file in files
+            ]
 
         return RepoScanResult(
             repo=repo,
