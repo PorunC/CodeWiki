@@ -9,6 +9,7 @@ dependencies = [
   "click>=8.1.0",
   "fastapi>=0.115.0",
   "graspologic>=3.4.4; python_version < '3.13'",
+  "httpx[socks]>=0.28.1",
   "litellm>=1.60.0",
   "networkx>=3.4.0",
   "pathspec>=0.12.1",

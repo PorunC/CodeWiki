@@ -32,13 +32,23 @@
   }
 }
 
+@keyframes wikiSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .react-flow__edge.code-flow-edge .react-flow__edge-path,
   .code-node-card.is-selected::after,
   .code-container-node.is-selected::before,
-  .code-container-node.is-focused-via-child::before {
+  .code-container-node.is-focused-via-child::before,
+  .wiki-spin-icon {
     animation: none !important;
   }
 }
-
 

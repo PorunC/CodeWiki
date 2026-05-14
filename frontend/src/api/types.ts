@@ -170,3 +170,14 @@ export type WikiResponse = {
   items: WikiCatalogItem[];
   pages: WikiPageRecord[];
 };
+
+export type WikiPageGenerationResult = WikiPageRecord & {
+  validation_errors: string[];
+};
+
+export type GenerateWikiPagesResponse = {
+  repo_id: string;
+  status: string;
+  page_count: number;
+  pages: WikiPageGenerationResult[];
+};

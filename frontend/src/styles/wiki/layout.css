@@ -25,9 +25,25 @@
   min-width: 0;
 }
 
+.wiki-header > div:first-child {
+  min-width: 0;
+}
+
 .wiki-header h2 {
   font-size: 20px;
   overflow-wrap: anywhere;
+}
+
+.wiki-header-actions {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.wiki-action-button {
+  white-space: nowrap;
 }
 
 .wiki-summary {
@@ -98,14 +114,34 @@
 }
 
 .wiki-state {
+  align-items: center;
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.22);
   border-radius: 8px;
   color: #a9c6f5;
+  display: flex;
+  gap: 8px;
   font-size: 13px;
   font-weight: 800;
   line-height: 1.4;
   padding: 10px 12px;
+}
+
+.wiki-state.is-loading {
+  background: rgba(212, 165, 116, 0.11);
+  border-color: rgba(232, 196, 154, 0.34);
+  color: var(--color-accent-strong);
+  position: relative;
+}
+
+.wiki-state.is-loading::before {
+  background: linear-gradient(90deg, rgba(232, 196, 154, 0), rgba(232, 196, 154, 0.44), rgba(232, 196, 154, 0));
+  bottom: -1px;
+  content: "";
+  height: 1px;
+  left: 0;
+  position: absolute;
+  width: 34%;
 }
 
 .wiki-state.is-error {
@@ -120,3 +156,11 @@
   min-height: 0;
 }
 
+.wiki-browser.is-generating {
+  opacity: 0.72;
+}
+
+.wiki-spin-icon {
+  animation: wikiSpin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
