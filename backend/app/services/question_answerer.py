@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from hashlib import sha256
 from importlib import resources
 
-from backend.app.database import SQLiteStore, get_store
+from backend.app.database import SQLiteStore
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
-from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_run_recorder import complete_with_cache
 
@@ -26,11 +26,11 @@ class QuestionAnswerer:
         retriever: GraphRAGRetriever,
         llm: LLMGateway,
         *,
-        store: SQLiteStore | None = None,
+        store: SQLiteStore,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
-        self.store = store or get_store()
+        self.store = store
 
     async def answer(self, repo_id: str, request: AskRequest) -> AskResponse:
         if self.store.get_repo(repo_id) is None:

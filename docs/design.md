@@ -94,14 +94,14 @@ backend/
     services/
       repo_scanner.py          # 仓库导入、ignore、文件 hash、语言识别
       ast_parser.py            # tree-sitter 多语言解析调度
-      graph_builder.py         # 构建统一 code graph
+      graph/                   # 构建统一 code graph
       community_detector.py    # Leiden/Louvain 社区检测 + 摘要
       chunk_builder.py         # 代码分块
       embedding_index.py       # 向量索引管理
-      graph_rag.py             # 混合检索、图扩展、上下文打包
-      wiki_generator.py        # 生成 Wiki catalog 和 page
+      graphrag/                # 混合检索、图扩展、上下文打包
+      wiki/                    # 生成 Wiki catalog 和 page
       llm_client.py            # 多后端 LLM 调用、重试、token 统计、缓存
-      incremental_updater.py   # 文件变更检测、局部重建
+      incremental/             # 文件变更检测、局部重建
     models/
       repo.py                  # ORM 模型
       graph.py                 # 图节点/边模型
@@ -124,18 +124,18 @@ backend/
 |---|---|
 | `repo_scanner` | 仓库导入（本地/远程 clone）、文件遍历、ignore 规则、hash 计算、语言检测 |
 | `ast_parser` | 使用 tree-sitter 提取符号、import、调用、类定义，输出统一 contract |
-| `graph_builder` | 合并 AST 输出为 NetworkX 有向图，区分 deterministic/inferred 边，写入 SQLite |
+| `graph` | 合并 AST 输出为 NetworkX 有向图，区分 deterministic/inferred 边，写入 SQLite |
 | `community_detector` | Leiden/Louvain 社区检测（算法）、递归分裂过大社区、LLM 生成社区摘要 |
 | `chunk_builder` | 按函数/类/文件边界切分代码块，计算 token 数 |
 | `embedding_index` | 将 code chunks 向量化存入 sqlite-vec |
-| `graph_rag` | 混合检索（符号匹配 + FTS5 + 向量相似度 + 图扩展 + 社区摘要召回），rerank，打包上下文 |
-| `wiki_generator` | 调用 LLM 生成 catalog（LLM 决定模块划分）和 page（Markdown 内容），校验 Mermaid 和源码引用 |
+| `graphrag` | 混合检索（符号匹配 + FTS5 + 向量相似度 + 图扩展 + 社区摘要召回），rerank，打包上下文 |
+| `wiki` | 调用 LLM 生成 catalog（LLM 决定模块划分）和 page（Markdown 内容），校验 Mermaid 和源码引用 |
 | `llm_client` | 统一 LLM 调用接口，指数退避重试，token 统计，相同输入 hash 命中缓存 |
-| `incremental_updater` | 比较文件 hash 检测变更，重解析变更文件，更新受影响的节点/边/page |
+| `incremental` | 比较文件 hash 检测变更，重解析变更文件，更新受影响的节点/边/page |
 
 > **社区 (Community) vs 模块 (Module) 的区别：**
 > - **Community** 由 `community_detector` 通过 Leiden/Louvain 算法自动发现，反映代码的结构性分组，用于 GraphRAG 检索增强。
-> - **Module** 由 `wiki_generator` 通过 LLM 在生成 Catalog 时决定，反映文档的逻辑章节划分，用于 Wiki 页面组织。
+> - **Module** 由 `wiki` 通过 LLM 在生成 Catalog 时决定，反映文档的逻辑章节划分，用于 Wiki 页面组织。
 > - 两者可能重叠也可能不重叠——Community 是图结构上的，Module 是文档语义上的。
 
 ## 6. 数据模型

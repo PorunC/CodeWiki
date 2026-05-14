@@ -12,7 +12,7 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.chunk_builder import ChunkBuilder
 from backend.app.services.embedding_index import EmbeddingIndex
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
-from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graphrag.ranking import rank_source_chunks
 from backend.app.services.repo_scanner import RepoScanner
 

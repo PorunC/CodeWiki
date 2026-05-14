@@ -5,7 +5,7 @@ import pytest
 from backend.app.database import SQLiteStore
 from backend.app.schemas.ask import AskRequest
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.question_answerer import QuestionAnswerer
 from backend.app.services.repo_scanner import RepoScanner

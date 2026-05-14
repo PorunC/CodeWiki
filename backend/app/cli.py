@@ -11,8 +11,8 @@ from backend.app.config import get_settings
 from backend.app.database import SQLiteStore, get_store
 from backend.app.schemas.ask import AskRequest
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.graph_rag import GraphRAGRetriever
-from backend.app.services.incremental_updater import IncrementalUpdater
+from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.question_answerer import QuestionAnswerer
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner

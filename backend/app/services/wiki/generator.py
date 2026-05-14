@@ -1,7 +1,7 @@
 from typing import Any
 
 from backend.app.database import DocCatalogRecord, SQLiteStore, get_store
-from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.repo_context import RepositoryContextBuilder
 from backend.app.services.wiki.catalog import _catalog_items_for_generation, _slugify

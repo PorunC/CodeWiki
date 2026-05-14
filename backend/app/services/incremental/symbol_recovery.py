@@ -1,5 +1,5 @@
 from backend.app.services.ast_parser import AstSymbol
-from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
 def _symbols_from_existing_graph(

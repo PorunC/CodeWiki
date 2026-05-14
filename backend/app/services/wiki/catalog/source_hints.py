@@ -2,7 +2,7 @@ from dataclasses import replace
 from typing import Any
 
 from backend.app.database import SQLiteStore
-from backend.app.services.graph_rag import RetrievalTrace
+from backend.app.services.graphrag import RetrievalTrace
 
 MAX_SOURCE_HINT_CHUNKS = 10
 MAX_SOURCE_HINT_CHUNKS_PER_FILE = 3

@@ -5,7 +5,7 @@ from hashlib import sha1, sha256
 import networkx as nx
 
 from backend.app.db.records import GraphCommunityRecord
-from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 COMMUNITY_NODE_TYPES = {"file", "class", "function", "method", "schema", "endpoint"}
 COMMUNITY_EDGE_WEIGHTS = {

@@ -4,8 +4,8 @@ import pytest
 
 from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.graph_rag import GraphRAGRetriever
-from backend.app.services.incremental_updater import IncrementalUpdater
+from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.repo_scanner import RepoScanner
 
 

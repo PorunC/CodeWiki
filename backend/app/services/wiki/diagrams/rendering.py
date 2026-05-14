@@ -1,6 +1,6 @@
 from typing import Any
 
-from backend.app.services.graph_rag import RetrievalTrace
+from backend.app.services.graphrag import RetrievalTrace
 from backend.app.services.wiki.diagrams.models import EDGE_LABEL_ORDER, _MermaidGroup
 from backend.app.services.wiki.sources import _source_ref_href, _source_ref_label
 

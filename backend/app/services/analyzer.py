@@ -4,11 +4,11 @@ from typing import Any
 
 from backend.app.config import Settings, get_settings
 from backend.app.database import SQLiteStore
-from backend.app.services.ast_parser import AstParser, AstSymbol
+from backend.app.services.ast_parser import AstParser, parse_scanned_files
 from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
-from backend.app.services.graph_builder import CodeGraph, GraphBuilder
+from backend.app.services.graph import CodeGraph, GraphBuilder
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.repo_scanner import RepoScanner
 
@@ -108,7 +108,11 @@ class AnalysisService:
         run = self.store.create_analysis_run(repo_id)
         try:
             scan = self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
-            symbols, parse_errors = self._parse_scan(scan.files, repo_root=Path(scan.repo.path))
+            symbols, parse_errors = parse_scanned_files(
+                self.parser,
+                scan.files,
+                repo_root=Path(scan.repo.path),
+            )
             graph = self.graph_builder.build(scan, symbols)
             self.store.replace_graph(repo_id, nodes=graph.nodes, edges=graph.edges)
             communities = self.community_detector.detect(repo_id, graph.nodes, graph.edges)
@@ -138,28 +142,12 @@ class AnalysisService:
 
     def build_graph_for_path(self, path: str) -> CodeGraph:
         scan = self.scanner.scan(path)
-        symbols, _ = self._parse_scan(scan.files, repo_root=Path(scan.repo.path))
+        symbols, _ = parse_scanned_files(
+            self.parser,
+            scan.files,
+            repo_root=Path(scan.repo.path),
+        )
         return self.graph_builder.build(scan, symbols)
-
-    def _parse_scan(self, files, *, repo_root: Path) -> tuple[list[AstSymbol], list[dict[str, str]]]:
-        symbols: list[AstSymbol] = []
-        errors: list[dict[str, str]] = []
-
-        for scanned_file in files:
-            if not scanned_file.is_source:
-                continue
-            try:
-                parsed_symbols = self.parser.parse_file(
-                    Path(scanned_file.absolute_path),
-                    repo_root=repo_root,
-                    language=scanned_file.language,
-                )
-            except SyntaxError as exc:
-                errors.append({"file_path": scanned_file.path, "error": str(exc)})
-                continue
-            if parsed_symbols:
-                symbols.extend(parsed_symbols)
-        return symbols, errors
 
 
 def _llm_configured(settings: Settings) -> bool:

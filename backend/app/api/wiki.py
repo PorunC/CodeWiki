@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from backend.app.config import get_settings
 from backend.app.database import DocCatalogRecord, DocPageRecord, get_store
-from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.wiki import PageGenerationResult, WikiGenerator
 

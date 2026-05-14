@@ -6,7 +6,7 @@ from backend.app.services.community_naming.constants import (
     MAX_COMMUNITY_FILES,
     MAX_COMMUNITY_SYMBOLS,
 )
-from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
 def naming_payload(

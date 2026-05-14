@@ -8,7 +8,7 @@ from backend.app.database import get_store
 from backend.app.services.analyzer import AnalysisService, _llm_configured
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
-from backend.app.services.incremental_updater import IncrementalUpdater
+from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.llm_gateway import LLMGateway
 
 router = APIRouter()

@@ -5,11 +5,11 @@ import pytest
 
 from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
-from backend.app.services.wiki_generator import (
-    WikiGenerator,
+from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.wiki.generator import WikiGenerator
+from backend.app.services.wiki.sources import (
     _include_markdown_citation_refs,
     _replace_citation_markers,
     _source_url,

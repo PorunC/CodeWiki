@@ -1,4 +1,4 @@
-from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.incremental.models import IncrementalUpdatePlan
 from backend.app.services.repo_scanner import RepoScanResult
 

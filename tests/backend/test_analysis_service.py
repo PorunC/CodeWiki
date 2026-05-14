@@ -7,7 +7,7 @@ from backend.app.database import SQLiteStore
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.community_detector import _community_name
 from backend.app.services.community_naming import CommunityNamingResult
-from backend.app.services.graph_builder import CodeGraphNode
+from backend.app.services.graph import CodeGraphNode
 from backend.app.services.repo_scanner import RepoScanner
 
 

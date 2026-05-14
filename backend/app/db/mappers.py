@@ -10,7 +10,7 @@ from backend.app.db.records import (
     GraphCommunityRecord,
     LLMRunRecord,
 )
-from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
 def analysis_run_from_row(row: sqlite3.Row) -> AnalysisRunRecord:

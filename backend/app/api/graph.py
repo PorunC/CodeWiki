@@ -8,7 +8,7 @@ from backend.app.database import get_store
 from backend.app.schemas.graph import CodeEdge, CodeNode, GraphCommunity, GraphResponse
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
-from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 
 router = APIRouter()
@@ -143,8 +143,10 @@ async def build_graphrag(
     payload: BuildGraphRAGRequest | None = None,
 ) -> dict[str, object]:
     request = payload or BuildGraphRAGRequest()
+    store = get_store()
+    settings = get_settings()
     try:
-        result = await GraphRAGRetriever().build_index(
+        result = await GraphRAGRetriever(store=store, settings=settings).build_index(
             repo_id,
             include_embeddings=request.include_embeddings,
         )
@@ -155,8 +157,10 @@ async def build_graphrag(
 
 @router.post("/{repo_id}/graphrag/retrieve")
 async def retrieve_context(repo_id: str, payload: RetrieveRequest) -> dict[str, object]:
+    store = get_store()
+    settings = get_settings()
     try:
-        trace = await GraphRAGRetriever().retrieve(
+        trace = await GraphRAGRetriever(store=store, settings=settings).retrieve(
             repo_id,
             payload.query,
             max_hops=payload.max_hops,

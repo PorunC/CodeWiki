@@ -1,6 +1,6 @@
 from typing import Any
 
-from backend.app.services.graph_rag import RetrievalTrace
+from backend.app.services.graphrag import RetrievalTrace
 from backend.app.services.wiki.diagrams.components import (
     _abstract_component_diagram,
     _component_groups_and_edges,

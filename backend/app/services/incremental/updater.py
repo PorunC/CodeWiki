@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from backend.app.database import SQLiteStore, get_store
-from backend.app.services.ast_parser import AstParser, AstSymbol
+from backend.app.database import SQLiteStore
+from backend.app.services.ast_parser import AstParser, parse_scanned_files
 from backend.app.services.community_detector import CommunityDetector
-from backend.app.services.graph_builder import CodeGraphNode, GraphBuilder
-from backend.app.services.graph_rag import GraphRAGRetriever
+from backend.app.services.graph import CodeGraphNode, GraphBuilder
+from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.incremental.models import IncrementalUpdatePlan, IncrementalUpdateResult
 from backend.app.services.incremental.planning import _affected_graph_refs, _plan_from_scan
 from backend.app.services.incremental.symbol_recovery import _symbols_from_existing_graph
@@ -12,21 +12,21 @@ from backend.app.services.incremental.wiki_regeneration import (
     regenerate_stale_wiki_pages,
     skipped_wiki_regeneration,
 )
-from backend.app.services.repo_scanner import RepoDescriptor, RepoScanner, ScannedFile
+from backend.app.services.repo_scanner import RepoDescriptor, RepoScanner
 
 
 class IncrementalUpdater:
     def __init__(
         self,
         *,
-        store: SQLiteStore | None = None,
+        store: SQLiteStore,
         scanner: RepoScanner | None = None,
         parser: AstParser | None = None,
         graph_builder: GraphBuilder | None = None,
         community_detector: CommunityDetector | None = None,
         graphrag: GraphRAGRetriever | None = None,
     ) -> None:
-        self.store = store or get_store()
+        self.store = store
         self.scanner = scanner or RepoScanner()
         self.parser = parser or AstParser()
         self.graph_builder = graph_builder or GraphBuilder()
@@ -68,7 +68,8 @@ class IncrementalUpdater:
 
             changed_or_new = set(plan.changed_files + plan.new_files)
             reused_symbols = _symbols_from_existing_graph(old_nodes, old_edges, set(plan.unchanged_files))
-            parsed_symbols, parse_errors = self._parse_scan(
+            parsed_symbols, parse_errors = parse_scanned_files(
+                self.parser,
                 scan.files,
                 repo_root=Path(scan.repo.path),
                 only_paths=changed_or_new,
@@ -128,30 +129,6 @@ class IncrementalUpdater:
         if repo is None:
             raise ValueError(f"Repository not found: {repo_id}")
         return repo
-
-    def _parse_scan(
-        self,
-        files: list[ScannedFile],
-        *,
-        repo_root: Path,
-        only_paths: set[str],
-    ) -> tuple[list[AstSymbol], list[dict[str, str]]]:
-        symbols: list[AstSymbol] = []
-        errors: list[dict[str, str]] = []
-        for scanned_file in files:
-            if scanned_file.path not in only_paths or not scanned_file.is_source:
-                continue
-            try:
-                parsed_symbols = self.parser.parse_file(
-                    Path(scanned_file.absolute_path),
-                    repo_root=repo_root,
-                    language=scanned_file.language,
-                )
-            except SyntaxError as exc:
-                errors.append({"file_path": scanned_file.path, "error": str(exc)})
-                continue
-            symbols.extend(parsed_symbols)
-        return symbols, errors
 
     def _refresh_chunks(
         self,

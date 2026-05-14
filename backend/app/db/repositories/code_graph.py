@@ -1,7 +1,7 @@
 import json
 
 from backend.app.db.mappers import edge_from_row, node_from_row
-from backend.app.services.graph_builder import CodeGraphEdge, CodeGraphNode
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
 class CodeGraphRepositoryMixin:

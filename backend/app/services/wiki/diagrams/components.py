@@ -1,4 +1,4 @@
-from backend.app.services.graph_rag import RetrievalTrace
+from backend.app.services.graphrag import RetrievalTrace
 from backend.app.services.wiki.diagrams.models import (
     ABSTRACT_DIAGRAM_EDGE_TYPES,
     MAX_MERMAID_ABSTRACT_EDGES,

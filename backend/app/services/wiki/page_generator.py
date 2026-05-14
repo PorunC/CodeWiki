@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.app.database import DocPageRecord, SQLiteStore
-from backend.app.services.graph_rag import GraphRAGRetriever, RetrievalTrace
+from backend.app.services.graphrag import GraphRAGRetriever, RetrievalTrace
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_run_recorder import complete_with_cache
 from backend.app.services.repo_scanner import RepoDescriptor

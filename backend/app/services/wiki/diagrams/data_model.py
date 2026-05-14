@@ -1,6 +1,6 @@
 import re
 
-from backend.app.services.graph_rag import RetrievalTrace
+from backend.app.services.graphrag import RetrievalTrace
 from backend.app.services.wiki.diagrams.models import (
     MAX_MERMAID_CLASS_FIELDS,
     MAX_MERMAID_CLASS_NODES,
