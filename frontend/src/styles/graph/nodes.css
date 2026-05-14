@@ -447,3 +447,9 @@
   bottom: auto;
   top: 76px;
 }
+
+.code-container-node.is-file-container .code-container-body {
+  bottom: auto;
+  right: 48px;
+  top: 78px;
+}

@@ -27,13 +27,15 @@ export function GraphFlowCanvas({
   onNodeClick: (event: MouseEvent, node: FlowNode) => void;
   onNodeDoubleClick: (event: MouseEvent, node: FlowNode) => void;
 }) {
+  const showGraph = !isLoading && graphLoaded && nodes.length > 0;
+
   return (
     <div className="flow-frame">
       {isLoading ? <div className="flow-state">Loading graph...</div> : null}
       {!isLoading && graphLoaded && nodes.length === 0 ? (
         <div className="flow-state">No nodes match the current filters.</div>
       ) : null}
-      {!isLoading && graphLoaded && nodes.length > 0 ? (
+      {showGraph ? (
         <ReactFlow
           key={flowKey}
           nodes={nodes}

@@ -1,6 +1,6 @@
 import { Handle, Position, type Node, type NodeProps, type NodeTypes } from "@xyflow/react";
 import { EyeOff } from "lucide-react";
-import { memo, type MouseEvent } from "react";
+import { memo, useRef, type MouseEvent } from "react";
 
 import {
   SOURCE_HANDLE_ID,
@@ -8,12 +8,18 @@ import {
   type CodeVisualData,
   type ContainerVisualData
 } from "./graphModel";
-import { dispatchHideVisualNode, dispatchOpenContainerDrilldown, dispatchOpenFileDetail } from "./navigationEvents";
+import {
+  dispatchHideVisualNode,
+  dispatchOpenContainerDrilldown,
+  dispatchOpenFileDetail
+} from "./navigationEvents";
 
 export const flowNodeTypes: NodeTypes = {
   code: memo(CodeFlowNode),
   container: memo(ContainerFlowNode)
 };
+
+const CONTAINER_DOUBLE_CLICK_MS = 500;
 
 function CodeFlowNode({ id, data }: NodeProps<Node<CodeVisualData, "code">>) {
   const isFileNode = data.nodeType === "file";
@@ -96,6 +102,7 @@ function formatSymbolCount(value?: string): string {
 }
 
 function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<ContainerVisualData, "container">>) {
+  const lastClickTimeRef = useRef(0);
   const className = [
     "code-container-node",
     data.containerType === "community" ? "is-community" : "",
@@ -118,22 +125,44 @@ function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<Container
     dispatchHideVisualNode(id);
   };
 
-  const handleContainerClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (data.containerType !== "community" && data.containerType !== "directory") {
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (data.containerType !== "community") {
       return;
     }
-    event.stopPropagation();
+    const now = Date.now();
+    if (now - lastClickTimeRef.current <= CONTAINER_DOUBLE_CLICK_MS) {
+      lastClickTimeRef.current = 0;
+      event.stopPropagation();
+      openCommunityDrilldown();
+      return;
+    }
+    lastClickTimeRef.current = now;
+  };
+
+  const openCommunityDrilldown = () => {
     dispatchOpenContainerDrilldown({
       id,
       title: data.title,
       pathLabel: data.pathLabel,
-      containerType: data.containerType,
+      containerType: "community",
       rawNodeIds: data.rawNodeIds
     });
   };
 
+  const title =
+    data.containerType === "community"
+      ? `${data.title}\nSingle-click to select. Double-click to drill down.`
+      : data.containerType === "directory"
+        ? `${data.title}\nClick to drill down.`
+        : data.title;
+
   return (
-    <div className={className} style={{ borderColor: data.accentColor, width, height }} onClick={handleContainerClick}>
+    <div
+      className={className}
+      style={{ borderColor: data.accentColor, width, height }}
+      title={title}
+      onClick={handleClick}
+    >
       <Handle id={TARGET_HANDLE_ID} type="target" position={Position.Left} className="code-node-handle" />
       <Handle id={SOURCE_HANDLE_ID} type="source" position={Position.Right} className="code-node-handle" />
       <div className="code-container-header">

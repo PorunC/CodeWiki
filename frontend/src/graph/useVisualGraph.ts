@@ -6,6 +6,7 @@ import {
   buildFileDetailGraph,
   buildFocusGraph,
   buildOverviewGraph,
+  applyVisualState,
   applyRelatedHighlights,
   pruneHiddenVisualGraph,
   type ContainmentIndex,
@@ -28,7 +29,8 @@ export function useVisualGraph({
   drilldownContainer,
   selectedVisualId,
   hiddenVisualIds,
-  highlightedRawNodeIds
+  highlightedRawNodeIds,
+  flowKey
 }: {
   graph: GraphResponse | null;
   filteredGraph: FilteredGraph;
@@ -41,12 +43,17 @@ export function useVisualGraph({
   selectedVisualId: string | null;
   hiddenVisualIds: Set<string>;
   highlightedRawNodeIds: Set<string>;
+  flowKey: string;
 }) {
   const [baseVisualGraph, setBaseVisualGraph] = useState<{ nodes: FlowNode[]; edges: FlowEdge[] }>({
     nodes: [],
     edges: []
   });
+  const [activeFlowKey, setActiveFlowKey] = useState(flowKey);
   const [layoutLoading, setLayoutLoading] = useState(false);
+  const layoutSelectedFileId = viewMode === "file" ? selectedFileId : null;
+  const layoutSelectedNodeId = viewMode === "file" || viewMode === "focus" ? selectedNodeId : null;
+  const layoutDrilldownContainer = viewMode === "drilldown" ? drilldownContainer : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +61,7 @@ export function useVisualGraph({
     async function buildGraph() {
       if (!graph) {
         setBaseVisualGraph({ nodes: [], edges: [] });
+        setActiveFlowKey(flowKey);
         setLayoutLoading(false);
         return;
       }
@@ -66,27 +74,28 @@ export function useVisualGraph({
             graph,
             filteredGraph,
             containment,
-            selectedFileId,
-            selectedNodeId,
-            selectedVisualId
+            layoutSelectedFileId,
+            layoutSelectedNodeId,
+            null
           );
         } else if (viewMode === "focus") {
-          nextGraph = await buildFocusGraph(graph, filteredGraph, containment, selectedNodeId, selectedVisualId);
+          nextGraph = await buildFocusGraph(graph, filteredGraph, containment, layoutSelectedNodeId, null);
         } else if (viewMode === "drilldown") {
           nextGraph = await buildContainerDrilldownGraph(
             graph,
             filteredGraph,
             containment,
-            drilldownContainer,
-            selectedVisualId,
+            layoutDrilldownContainer,
+            null,
             { densityMode }
           );
         } else {
-          nextGraph = await buildOverviewGraph(graph, filteredGraph, containment, selectedVisualId, { densityMode });
+          nextGraph = await buildOverviewGraph(graph, filteredGraph, containment, null, { densityMode });
         }
 
         if (!cancelled) {
           setBaseVisualGraph(nextGraph);
+          setActiveFlowKey(flowKey);
         }
       } catch (error) {
         console.error("Graph layout failed.", error);
@@ -107,24 +116,25 @@ export function useVisualGraph({
   }, [
     containment,
     densityMode,
-    drilldownContainer,
     filteredGraph,
+    flowKey,
     graph,
-    selectedFileId,
-    selectedNodeId,
-    selectedVisualId,
+    layoutDrilldownContainer,
+    layoutSelectedFileId,
+    layoutSelectedNodeId,
     viewMode
   ]);
 
-  const visualGraph = useMemo(
-    () => applyRelatedHighlights(pruneHiddenVisualGraph(baseVisualGraph, hiddenVisualIds), highlightedRawNodeIds),
-    [baseVisualGraph, hiddenVisualIds, highlightedRawNodeIds]
-  );
+  const visualGraph = useMemo(() => {
+    const visibleGraph = pruneHiddenVisualGraph(baseVisualGraph, hiddenVisualIds);
+    const selectedGraph = applyVisualState(visibleGraph.nodes, visibleGraph.edges, selectedVisualId, viewMode);
+    return applyRelatedHighlights(selectedGraph, highlightedRawNodeIds);
+  }, [baseVisualGraph, hiddenVisualIds, highlightedRawNodeIds, selectedVisualId, viewMode]);
 
   const selectedVisualData = useMemo(
     () => visualGraph.nodes.find((node) => node.id === selectedVisualId)?.data ?? null,
     [selectedVisualId, visualGraph.nodes]
   );
 
-  return { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading };
+  return { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading, activeFlowKey };
 }

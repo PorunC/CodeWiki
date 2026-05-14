@@ -195,7 +195,19 @@ export function useGraphPageController({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading } = useVisualGraph({
+  const viewLayoutKey =
+    viewMode === "file"
+      ? selectedFileId ?? "none"
+      : viewMode === "focus"
+        ? focusNodeId ?? "none"
+        : viewMode === "drilldown"
+          ? drilldownContainer?.id ?? "none"
+          : "stable";
+  const requestedFlowKey = `${selectedRepoId}:${viewMode}:${viewLayoutKey}:${filterKey(
+    selectedNodeTypes
+  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}:${densityMode}`;
+
+  const { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading, activeFlowKey } = useVisualGraph({
     graph,
     filteredGraph,
     containment,
@@ -206,7 +218,8 @@ export function useGraphPageController({
     drilldownContainer,
     selectedVisualId,
     hiddenVisualIds,
-    highlightedRawNodeIds
+    highlightedRawNodeIds,
+    flowKey: requestedFlowKey
   });
 
   const handleNavigateToNode = useCallback(
@@ -514,11 +527,7 @@ export function useGraphPageController({
     (_: MouseEvent, node: FlowNode) => {
       const data = node.data;
       const primaryNodeId = data.kind === "container" ? data.primaryNodeId ?? null : data.codeNode.id;
-      if (
-        viewMode === "overview" &&
-        data.kind === "container" &&
-        (data.containerType === "community" || data.containerType === "directory")
-      ) {
+      if (viewMode === "overview" && data.kind === "container" && data.containerType === "directory") {
         openContainerDrilldown({
           id: node.id,
           title: data.title,
@@ -528,12 +537,21 @@ export function useGraphPageController({
         });
         return;
       }
+      if (viewMode === "overview" && data.kind === "container" && data.containerType === "community") {
+        setDrilldownContainer({
+          id: node.id,
+          title: data.title,
+          pathLabel: data.pathLabel,
+          containerType: data.containerType,
+          rawNodeIds: data.rawNodeIds
+        });
+      }
 
       setSelectedVisualId(node.id);
       setSelectedNodeId(primaryNodeId);
 
-      if (data.fileId && viewMode !== "file") {
-        setSelectedFileId(data.fileId);
+      if (viewMode !== "file") {
+        setSelectedFileId(data.fileId ?? null);
       }
     },
     [openContainerDrilldown, viewMode]
@@ -550,7 +568,6 @@ export function useGraphPageController({
         openFileDetail(data.fileId);
         return;
       }
-
       const primaryNodeId = data.kind === "container" ? data.primaryNodeId ?? null : data.codeNode.id;
       if (viewMode === "focus" && primaryNodeId) {
         setFocusNodeId(primaryNodeId);
@@ -558,7 +575,7 @@ export function useGraphPageController({
         setSelectedVisualId(primaryNodeId);
       }
     },
-    [openFileDetail, viewMode]
+    [openContainerDrilldown, openFileDetail, viewMode]
   );
 
   const selectMode = useCallback(
@@ -584,18 +601,8 @@ export function useGraphPageController({
     [drilldownContainer, selectedFileId, selectedNodeId]
   );
 
-  const isLoading = repoLoading || graphLoading || layoutLoading;
-  const layoutKey =
-    viewMode === "file"
-      ? selectedFileId ?? "none"
-      : viewMode === "focus"
-        ? focusNodeId ?? "none"
-        : viewMode === "drilldown"
-          ? drilldownContainer?.id ?? "none"
-          : "stable";
-  const flowKey = `${selectedRepoId}:${viewMode}:${layoutKey}:${filterKey(selectedNodeTypes)}:${filterKey(
-    selectedEdgeTypes
-  )}:${showInferredCalls}:${densityMode}`;
+  const hasRenderedGraph = baseVisualGraph.nodes.length > 0;
+  const isLoading = repoLoading || graphLoading || (layoutLoading && !hasRenderedGraph);
 
   return {
     repos,
@@ -625,7 +632,7 @@ export function useGraphPageController({
     selectedNode,
     selectedNodeEdges,
     containment,
-    flowKey,
+    flowKey: activeFlowKey,
     isLoading,
     graphLoaded: Boolean(graph),
     actions: {
