@@ -2,6 +2,7 @@ export const OPEN_FILE_DETAIL_EVENT = "codewiki:open-file-detail";
 export const HIDE_VISUAL_NODE_EVENT = "codewiki:hide-visual-node";
 export const HIGHLIGHT_RELATED_NODES_EVENT = "codewiki:highlight-related-nodes";
 export const OPEN_SOURCE_REF_EVENT = "codewiki:open-source-ref";
+export const OPEN_CONTAINER_DRILLDOWN_EVENT = "codewiki:open-container-drilldown";
 
 export type OpenFileDetailDetail = {
   fileId: string;
@@ -9,6 +10,14 @@ export type OpenFileDetailDetail = {
 
 export type HideVisualNodeDetail = {
   nodeId: string;
+};
+
+export type OpenContainerDrilldownDetail = {
+  id: string;
+  title: string;
+  pathLabel: string;
+  containerType: "community" | "directory";
+  rawNodeIds: string[];
 };
 
 export type HighlightRelatedNodesDetail = {
@@ -31,6 +40,10 @@ export function dispatchHideVisualNode(nodeId: string) {
   dispatchNavigationEvent(HIDE_VISUAL_NODE_EVENT, { nodeId });
 }
 
+export function dispatchOpenContainerDrilldown(detail: OpenContainerDrilldownDetail) {
+  dispatchNavigationEvent(OPEN_CONTAINER_DRILLDOWN_EVENT, detail);
+}
+
 export function dispatchHighlightRelatedNodes(detail: HighlightRelatedNodesDetail) {
   dispatchNavigationEvent(HIGHLIGHT_RELATED_NODES_EVENT, detail);
 }
@@ -48,6 +61,12 @@ export function onOpenFileDetail(handler: (detail: Partial<OpenFileDetailDetail>
 
 export function onHideVisualNode(handler: (detail: Partial<HideVisualNodeDetail> | undefined) => void) {
   return listenNavigationEvent<Partial<HideVisualNodeDetail>>(HIDE_VISUAL_NODE_EVENT, handler);
+}
+
+export function onOpenContainerDrilldown(
+  handler: (detail: Partial<OpenContainerDrilldownDetail> | undefined) => void
+) {
+  return listenNavigationEvent<Partial<OpenContainerDrilldownDetail>>(OPEN_CONTAINER_DRILLDOWN_EVENT, handler);
 }
 
 export function onHighlightRelatedNodes(

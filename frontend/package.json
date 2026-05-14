@@ -9,7 +9,6 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@dagrejs/dagre": "^1.1.5",
     "@vitejs/plugin-react": "^4.3.4",
     "@xyflow/react": "^12.3.6",
     "elkjs": "^0.9.3",

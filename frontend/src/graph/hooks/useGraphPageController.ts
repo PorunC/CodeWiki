@@ -6,17 +6,22 @@ import { useRepos } from "../../hooks/useRepos";
 import type { HiddenVisualNodeOption } from "../GraphFiltersPanel";
 import {
   collectTypes,
+  defaultReadableEdgeTypes,
   deriveContainment,
+  drilldownRootVisualId,
   filterKey,
   filterRawGraph,
   summarizeVisualGraph,
   toggleSetValue,
+  type DrilldownContainerSelection,
   type FlowNode,
+  type GraphDensityMode,
   type GraphViewMode
 } from "../graphModel";
 import {
   onHideVisualNode,
   onHighlightRelatedNodes,
+  onOpenContainerDrilldown,
   onOpenFileDetail,
   onOpenSourceRef,
   type SourceRefNavigationDetail
@@ -39,13 +44,15 @@ export function useGraphPageController({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<GraphViewMode>("overview");
+  const [densityMode, setDensityMode] = useState<GraphDensityMode>("readable");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedVisualId, setSelectedVisualId] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [drilldownContainer, setDrilldownContainer] = useState<DrilldownContainerSelection | null>(null);
   const [selectedNodeTypes, setSelectedNodeTypes] = useState<Set<string>>(new Set());
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(new Set());
-  const [showInferredCalls, setShowInferredCalls] = useState(true);
+  const [showInferredCalls, setShowInferredCalls] = useState(false);
   const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
   const [highlightedRawNodeIds, setHighlightedRawNodeIds] = useState<Set<string>>(new Set());
   const [highlightLabel, setHighlightLabel] = useState("Ask-related");
@@ -113,6 +120,7 @@ export function useGraphPageController({
     setSelectedVisualId(null);
     setSelectedFileId(null);
     setFocusNodeId(null);
+    setDrilldownContainer(null);
     setHiddenVisualIds(new Set());
     setHighlightedRawNodeIds(new Set());
   }, []);
@@ -123,11 +131,14 @@ export function useGraphPageController({
       const firstFile = repoGraph.nodes.find((node) => node.type === "file") ?? repoGraph.nodes[0] ?? null;
 
       setSelectedNodeTypes(new Set(repoGraph.nodes.map((node) => node.type)));
-      setSelectedEdgeTypes(new Set(repoGraph.edges.map((edge) => edge.type)));
+      setSelectedEdgeTypes(defaultReadableEdgeTypes(collectTypes(repoGraph.edges)));
+      setShowInferredCalls(false);
+      setDensityMode("readable");
       setSelectedNodeId(firstFile?.id ?? null);
       setSelectedVisualId(null);
       setSelectedFileId(firstFile?.type === "file" ? firstFile.id : null);
       setFocusNodeId(firstFile?.id ?? null);
+      setDrilldownContainer(null);
       setHiddenVisualIds(new Set());
       setViewMode("overview");
       if (pendingRelatedNodeIdsRef.current.length > 0) {
@@ -184,13 +195,15 @@ export function useGraphPageController({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const { baseVisualGraph, visualGraph, selectedVisualData } = useVisualGraph({
+  const { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading } = useVisualGraph({
     graph,
     filteredGraph,
     containment,
     viewMode,
+    densityMode,
     selectedFileId,
     selectedNodeId: viewMode === "focus" ? focusNodeId : selectedNodeId,
+    drilldownContainer,
     selectedVisualId,
     hiddenVisualIds,
     highlightedRawNodeIds
@@ -318,9 +331,18 @@ export function useGraphPageController({
 
   const resetFilters = useCallback(() => {
     setSelectedNodeTypes(new Set(nodeTypes));
-    setSelectedEdgeTypes(new Set(edgeTypes));
-    setShowInferredCalls(true);
-  }, [edgeTypes, nodeTypes]);
+    setSelectedEdgeTypes(densityMode === "readable" ? defaultReadableEdgeTypes(edgeTypes) : new Set(edgeTypes));
+    setShowInferredCalls(densityMode === "full");
+  }, [densityMode, edgeTypes, nodeTypes]);
+
+  const toggleDensityMode = useCallback(() => {
+    setDensityMode((current) => {
+      const next: GraphDensityMode = current === "readable" ? "full" : "readable";
+      setSelectedEdgeTypes(next === "readable" ? defaultReadableEdgeTypes(edgeTypes) : new Set(edgeTypes));
+      setShowInferredCalls(next === "full");
+      return next;
+    });
+  }, [edgeTypes]);
 
   const showHiddenNode = useCallback((nodeId: string) => {
     setHiddenVisualIds((current) => {
@@ -345,6 +367,20 @@ export function useGraphPageController({
     setFocusNodeId(fileId);
     setViewMode("file");
   }, []);
+
+  const openContainerDrilldown = useCallback(
+    (container: DrilldownContainerSelection) => {
+      const firstFileId =
+        container.rawNodeIds.find((rawNodeId) => containment.nodeById.get(rawNodeId)?.type === "file") ?? null;
+      setDrilldownContainer(container);
+      setSelectedVisualId(drilldownRootVisualId(container.id));
+      setSelectedNodeId(firstFileId);
+      setSelectedFileId(firstFileId);
+      setFocusNodeId(firstFileId);
+      setViewMode("drilldown");
+    },
+    [containment.nodeById]
+  );
 
   const runFullAnalysis = useCallback(async () => {
     if (!selectedRepoId || analysisTask) {
@@ -402,6 +438,27 @@ export function useGraphPageController({
   }, [openFileDetail]);
 
   useEffect(() => {
+    return onOpenContainerDrilldown((detail) => {
+      if (
+        !detail?.id ||
+        !detail.title ||
+        !detail.pathLabel ||
+        !Array.isArray(detail.rawNodeIds) ||
+        (detail.containerType !== "community" && detail.containerType !== "directory")
+      ) {
+        return;
+      }
+      openContainerDrilldown({
+        id: detail.id,
+        title: detail.title,
+        pathLabel: detail.pathLabel,
+        containerType: detail.containerType,
+        rawNodeIds: detail.rawNodeIds
+      });
+    });
+  }, [openContainerDrilldown]);
+
+  useEffect(() => {
     return onHideVisualNode((detail) => {
       const nodeId = detail?.nodeId;
       if (!nodeId) {
@@ -457,6 +514,21 @@ export function useGraphPageController({
     (_: MouseEvent, node: FlowNode) => {
       const data = node.data;
       const primaryNodeId = data.kind === "container" ? data.primaryNodeId ?? null : data.codeNode.id;
+      if (
+        viewMode === "overview" &&
+        data.kind === "container" &&
+        (data.containerType === "community" || data.containerType === "directory")
+      ) {
+        openContainerDrilldown({
+          id: node.id,
+          title: data.title,
+          pathLabel: data.pathLabel,
+          containerType: data.containerType,
+          rawNodeIds: data.rawNodeIds
+        });
+        return;
+      }
+
       setSelectedVisualId(node.id);
       setSelectedNodeId(primaryNodeId);
 
@@ -464,13 +536,17 @@ export function useGraphPageController({
         setSelectedFileId(data.fileId);
       }
     },
-    [viewMode]
+    [openContainerDrilldown, viewMode]
   );
 
   const handleNodeDoubleClick = useCallback(
     (_: MouseEvent, node: FlowNode) => {
       const data = node.data;
       if (data.kind === "code" && data.nodeType === "file" && data.fileId) {
+        openFileDetail(data.fileId);
+        return;
+      }
+      if (data.kind === "container" && data.containerType === "file" && data.fileId) {
         openFileDetail(data.fileId);
         return;
       }
@@ -488,6 +564,10 @@ export function useGraphPageController({
   const selectMode = useCallback(
     (mode: GraphViewMode) => {
       setViewMode(mode);
+      if (mode === "drilldown" && drilldownContainer) {
+        setSelectedVisualId(drilldownRootVisualId(drilldownContainer.id));
+        setSelectedNodeId(null);
+      }
       if (mode === "file" && selectedFileId) {
         setSelectedVisualId(`file-detail:${selectedFileId}`);
         setSelectedNodeId(selectedFileId);
@@ -501,15 +581,21 @@ export function useGraphPageController({
         setSelectedVisualId(selectedNodeId);
       }
     },
-    [selectedFileId, selectedNodeId]
+    [drilldownContainer, selectedFileId, selectedNodeId]
   );
 
-  const isLoading = repoLoading || graphLoading;
+  const isLoading = repoLoading || graphLoading || layoutLoading;
   const layoutKey =
-    viewMode === "file" ? selectedFileId ?? "none" : viewMode === "focus" ? focusNodeId ?? "none" : "stable";
+    viewMode === "file"
+      ? selectedFileId ?? "none"
+      : viewMode === "focus"
+        ? focusNodeId ?? "none"
+        : viewMode === "drilldown"
+          ? drilldownContainer?.id ?? "none"
+          : "stable";
   const flowKey = `${selectedRepoId}:${viewMode}:${layoutKey}:${filterKey(selectedNodeTypes)}:${filterKey(
     selectedEdgeTypes
-  )}:${showInferredCalls}`;
+  )}:${showInferredCalls}:${densityMode}`;
 
   return {
     repos,
@@ -520,6 +606,8 @@ export function useGraphPageController({
     analysisTask,
     analysisMessage,
     viewMode,
+    densityMode,
+    drilldownAvailable: Boolean(drilldownContainer),
     selectedFileId,
     selectedNodeId,
     nodeTypes,
@@ -544,6 +632,7 @@ export function useGraphPageController({
       selectMode,
       toggleNodeType,
       toggleEdgeType,
+      toggleDensityMode,
       setShowInferredCalls,
       resetFilters,
       showHiddenNode,

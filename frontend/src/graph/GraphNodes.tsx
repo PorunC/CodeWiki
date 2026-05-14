@@ -8,7 +8,7 @@ import {
   type CodeVisualData,
   type ContainerVisualData
 } from "./graphModel";
-import { dispatchHideVisualNode, dispatchOpenFileDetail } from "./navigationEvents";
+import { dispatchHideVisualNode, dispatchOpenContainerDrilldown, dispatchOpenFileDetail } from "./navigationEvents";
 
 export const flowNodeTypes: NodeTypes = {
   code: memo(CodeFlowNode),
@@ -98,8 +98,10 @@ function formatSymbolCount(value?: string): string {
 function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<ContainerVisualData, "container">>) {
   const className = [
     "code-container-node",
+    data.containerType === "community" ? "is-community" : "",
     data.containerType === "directory" ? "is-directory" : "",
     data.containerType === "file" ? "is-file-container" : "",
+    data.containerType === "community" || data.containerType === "directory" ? "is-drillable" : "",
     data.isCompact ? "is-compact" : "",
     data.containerType === "dependency" ? "is-dependency" : "",
     data.isSelected ? "is-selected" : "",
@@ -116,8 +118,22 @@ function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<Container
     dispatchHideVisualNode(id);
   };
 
+  const handleContainerClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (data.containerType !== "community" && data.containerType !== "directory") {
+      return;
+    }
+    event.stopPropagation();
+    dispatchOpenContainerDrilldown({
+      id,
+      title: data.title,
+      pathLabel: data.pathLabel,
+      containerType: data.containerType,
+      rawNodeIds: data.rawNodeIds
+    });
+  };
+
   return (
-    <div className={className} style={{ borderColor: data.accentColor, width, height }}>
+    <div className={className} style={{ borderColor: data.accentColor, width, height }} onClick={handleContainerClick}>
       <Handle id={TARGET_HANDLE_ID} type="target" position={Position.Left} className="code-node-handle" />
       <Handle id={SOURCE_HANDLE_ID} type="source" position={Position.Right} className="code-node-handle" />
       <div className="code-container-header">

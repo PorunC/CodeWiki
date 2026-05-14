@@ -307,6 +307,19 @@
     rgba(22, 18, 27, 0.96);
 }
 
+.code-container-node.is-community {
+  background:
+    linear-gradient(180deg, rgba(124, 188, 155, 0.075), rgba(255, 255, 255, 0.014)),
+    rgba(17, 24, 22, 0.92);
+}
+
+.code-container-node.is-drillable:hover {
+  border-color: rgba(124, 188, 155, 0.66) !important;
+  box-shadow:
+    0 0 0 1px rgba(124, 188, 155, 0.18),
+    0 14px 34px rgba(0, 0, 0, 0.34);
+}
+
 .code-container-node.is-dependency {
   border-color: rgba(199, 139, 232, 0.46);
 }
@@ -434,4 +447,3 @@
   bottom: auto;
   top: 76px;
 }
-

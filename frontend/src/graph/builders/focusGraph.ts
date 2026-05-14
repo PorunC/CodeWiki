@@ -2,7 +2,7 @@ import type { GraphResponse } from "../../api/types";
 import { FILE_NODE_WIDTH, FOCUS_NODE_HEIGHT } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
 import { formatLineRange, nodeSummary } from "../formatters";
-import { layoutBoxes, nodeSize } from "../layout";
+import { layoutBoxesCached, nodeSize } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { computeStatsByRawNode } from "../stats";
 import { compareBySourceOrder } from "../topology";
@@ -10,13 +10,13 @@ import type { ContainmentIndex, FilteredGraph, VisualGraph } from "../types";
 import { applyVisualState } from "../visualState";
 import { buildOverviewGraph } from "./overviewGraph";
 
-export function buildFocusGraph(
+export async function buildFocusGraph(
   graph: GraphResponse,
   filtered: FilteredGraph,
   containment: ContainmentIndex,
   selectedNodeId: string | null,
   selectedVisualId: string | null
-): VisualGraph {
+): Promise<VisualGraph> {
   const focusNode = selectedNodeId ? containment.nodeById.get(selectedNodeId) : null;
   if (!focusNode || !filtered.nodeIds.has(focusNode.id)) {
     return buildOverviewGraph(graph, filtered, containment, selectedVisualId);
@@ -49,7 +49,8 @@ export function buildFocusGraph(
     .sort(compareBySourceOrder);
   const rawNodeIds = new Set(rawNodes.map((node) => node.id));
   const rawEdges = filtered.edges.filter((edge) => rawNodeIds.has(edge.source) && rawNodeIds.has(edge.target));
-  const positions = layoutBoxes(
+  const positions = await layoutBoxesCached(
+    `focus:${focusNode.id}`,
     rawNodes.map((node) => ({
       id: node.id,
       width: FILE_NODE_WIDTH,

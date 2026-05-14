@@ -1,6 +1,8 @@
 import type { GraphResponse } from "../api/types";
 import type { FilteredGraph } from "./types";
 
+const READABLE_EDGE_TYPES = new Set(["calls", "routes_to", "imports", "exports", "inherits"]);
+
 export function filterRawGraph(
   graph: GraphResponse | null,
   selectedNodeTypes: Set<string>,
@@ -28,6 +30,11 @@ export function filterRawGraph(
 
 export function collectTypes(items: Array<{ type: string }>): string[] {
   return [...new Set(items.map((item) => item.type))].sort((left, right) => left.localeCompare(right));
+}
+
+export function defaultReadableEdgeTypes(edgeTypes: string[]): Set<string> {
+  const selected = edgeTypes.filter((type) => READABLE_EDGE_TYPES.has(type));
+  return new Set(selected.length > 0 ? selected : edgeTypes);
 }
 
 export function toggleSetValue(values: Set<string>, value: string): Set<string> {

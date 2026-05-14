@@ -159,7 +159,9 @@ export function compactQualifiedName(value: string): string {
 export function modeHint(mode: GraphViewMode): string {
   switch (mode) {
     case "overview":
-      return "Files are grouped by readable folders; calls and imports are aggregated.";
+      return "Communities are grouped into a readable subsystem map; noisy edge types are hidden by default.";
+    case "drilldown":
+      return "The selected container is expanded into file containers and local symbols.";
     case "file":
       return "This view expands one file in source order and keeps cross-file links as portals.";
     case "focus":

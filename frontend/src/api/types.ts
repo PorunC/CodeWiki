@@ -107,10 +107,19 @@ export type CodeEdge = {
   metadata: Record<string, unknown>;
 };
 
+export type GraphCommunity = {
+  id: string;
+  name: string;
+  level: number;
+  node_ids: string[];
+  summary: string;
+};
+
 export type GraphResponse = {
   repo_id: string;
   nodes: CodeNode[];
   edges: CodeEdge[];
+  communities?: GraphCommunity[];
 };
 
 export type SourceRef = {

@@ -1,3 +1,4 @@
+export * from "./builders/containerDrilldownGraph";
 export * from "./builders/fileDetailGraph";
 export * from "./builders/focusGraph";
 export * from "./builders/overviewGraph";

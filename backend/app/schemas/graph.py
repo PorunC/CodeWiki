@@ -27,7 +27,16 @@ class CodeEdge(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class GraphCommunity(BaseModel):
+    id: str
+    name: str
+    level: int
+    node_ids: list[str]
+    summary: str = ""
+
+
 class GraphResponse(BaseModel):
     repo_id: str
     nodes: list[CodeNode]
     edges: list[CodeEdge]
+    communities: list[GraphCommunity] = Field(default_factory=list)

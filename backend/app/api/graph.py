@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from backend.app.config import get_settings
 from backend.app.database import get_store
-from backend.app.schemas.graph import CodeEdge, CodeNode, GraphResponse
+from backend.app.schemas.graph import CodeEdge, CodeNode, GraphCommunity, GraphResponse
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graph_rag import GraphRAGRetriever
@@ -34,6 +34,7 @@ async def get_graph(repo_id: str) -> GraphResponse:
     if store.get_repo(repo_id) is None:
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     nodes, edges = store.get_graph(repo_id)
+    communities = store.list_graph_communities(repo_id)
     return GraphResponse(
         repo_id=repo_id,
         nodes=[
@@ -69,6 +70,16 @@ async def get_graph(repo_id: str) -> GraphResponse:
                 metadata=edge.metadata,
             )
             for edge in edges
+        ],
+        communities=[
+            GraphCommunity(
+                id=community.id,
+                name=community.name,
+                level=community.level,
+                node_ids=community.node_ids,
+                summary=community.summary or "",
+            )
+            for community in communities
         ],
     )
 

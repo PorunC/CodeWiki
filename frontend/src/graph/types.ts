@@ -2,7 +2,8 @@ import type { Edge, Node } from "@xyflow/react";
 
 import type { CodeEdge, CodeNode } from "../api/types";
 
-export type GraphViewMode = "overview" | "file" | "focus";
+export type GraphViewMode = "overview" | "drilldown" | "file" | "focus";
+export type GraphDensityMode = "readable" | "full";
 
 export type VisualNodeData = CodeVisualData | ContainerVisualData;
 
@@ -12,6 +13,14 @@ export type FlowEdge = Edge<VisualEdgeData>;
 export type VisualGraph = {
   nodes: FlowNode[];
   edges: FlowEdge[];
+};
+
+export type DrilldownContainerSelection = {
+  id: string;
+  title: string;
+  pathLabel: string;
+  containerType: "community" | "directory";
+  rawNodeIds: string[];
 };
 
 export type VisualEdgeData = {
@@ -47,7 +56,7 @@ export type ContainerVisualData = {
   kind: "container";
   title: string;
   subtitle: string;
-  containerType: "repository" | "directory" | "file" | "dependency" | "focus";
+  containerType: "repository" | "community" | "directory" | "file" | "dependency" | "focus";
   pathLabel: string;
   countLabel: string;
   statsLabel: string;

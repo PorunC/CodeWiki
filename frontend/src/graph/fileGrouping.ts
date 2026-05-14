@@ -6,6 +6,7 @@ import {
   GROUP_HEADER_HEIGHT,
   GROUP_PADDING_X
 } from "./constants";
+import { layoutBoxesCached } from "./layout";
 import type { ContainmentIndex, FileGroup } from "./types";
 
 export function collectOverviewFileIds(
@@ -36,7 +37,10 @@ export function collectOverviewFileIds(
   return fileIds;
 }
 
-export function deriveFileGroups(files: CodeNode[]): FileGroup[] {
+export async function deriveFileGroups(
+  files: CodeNode[],
+  fileEdges: Array<{ source: string; target: string }> = []
+): Promise<FileGroup[]> {
   if (files.length === 0) {
     return [];
   }
@@ -49,34 +53,40 @@ export function deriveFileGroups(files: CodeNode[]): FileGroup[] {
     groups = groupFilesByDepth(files, 3);
   }
 
-  return [...groups.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([groupPath, groupFiles], index) => {
-      const cols = clamp(Math.ceil(Math.sqrt(groupFiles.length)), 1, 4);
-      const rows = Math.ceil(groupFiles.length / cols);
-      const width = GROUP_PADDING_X * 2 + cols * FILE_NODE_WIDTH + (cols - 1) * GROUP_CHILD_GAP;
-      const height = GROUP_HEADER_HEIGHT + 28 + rows * FILE_NODE_HEIGHT + (rows - 1) * GROUP_CHILD_GAP;
-      const childPositions = new Map<string, { x: number; y: number }>();
-
-      groupFiles.sort(compareByPath).forEach((file, fileIndex) => {
-        const col = fileIndex % cols;
-        const row = Math.floor(fileIndex / cols);
-        childPositions.set(file.id, {
-          x: GROUP_PADDING_X + col * (FILE_NODE_WIDTH + GROUP_CHILD_GAP),
-          y: GROUP_HEADER_HEIGHT + 24 + row * (FILE_NODE_HEIGHT + GROUP_CHILD_GAP)
-        });
+  const sortedGroups = [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+  return Promise.all(
+    sortedGroups.map(async ([groupPath, groupFiles], index) => {
+      const sortedFiles = [...groupFiles].sort(compareByPath);
+      const fileIds = new Set(sortedFiles.map((file) => file.id));
+      const childEdges = fileEdges.filter((edge) => fileIds.has(edge.source) && fileIds.has(edge.target));
+      const childBoxes = sortedFiles.map((file) => ({
+        id: file.id,
+        width: FILE_NODE_WIDTH,
+        height: FILE_NODE_HEIGHT
+      }));
+      const rawPositions = await layoutBoxesCached(`directory-group:${groupPath}`, childBoxes, childEdges, "TB", {
+        edgesep: 18,
+        marginx: 0,
+        marginy: 0,
+        nodesep: GROUP_CHILD_GAP,
+        ranksep: GROUP_CHILD_GAP + 26
       });
+      const childPositions = normalizeChildPositions(rawPositions, childBoxes);
+      const bounds = measureBounds(childPositions, childBoxes);
+      const width = Math.max(FILE_NODE_WIDTH + GROUP_PADDING_X * 2, bounds.width + GROUP_PADDING_X * 2);
+      const height = Math.max(FILE_NODE_HEIGHT + GROUP_HEADER_HEIGHT + 28, bounds.height + GROUP_HEADER_HEIGHT + 28);
 
       return {
         id: `group:${index}:${groupPath}`,
         name: groupPath === "~" ? "(root)" : groupPath,
         pathLabel: groupPath === "~" ? "repository root" : groupPath,
-        files: groupFiles,
+        files: sortedFiles,
         width,
         height,
         childPositions
       };
-    });
+    })
+  );
 }
 
 function groupFilesByDepth(files: CodeNode[], depth: number): Map<string, CodeNode[]> {
@@ -161,6 +171,50 @@ function stripPrefix(value: string, prefix: string): string {
   return prefix && normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+function normalizeChildPositions(
+  positions: Map<string, { x: number; y: number }>,
+  boxes: Array<{ id: string; width: number; height: number }>
+): Map<string, { x: number; y: number }> {
+  const bounds = measureBounds(positions, boxes);
+  return new Map(
+    boxes.map((box) => {
+      const position = positions.get(box.id) ?? { x: 0, y: 0 };
+      return [
+        box.id,
+        {
+          x: GROUP_PADDING_X + position.x - bounds.minX,
+          y: GROUP_HEADER_HEIGHT + 24 + position.y - bounds.minY
+        }
+      ];
+    })
+  );
+}
+
+function measureBounds(
+  positions: Map<string, { x: number; y: number }>,
+  boxes: Array<{ id: string; width: number; height: number }>
+): { minX: number; minY: number; width: number; height: number } {
+  if (boxes.length === 0) {
+    return { minX: 0, minY: 0, width: 0, height: 0 };
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  boxes.forEach((box) => {
+    const position = positions.get(box.id) ?? { x: 0, y: 0 };
+    minX = Math.min(minX, position.x);
+    minY = Math.min(minY, position.y);
+    maxX = Math.max(maxX, position.x + box.width);
+    maxY = Math.max(maxY, position.y + box.height);
+  });
+
+  return {
+    minX,
+    minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
 }

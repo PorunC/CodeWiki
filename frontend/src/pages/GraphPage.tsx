@@ -28,6 +28,8 @@ export function GraphPage({
     analysisTask,
     analysisMessage,
     viewMode,
+    densityMode,
+    drilldownAvailable,
     selectedFileId,
     selectedNodeId,
     nodeTypes,
@@ -59,12 +61,15 @@ export function GraphPage({
         selectedRepoId={selectedRepoId}
         repoLoading={repoLoading}
         viewMode={viewMode}
+        densityMode={densityMode}
+        drilldownAvailable={drilldownAvailable}
         selectedFileId={selectedFileId}
         selectedNodeId={selectedNodeId}
         graphStats={graphStats}
         analysisTask={analysisTask}
         onRepoChange={onSelectedRepoChange}
         onModeSelect={actions.selectMode}
+        onDensityModeToggle={actions.toggleDensityMode}
         onFullAnalyze={actions.runFullAnalysis}
         onIncrementalUpdate={actions.runIncrementalUpdate}
       />

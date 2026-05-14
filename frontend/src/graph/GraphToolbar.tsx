@@ -1,8 +1,8 @@
-import { FileCode2, Focus, Network, Play, RefreshCw } from "lucide-react";
+import { FileCode2, Focus, FolderOpen, Network, Play, RefreshCw, SlidersHorizontal } from "lucide-react";
 
 import type { RepoSummary } from "../api/types";
 import { ModeButton } from "./GraphControls";
-import type { GraphViewMode } from "./graphModel";
+import type { GraphDensityMode, GraphViewMode } from "./graphModel";
 
 export function GraphToolbar({
   repos,
@@ -10,12 +10,15 @@ export function GraphToolbar({
   selectedRepoId,
   repoLoading,
   viewMode,
+  densityMode,
+  drilldownAvailable,
   selectedFileId,
   selectedNodeId,
   graphStats,
   analysisTask,
   onRepoChange,
   onModeSelect,
+  onDensityModeToggle,
   onFullAnalyze,
   onIncrementalUpdate
 }: {
@@ -24,12 +27,15 @@ export function GraphToolbar({
   selectedRepoId: string;
   repoLoading: boolean;
   viewMode: GraphViewMode;
+  densityMode: GraphDensityMode;
+  drilldownAvailable: boolean;
   selectedFileId: string | null;
   selectedNodeId: string | null;
   graphStats: string;
   analysisTask: "analyze" | "update" | null;
   onRepoChange: (repoId: string) => void;
   onModeSelect: (mode: GraphViewMode) => void;
+  onDensityModeToggle: () => void;
   onFullAnalyze: () => void;
   onIncrementalUpdate: () => void;
 }) {
@@ -81,6 +87,14 @@ export function GraphToolbar({
             onClick={() => onModeSelect("overview")}
           />
           <ModeButton
+            active={viewMode === "drilldown"}
+            label="Drill"
+            title="Container drill-down"
+            icon={<FolderOpen size={14} />}
+            onClick={() => onModeSelect("drilldown")}
+            disabled={!drilldownAvailable}
+          />
+          <ModeButton
             active={viewMode === "file"}
             label="File"
             title="File detail"
@@ -95,6 +109,13 @@ export function GraphToolbar({
             icon={<Focus size={14} />}
             onClick={() => onModeSelect("focus")}
             disabled={!selectedNodeId}
+          />
+          <ModeButton
+            active={densityMode === "full"}
+            label={densityMode === "full" ? "Full" : "Readable"}
+            title="Toggle graph density"
+            icon={<SlidersHorizontal size={14} />}
+            onClick={onDensityModeToggle}
           />
         </div>
         <div className="graph-counts" aria-live="polite">
