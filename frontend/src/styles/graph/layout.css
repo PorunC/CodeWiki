@@ -187,8 +187,49 @@ select:disabled {
 .graph-workspace {
   display: grid;
   flex: 1;
-  grid-template-columns: 280px minmax(0, 1fr) 310px;
+  grid-template-columns: var(--graph-sidebar-width, 280px) 8px minmax(0, 1fr) 310px;
   min-height: 0;
+}
+
+.graph-workspace.is-resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.graph-workspace.is-resizing-sidebar .flow-frame {
+  pointer-events: none;
+}
+
+.graph-sidebar-resizer {
+  background: rgba(212, 165, 116, 0.04);
+  border-right: 1px solid var(--color-border-subtle);
+  cursor: col-resize;
+  min-height: 0;
+  position: relative;
+  touch-action: none;
+}
+
+.graph-sidebar-resizer::before {
+  background: rgba(212, 165, 116, 0.22);
+  border-radius: 999px;
+  content: "";
+  inset: 48px 3px;
+  opacity: 0;
+  position: absolute;
+  transition:
+    background 160ms ease,
+    opacity 160ms ease;
+}
+
+.graph-sidebar-resizer:hover::before,
+.graph-sidebar-resizer:focus-visible::before,
+.graph-workspace.is-resizing-sidebar .graph-sidebar-resizer::before {
+  opacity: 1;
+}
+
+.graph-sidebar-resizer:focus-visible {
+  outline: 2px solid rgba(212, 165, 116, 0.42);
+  outline-offset: -2px;
 }
 
 .graph-filters,

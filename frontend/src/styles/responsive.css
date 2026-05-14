@@ -65,6 +65,10 @@
     grid-template-columns: 1fr;
   }
 
+  .graph-sidebar-resizer {
+    display: none;
+  }
+
   .toolbar-actions {
     align-items: flex-start;
     flex-wrap: wrap;

@@ -6,6 +6,7 @@ import { useRepos } from "../../hooks/useRepos";
 import type { HiddenVisualNodeOption } from "../GraphFiltersPanel";
 import {
   collectTypes,
+  defaultFullEdgeTypes,
   defaultReadableEdgeTypes,
   deriveContainment,
   drilldownRootVisualId,
@@ -34,6 +35,14 @@ import {
 } from "../navigation/sourceRefMatching";
 import { useVisualGraph } from "../useVisualGraph";
 import { useRepoGraph } from "./useRepoGraph";
+
+const DEFAULT_HIDDEN_NODE_TYPES = new Set(["module"]);
+
+function defaultSelectedNodeTypes(types: Iterable<string>): Set<string> {
+  const allTypes = [...types];
+  const selectedTypes = allTypes.filter((type) => !DEFAULT_HIDDEN_NODE_TYPES.has(type));
+  return new Set(selectedTypes.length > 0 ? selectedTypes : allTypes);
+}
 
 export function useGraphPageController({
   selectedRepoId,
@@ -130,7 +139,7 @@ export function useGraphPageController({
       setError(null);
       const firstFile = repoGraph.nodes.find((node) => node.type === "file") ?? repoGraph.nodes[0] ?? null;
 
-      setSelectedNodeTypes(new Set(repoGraph.nodes.map((node) => node.type)));
+      setSelectedNodeTypes(defaultSelectedNodeTypes(repoGraph.nodes.map((node) => node.type)));
       setSelectedEdgeTypes(defaultReadableEdgeTypes(collectTypes(repoGraph.edges)));
       setShowInferredCalls(false);
       setDensityMode("readable");
@@ -343,15 +352,15 @@ export function useGraphPageController({
   }, []);
 
   const resetFilters = useCallback(() => {
-    setSelectedNodeTypes(new Set(nodeTypes));
-    setSelectedEdgeTypes(densityMode === "readable" ? defaultReadableEdgeTypes(edgeTypes) : new Set(edgeTypes));
+    setSelectedNodeTypes(defaultSelectedNodeTypes(nodeTypes));
+    setSelectedEdgeTypes(densityMode === "readable" ? defaultReadableEdgeTypes(edgeTypes) : defaultFullEdgeTypes(edgeTypes));
     setShowInferredCalls(densityMode === "full");
   }, [densityMode, edgeTypes, nodeTypes]);
 
   const toggleDensityMode = useCallback(() => {
     setDensityMode((current) => {
       const next: GraphDensityMode = current === "readable" ? "full" : "readable";
-      setSelectedEdgeTypes(next === "readable" ? defaultReadableEdgeTypes(edgeTypes) : new Set(edgeTypes));
+      setSelectedEdgeTypes(next === "readable" ? defaultReadableEdgeTypes(edgeTypes) : defaultFullEdgeTypes(edgeTypes));
       setShowInferredCalls(next === "full");
       return next;
     });
