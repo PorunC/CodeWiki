@@ -34,6 +34,14 @@ class BaseSQLiteStore:
                     "commit_hash": "TEXT",
                 },
             )
+            self._ensure_columns(
+                connection,
+                "llm_run",
+                {
+                    "response_content": "TEXT NOT NULL DEFAULT ''",
+                    "response_usage_json": "TEXT NOT NULL DEFAULT '{}'",
+                },
+            )
 
     def _load_sqlite_vec(self, connection: sqlite3.Connection) -> None:
         try:

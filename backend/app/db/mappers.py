@@ -136,6 +136,8 @@ def llm_run_from_row(row: sqlite3.Row) -> LLMRunRecord:
         tokens_out=row["tokens_out"],
         cost_usd=row["cost_usd"],
         duration_ms=row["duration_ms"],
+        response_content=row["response_content"],
+        response_usage=json.loads(row["response_usage_json"] or "{}"),
         cached=bool(row["cached"]),
         status=row["status"],
         error=row["error"],

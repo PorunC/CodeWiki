@@ -37,8 +37,13 @@ def test_schema_contains_graphrag_wiki_and_llm_tables(tmp_path: Path) -> None:
             row["name"]
             for row in connection.execute("PRAGMA table_info(code_chunk_embedding)").fetchall()
         }
+        llm_run_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(llm_run)").fetchall()
+        }
     assert "embedding_json" not in embedding_columns
     assert {"vec_table", "vec_rowid"} <= embedding_columns
+    assert {"response_content", "response_usage_json"} <= llm_run_columns
 
 
 def test_schema_migrates_existing_repo_git_metadata_columns(tmp_path: Path) -> None:
@@ -66,6 +71,44 @@ def test_schema_migrates_existing_repo_git_metadata_columns(tmp_path: Path) -> N
         }
 
     assert {"git_url", "commit_hash"} <= columns
+
+
+def test_schema_migrates_existing_llm_run_cache_columns(tmp_path: Path) -> None:
+    database_path = tmp_path / "codewiki.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE llm_run (
+              id TEXT PRIMARY KEY,
+              repo_id TEXT NOT NULL,
+              task_type TEXT NOT NULL,
+              provider TEXT,
+              model TEXT NOT NULL,
+              model_alias TEXT,
+              prompt_version TEXT,
+              input_hash TEXT NOT NULL,
+              cache_key TEXT NOT NULL,
+              tokens_in INTEGER NOT NULL DEFAULT 0,
+              tokens_out INTEGER NOT NULL DEFAULT 0,
+              cost_usd REAL,
+              duration_ms INTEGER,
+              cached INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'success',
+              error TEXT,
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+    store = SQLiteStore(database_path)
+
+    with store.connect() as connection:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(llm_run)").fetchall()
+        }
+
+    assert {"response_content", "response_usage_json"} <= columns
 
 
 def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
@@ -182,9 +225,22 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
         tokens_out=20,
         cost_usd=0.001,
         duration_ms=123,
+        response_content="generated content",
+        response_usage={"prompt_tokens": 10, "completion_tokens": 20},
         cached=False,
     )
     runs = store.list_llm_runs(repo.id, task_type="page")
     assert runs == [llm_run]
     assert runs[0].tokens_in == 10
     assert runs[0].cost_usd == 0.001
+    assert runs[0].response_content == "generated content"
+    assert runs[0].response_usage["completion_tokens"] == 20
+    cached_run = store.get_cached_llm_run(
+        repo.id,
+        task_type="page",
+        cache_key="cache-key",
+        input_hash="input-hash",
+        model="openai/example",
+        prompt_version="page:v1",
+    )
+    assert cached_run == llm_run

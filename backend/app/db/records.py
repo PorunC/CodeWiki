@@ -95,6 +95,8 @@ class LLMRunRecord:
     tokens_out: int
     cost_usd: float | None
     duration_ms: int | None
+    response_content: str
+    response_usage: dict[str, Any]
     cached: bool
     status: str
     error: str | None

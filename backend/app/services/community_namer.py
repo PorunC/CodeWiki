@@ -12,7 +12,7 @@ from backend.app.services.community_naming import (
     renamed_count,
 )
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import record_llm_run, unique_cache_key
+from backend.app.services.llm_run_recorder import complete_with_cache, unique_cache_key
 
 
 class CommunityNamer:
@@ -58,9 +58,12 @@ class CommunityNamer:
                 for item in payload["communities"]
                 if isinstance(item, dict)
             }
-            result = await self.llm.complete(
-                "community_summary",
-                [
+            completion = await complete_with_cache(
+                self.store,
+                repo_id,
+                llm=self.llm,
+                task_type="community_summary",
+                messages=[
                     {
                         "role": "system",
                         "content": (
@@ -73,8 +76,13 @@ class CommunityNamer:
                         "content": json.dumps(payload, ensure_ascii=False),
                     },
                 ],
+                input_payload=payload,
+                cache_key=unique_cache_key("community_naming", "batch", batch_index),
+                model_alias="community_namer",
+                prompt_version="community_naming:v1",
                 response_format="json_object",
             )
+            result = completion.result
             renamed, batch_errors = apply_llm_names(
                 renamed,
                 batch,
@@ -82,18 +90,15 @@ class CommunityNamer:
                 fallback_names=fallback_names,
             )
             errors.extend(f"batch {batch_index}: {error}" for error in batch_errors)
-            llm_run = record_llm_run(
-                self.store,
-                repo_id,
-                task_type="community_summary",
-                result=result,
-                input_payload=payload,
-                cache_key=unique_cache_key("community_naming", "batch", batch_index),
-                model_alias="community_namer",
-                prompt_version="community_naming:v1",
-                status="success" if not batch_errors else "partial",
-                error="; ".join(batch_errors) if batch_errors else None,
-            )
+            llm_run = completion.run
+            if batch_errors:
+                updated_run = self.store.update_llm_run_status(
+                    llm_run.id,
+                    status="partial",
+                    error="; ".join(batch_errors),
+                )
+                if updated_run is not None:
+                    llm_run = updated_run
             llm_run_ids.append(llm_run.id)
 
         self.store.replace_graph_communities(repo_id, renamed)

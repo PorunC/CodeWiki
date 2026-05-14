@@ -151,11 +151,15 @@ CREATE TABLE IF NOT EXISTS llm_run (
   tokens_out INTEGER NOT NULL DEFAULT 0,
   cost_usd REAL,
   duration_ms INTEGER,
+  response_content TEXT NOT NULL DEFAULT '',
+  response_usage_json TEXT NOT NULL DEFAULT '{}',
   cached INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'success',
   error TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_llm_run_task ON llm_run(repo_id, task_type, cache_key);
+CREATE INDEX IF NOT EXISTS idx_llm_run_cache
+  ON llm_run(repo_id, task_type, cache_key, input_hash, model, prompt_version);
 CREATE INDEX IF NOT EXISTS idx_llm_run_created ON llm_run(repo_id, created_at);
 """

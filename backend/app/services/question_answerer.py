@@ -7,7 +7,7 @@ from backend.app.database import SQLiteStore, get_store
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
 from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import record_llm_run
+from backend.app.services.llm_run_recorder import complete_with_cache
 
 
 @dataclass(frozen=True)
@@ -55,9 +55,12 @@ class QuestionAnswerer:
             related_edges=related_edges,
             community_summaries=related_communities,
         )
-        result = await self.llm.complete(
-            "qa",
-            [
+        completion = await complete_with_cache(
+            self.store,
+            repo_id,
+            llm=self.llm,
+            task_type="qa",
+            messages=[
                 {"role": "system", "content": _load_prompt("qa.md")},
                 {
                     "role": "user",
@@ -68,17 +71,12 @@ class QuestionAnswerer:
                     ),
                 },
             ],
-        )
-        record_llm_run(
-            self.store,
-            repo_id,
-            task_type="qa",
-            result=result,
             input_payload=prompt_context.__dict__,
             cache_key=f"qa:{trace.trace_id}:{sha256(request.question.encode('utf-8')).hexdigest()[:16]}",
             model_alias="qa",
             prompt_version="qa:v1",
         )
+        result = completion.result
         return AskResponse(
             answer=result.content.strip() or "I could not produce an answer from the retrieved context.",
             sources=sources,

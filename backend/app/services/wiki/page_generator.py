@@ -5,7 +5,7 @@ from typing import Any
 from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.graph_rag import GraphRAGRetriever, RetrievalTrace
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import record_llm_run
+from backend.app.services.llm_run_recorder import complete_with_cache
 from backend.app.services.repo_scanner import RepoDescriptor
 from backend.app.services.wiki.catalog import (
     _catalog_context_for_page,
@@ -94,26 +94,29 @@ class WikiPageGenerator:
         prompt = _load_prompt("page.md")
 
         for attempt in range(PAGE_GENERATION_ATTEMPTS):
-            result = await self.llm.complete(
-                "page",
-                _page_messages(prompt, attempt_payload, validation_errors if attempt else []),
-                response_format="json_object",
-            )
-            record_llm_run(
+            completion = await complete_with_cache(
                 self.store,
                 repo_id,
+                llm=self.llm,
                 task_type="page",
-                result=result,
+                messages=_page_messages(prompt, attempt_payload, validation_errors if attempt else []),
                 input_payload=attempt_payload,
                 cache_key=f"page:{slug}:{trace.trace_id}:attempt:{attempt + 1}",
                 model_alias="page",
                 prompt_version="page:deepwiki:v2",
+                response_format="json_object",
             )
+            result = completion.result
 
             try:
                 payload = _json_object(result.content)
             except ValueError as exc:
                 validation_errors = [str(exc)]
+                self.store.update_llm_run_status(
+                    completion.run.id,
+                    status="error",
+                    error=str(exc),
+                )
                 attempt_payload = _page_json_repair_payload(user_payload, result.content, validation_errors)
                 continue
 
@@ -126,6 +129,11 @@ class WikiPageGenerator:
             )
             if not validation_errors:
                 break
+            self.store.update_llm_run_status(
+                completion.run.id,
+                status="error",
+                error="; ".join(validation_errors),
+            )
             attempt_payload = _page_validation_repair_payload(user_payload, payload, validation_errors)
 
         status = "generated" if not validation_errors else "draft"

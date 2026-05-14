@@ -3,7 +3,7 @@ from typing import Any
 from backend.app.database import DocCatalogRecord, SQLiteStore
 from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import record_llm_run
+from backend.app.services.llm_run_recorder import complete_with_cache
 from backend.app.services.repo_context import RepositoryContextBuilder
 from backend.app.services.wiki.catalog import (
     _normalize_catalog_payload,
@@ -42,21 +42,19 @@ class WikiCatalogGenerator:
         attempt_payload = user_payload
 
         for attempt in range(CATALOG_GENERATION_ATTEMPTS):
-            result = await self.llm.complete(
-                "catalog",
-                _catalog_messages(prompt, attempt_payload, validation_errors),
-                response_format="json_object",
-            )
-            record_llm_run(
+            completion = await complete_with_cache(
                 self.store,
                 repo_id,
+                llm=self.llm,
                 task_type="catalog",
-                result=result,
+                messages=_catalog_messages(prompt, attempt_payload, validation_errors),
                 input_payload=attempt_payload,
                 cache_key=f"catalog:{trace.trace_id}:attempt:{attempt + 1}",
                 model_alias="catalog",
                 prompt_version="catalog:deepwiki:v2",
+                response_format="json_object",
             )
+            result = completion.result
             try:
                 payload = _json_object(result.content)
                 _validate_catalog_payload(payload)
@@ -64,6 +62,11 @@ class WikiCatalogGenerator:
                 break
             except ValueError as exc:
                 validation_errors = [str(exc)]
+                self.store.update_llm_run_status(
+                    completion.run.id,
+                    status="error",
+                    error=str(exc),
+                )
                 attempt_payload = {
                     **user_payload,
                     "previous_response": result.content[:6000],
