@@ -2,6 +2,10 @@ from backend.app.services.incremental.models import IncrementalUpdatePlan, Incre
 from backend.app.services.incremental.planning import _affected_graph_refs, _plan_from_scan
 from backend.app.services.incremental.symbol_recovery import _symbols_from_existing_graph
 from backend.app.services.incremental.updater import IncrementalUpdater
+from backend.app.services.incremental.wiki_regeneration import (
+    regenerate_stale_wiki_pages,
+    skipped_wiki_regeneration,
+)
 
 __all__ = [
     "IncrementalUpdater",
@@ -10,4 +14,6 @@ __all__ = [
     "_affected_graph_refs",
     "_plan_from_scan",
     "_symbols_from_existing_graph",
+    "regenerate_stale_wiki_pages",
+    "skipped_wiki_regeneration",
 ]

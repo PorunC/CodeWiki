@@ -8,6 +8,10 @@ from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.incremental.models import IncrementalUpdatePlan, IncrementalUpdateResult
 from backend.app.services.incremental.planning import _affected_graph_refs, _plan_from_scan
 from backend.app.services.incremental.symbol_recovery import _symbols_from_existing_graph
+from backend.app.services.incremental.wiki_regeneration import (
+    regenerate_stale_wiki_pages,
+    skipped_wiki_regeneration,
+)
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanner, ScannedFile
 
 
@@ -103,6 +107,21 @@ class IncrementalUpdater:
         except Exception as exc:
             self.store.finish_analysis_run(run.id, status="failed", stats={}, error=str(exc))
             raise
+
+    async def update_with_wiki_regeneration(
+        self,
+        repo_id: str,
+        *,
+        refresh_chunks: bool = True,
+        regenerate_wiki: bool = True,
+    ) -> tuple[IncrementalUpdateResult, dict[str, object]]:
+        result = self.update(repo_id, refresh_chunks=refresh_chunks)
+        wiki_regeneration = (
+            await regenerate_stale_wiki_pages(self.store, repo_id, result.stale_pages)
+            if regenerate_wiki
+            else skipped_wiki_regeneration(result.stale_pages)
+        )
+        return result, wiki_regeneration
 
     def _repo(self, repo_id: str) -> RepoDescriptor:
         repo = self.store.get_repo(repo_id)

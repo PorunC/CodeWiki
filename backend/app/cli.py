@@ -131,7 +131,7 @@ def analyze_repo(ctx: click.Context, repo: str | None, as_json: bool) -> None:
 @main.command("update")
 @click.argument("repo", required=False)
 @click.option("--refresh-chunks/--no-refresh-chunks", default=True, show_default=True)
-@click.option("--regenerate-wiki/--no-regenerate-wiki", default=False, show_default=True)
+@click.option("--regenerate-wiki/--no-regenerate-wiki", default=True, show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
 @click.pass_context
 def update_repo(
@@ -144,13 +144,14 @@ def update_repo(
     """Run incremental graph update for REPO."""
     store = _store(ctx)
     selected_repo = _run_click_errors(lambda: _resolve_repo(store, repo))
-    result = _run_click_errors(
-        lambda: IncrementalUpdater(store=store).update(selected_repo.id, refresh_chunks=refresh_chunks)
-    )
-    wiki_regeneration = (
-        asyncio.run(_regenerate_stale_wiki_pages(store, selected_repo.id, result.stale_pages))
-        if regenerate_wiki
-        else {"requested": False, "pages": [], "errors": [], "skipped_pages": result.stale_pages}
+    result, wiki_regeneration = _run_click_errors(
+        lambda: asyncio.run(
+            IncrementalUpdater(store=store).update_with_wiki_regeneration(
+                selected_repo.id,
+                refresh_chunks=refresh_chunks,
+                regenerate_wiki=regenerate_wiki,
+            )
+        )
     )
     payload = {
         "run_id": result.run_id,
@@ -168,6 +169,8 @@ def update_repo(
     )
     if result.stale_pages:
         click.echo(f"Stale wiki pages: {', '.join(result.stale_pages)}")
+        if wiki_regeneration.get("requested"):
+            click.echo(f"Regenerated wiki pages: {len(wiki_regeneration.get('pages', []))}")
 
 
 @main.group("graphrag")
@@ -390,32 +393,6 @@ def _can_resolve_repo_selector(store: SQLiteStore, selector: str) -> bool:
     except ValueError:
         return False
     return True
-
-
-async def _regenerate_stale_wiki_pages(
-    store: SQLiteStore,
-    repo_id: str,
-    stale_pages: list[str],
-) -> dict[str, object]:
-    if not stale_pages:
-        return {"requested": True, "pages": [], "errors": []}
-    generator = _wiki_generator(store)
-    pages: list[dict[str, object]] = []
-    errors: list[dict[str, str]] = []
-    for slug in stale_pages:
-        try:
-            result = await generator.regenerate_page(repo_id, slug)
-        except Exception as exc:
-            errors.append({"slug": slug, "error": str(exc)})
-            continue
-        pages.append(
-            {
-                "slug": result.page.slug,
-                "status": result.page.status,
-                "validation_errors": result.validation_errors,
-            }
-        )
-    return {"requested": True, "pages": pages, "errors": errors}
 
 
 def _repo_payload(repo: RepoDescriptor) -> dict[str, object]:

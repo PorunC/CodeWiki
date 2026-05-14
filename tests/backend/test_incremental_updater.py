@@ -93,3 +93,57 @@ def test_incremental_update_removes_deleted_files_and_chunks(tmp_path: Path) -> 
     assert result.plan.deleted_files == ["service.py"]
     assert not any(node.file_path == "service.py" for node in nodes)
     assert not any(chunk.file_path == "service.py" for chunk in store.list_code_chunks(repo.id))
+
+
+@pytest.mark.asyncio
+async def test_incremental_update_with_wiki_regeneration_refreshes_stale_pages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    service_path = repo_dir / "service.py"
+    service_path.write_bytes(b"def answer():\n    return 42\n")
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    AnalysisService(store=store).analyze(repo.id)
+    store.upsert_doc_page(
+        DocPageRecord(
+            id="page-service",
+            repo_id=repo.id,
+            slug="service",
+            title="Service",
+            parent_slug=None,
+            markdown="# Service\n",
+            source_refs=[{"file_path": "service.py", "start_line": 1, "end_line": 2}],
+            graph_refs=[],
+            status="generated",
+            updated_at=None,
+        )
+    )
+
+    captured: dict[str, object] = {}
+
+    async def fake_regenerate_stale_wiki_pages(
+        fake_store: SQLiteStore,
+        repo_id: str,
+        stale_pages: list[str],
+    ) -> dict[str, object]:
+        captured["store"] = fake_store
+        captured["repo_id"] = repo_id
+        captured["stale_pages"] = stale_pages
+        return {"requested": True, "pages": [{"slug": slug, "status": "generated"} for slug in stale_pages], "errors": []}
+
+    monkeypatch.setattr(
+        "backend.app.services.incremental.updater.regenerate_stale_wiki_pages",
+        fake_regenerate_stale_wiki_pages,
+    )
+    service_path.write_bytes(b"def answer():\n    return 43\n")
+
+    result, wiki_regeneration = await IncrementalUpdater(store=store).update_with_wiki_regeneration(repo.id)
+
+    assert result.stale_pages == ["service"]
+    assert captured == {"store": store, "repo_id": repo.id, "stale_pages": ["service"]}
+    assert wiki_regeneration["requested"] is True
+    assert wiki_regeneration["pages"] == [{"slug": "service", "status": "generated"}]

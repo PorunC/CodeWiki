@@ -129,11 +129,11 @@ def _graspologic_leiden_communities(graph: nx.Graph) -> list[set[str]] | None:
             )
         except TypeError:
             partition = leiden(graph, weight_attribute="weight")
-    except Exception:
-        return None
+    except Exception as exc:
+        raise RuntimeError("graspologic Leiden community detection failed") from exc
 
     if not isinstance(partition, dict):
-        return None
+        raise RuntimeError("graspologic Leiden returned an unsupported partition shape")
 
     by_cluster: dict[object, set[str]] = {}
     for node_id, cluster_id in partition.items():

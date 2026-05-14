@@ -4,13 +4,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.app.config import get_settings
-from backend.app.database import SQLiteStore, get_store
+from backend.app.database import get_store
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.community_namer import CommunityNamer
-from backend.app.services.graph_rag import GraphRAGRetriever
 from backend.app.services.incremental_updater import IncrementalUpdater
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.wiki import WikiGenerator
 
 router = APIRouter()
 
@@ -66,14 +64,10 @@ async def update_repo(
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     request = payload or IncrementalUpdateRequest()
     try:
-        result = IncrementalUpdater(store=store).update(
+        result, wiki_regeneration = await IncrementalUpdater(store=store).update_with_wiki_regeneration(
             repo_id,
             refresh_chunks=request.refresh_chunks,
-        )
-        wiki_regeneration = (
-            await _regenerate_stale_wiki_pages(repo_id, result.stale_pages, store=store)
-            if request.regenerate_wiki
-            else _skipped_wiki_regeneration(result.stale_pages)
+            regenerate_wiki=request.regenerate_wiki,
         )
         naming_result = (
             await CommunityNamer(LLMGateway(get_settings()), store=store).name_communities(repo_id)
@@ -101,48 +95,6 @@ async def update_repo(
     if naming_result is not None:
         response["community_naming"] = asdict(naming_result)
     return response
-
-
-async def _regenerate_stale_wiki_pages(
-    repo_id: str,
-    stale_pages: list[str],
-    *,
-    store: SQLiteStore,
-) -> dict[str, object]:
-    if not stale_pages:
-        return {"requested": True, "pages": [], "errors": []}
-
-    settings = get_settings()
-    generator = WikiGenerator(
-        GraphRAGRetriever(store=store, settings=settings),
-        LLMGateway(settings),
-        store=store,
-    )
-    regenerated_pages: list[dict[str, object]] = []
-    errors: list[dict[str, str]] = []
-    for slug in stale_pages:
-        try:
-            result = await generator.regenerate_page(repo_id, slug)
-        except Exception as exc:
-            errors.append({"slug": slug, "error": str(exc)})
-            continue
-        regenerated_pages.append(
-            {
-                "slug": result.page.slug,
-                "status": result.page.status,
-                "validation_errors": result.validation_errors,
-            }
-        )
-    return {"requested": True, "pages": regenerated_pages, "errors": errors}
-
-
-def _skipped_wiki_regeneration(stale_pages: list[str]) -> dict[str, object]:
-    return {
-        "requested": False,
-        "pages": [],
-        "errors": [],
-        "skipped_pages": stale_pages,
-    }
 
 
 @router.get("/{repo_id}/runs")
