@@ -179,7 +179,7 @@ def _community_name(
 ) -> str:
     files = _community_files(node_ids, node_by_id)
     symbols = _community_symbols(node_ids, node_by_id)
-    label = _name_from_files(files) or _name_from_symbols(symbols) or f"Cluster {index + 1}"
+    label = _name_from_files(files) or _name_from_symbols(symbols) or "Unclassified Code Area"
     return _dedupe_words(label)
 
 
@@ -232,24 +232,39 @@ def _community_files(
 
 
 def _name_from_files(files: list[str]) -> str:
-    stems = [
-        _humanize_stem(file_path.rsplit("/", 1)[-1].rsplit(".", 1)[0])
-        for file_path in files
-        if not file_path.rsplit("/", 1)[-1].startswith("__init__")
-    ]
-    stems = [stem for stem in stems if stem and stem.lower() not in {"index", "main"}]
-    if not stems:
+    labels = [_file_label(file_path) for file_path in files]
+    labels = [label for label in labels if label and label.lower() not in {"index", "main"}]
+    if not labels:
         return ""
-    unique_stems = _unique_preserve_order(stems)
-    if len(unique_stems) == 1:
-        return unique_stems[0]
-    if len(unique_stems) == 2:
-        return f"{unique_stems[0]} and {unique_stems[1]}"
+    unique_labels = _unique_preserve_order(labels)
+    if len(unique_labels) == 1:
+        return unique_labels[0]
+    if len(unique_labels) == 2:
+        return f"{unique_labels[0]} and {unique_labels[1]}"
 
     directories = _meaningful_directories(files)
     if directories and len(set(directories)) == 1:
-        return f"{_humanize_stem(directories[0])}: {unique_stems[0]} and {unique_stems[1]}"
-    return f"{unique_stems[0]}, {unique_stems[1]}, and {unique_stems[2]}"
+        return f"{_humanize_stem(directories[0])}: {unique_labels[0]} and {unique_labels[1]}"
+    return f"{unique_labels[0]}, {unique_labels[1]}, and {unique_labels[2]}"
+
+
+def _file_label(file_path: str) -> str:
+    file_name = file_path.rsplit("/", 1)[-1]
+    if file_name.startswith("__init__."):
+        package_name = _package_name(file_path)
+        return f"{_humanize_stem(package_name)} Package" if package_name else "Python Package"
+    return _humanize_stem(_file_stem(file_name))
+
+
+def _file_stem(file_name: str) -> str:
+    if file_name.startswith("."):
+        file_name = file_name.lstrip(".")
+    return file_name.rsplit(".", 1)[0]
+
+
+def _package_name(file_path: str) -> str:
+    parts = file_path.split("/")[:-1]
+    return parts[-1] if parts else ""
 
 
 def _name_from_symbols(symbols: list[str]) -> str:

@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.database import SQLiteStore
+from backend.app.database import GraphCommunityRecord, SQLiteStore
+from backend.app.services.community_naming import apply_llm_names, fallback_name_from_payload
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.llm_gateway import LLMResult
@@ -62,6 +63,45 @@ async def test_community_namer_rejects_generic_llm_names(tmp_path: Path) -> None
 
     assert renamed.name != "backend subsystem"
     assert "Community Detector" in renamed.name
+
+
+def test_community_namer_rejects_cluster_number_names() -> None:
+    community = GraphCommunityRecord(
+        id="community-1",
+        repo_id="repo-1",
+        name="Cluster 23",
+        level=0,
+        node_ids=["node-1"],
+        summary="Cluster 23 was detected by graspologic_leiden.",
+        summary_hash=None,
+        created_at=None,
+    )
+    content = json.dumps(
+        {
+            "communities": [
+                {
+                    "id": community.id,
+                    "name": "Cluster 23",
+                    "summary": "Contains package initialization code.",
+                }
+            ]
+        }
+    )
+
+    renamed, errors = apply_llm_names(
+        [community],
+        [community],
+        content,
+        fallback_names={community.id: "Api Package"},
+    )
+
+    assert errors == []
+    assert renamed[0].name == "Api Package"
+
+
+def test_fallback_name_uses_init_package_and_dotfile_evidence() -> None:
+    assert fallback_name_from_payload({"files": ["backend/app/api/__init__.py"]}) == "Api Package"
+    assert fallback_name_from_payload({"files": [".gitignore"]}) == "Gitignore"
 
 
 class _FakeCommunityLLM:

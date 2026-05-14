@@ -11,6 +11,6 @@ Rules:
 - Use only the provided graph evidence.
 - Keep names short and specific, preferably 2-6 words.
 - Prefer capability or workflow names over generic layer names.
-- Avoid generic names such as Backend Subsystem, Frontend Subsystem, Core, Misc, Cluster, or Community N.
+- Avoid generic names such as Backend Subsystem, Frontend Subsystem, Core, Misc, Cluster N, or Community N.
 - Do not alter node membership or invent modules.
 - Return only JSON in the requested shape.

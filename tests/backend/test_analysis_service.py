@@ -2,6 +2,8 @@ from pathlib import Path
 
 from backend.app.database import SQLiteStore
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.community_detector import _community_name
+from backend.app.services.graph_builder import CodeGraphNode
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -46,6 +48,26 @@ def test_analyze_persists_first_code_graph(tmp_path: Path) -> None:
     assert any(edge.type == "calls" for edge in edges)
     assert all("provenance" in edge.metadata for edge in edges)
     assert all("confidence_level" in edge.metadata for edge in edges)
+
+
+def test_deterministic_community_names_use_file_evidence_for_init_and_dotfiles() -> None:
+    init_node = CodeGraphNode(
+        id="repo:file:backend/app/api/__init__.py",
+        repo_id="repo",
+        type="file",
+        name="__init__.py",
+        file_path="backend/app/api/__init__.py",
+    )
+    dotfile_node = CodeGraphNode(
+        id="repo:file:.gitignore",
+        repo_id="repo",
+        type="file",
+        name=".gitignore",
+        file_path=".gitignore",
+    )
+
+    assert _community_name(22, [init_node.id], {init_node.id: init_node}) == "Api Package"
+    assert _community_name(19, [dotfile_node.id], {dotfile_node.id: dotfile_node}) == "Gitignore"
 
 
 def test_store_lists_analysis_runs(tmp_path: Path) -> None:

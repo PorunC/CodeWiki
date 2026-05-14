@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 
-PYTHON ?= $(or $(wildcard .venv/bin/python),$(wildcard .venv/Scripts/python.exe),python)
+PYTHON_VERSION ?= 3.12
+PYTHON ?= $(or $(wildcard .venv/bin/python),$(wildcard .venv/Scripts/python.exe),python$(PYTHON_VERSION))
 NPM ?= npm
 
 BACKEND_APP ?= backend.app.main:app
@@ -9,7 +10,7 @@ BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 5173
 FRONTEND_DIR := frontend
 
-.PHONY: help install install-backend install-frontend start dev backend frontend kill test lint lint-backend lint-frontend build clean
+.PHONY: help install install-backend ensure-backend-python ensure-backend-pip install-frontend start dev backend frontend kill test lint lint-backend lint-frontend build clean
 
 help:
 	@echo "Code Wiki Platform"
@@ -26,19 +27,28 @@ help:
 	@echo "  make clean            Remove local build/test caches"
 	@echo ""
 	@echo "Overrides:"
-	@echo "  make start PYTHON=.venv/Scripts/python.exe BACKEND_PORT=8001"
+	@echo "  make start PYTHON=python3.12 BACKEND_PORT=8000"
 
 install: install-backend install-frontend
 
-install-backend:
+install-backend: ensure-backend-python ensure-backend-pip
 	$(PYTHON) -m pip install -e ".[dev]"
+
+ensure-backend-python:
+	@$(PYTHON) -c 'import sys; expected=(3, 12); actual=sys.version_info[:2]; raise SystemExit(0 if actual == expected else "Python 3.12 is required for graspologic Leiden community detection; {} is {}.{}. Recreate .venv with `python3.12 -m venv .venv` or pass `PYTHON=python3.12`.".format(sys.executable, *actual))'
+
+ensure-backend-pip:
+	@$(PYTHON) -m pip --version >/dev/null 2>&1 || { \
+		echo "pip is missing for $(PYTHON); bootstrapping it with ensurepip"; \
+		$(PYTHON) -m ensurepip --upgrade; \
+	}
 
 install-frontend:
 	$(NPM) --prefix $(FRONTEND_DIR) install
 
 start: dev
 
-dev:
+dev: ensure-backend-python
 	@set -e; \
 	echo "Starting backend on http://$(BACKEND_HOST):$(BACKEND_PORT)"; \
 	$(PYTHON) -m uvicorn $(BACKEND_APP) --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT) & \
@@ -47,21 +57,21 @@ dev:
 	echo "Starting frontend on http://127.0.0.1:$(FRONTEND_PORT)"; \
 	$(NPM) --prefix $(FRONTEND_DIR) run dev -- --host 127.0.0.1 --port $(FRONTEND_PORT)
 
-backend:
+backend: ensure-backend-python
 	$(PYTHON) -m uvicorn $(BACKEND_APP) --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
 frontend:
 	$(NPM) --prefix $(FRONTEND_DIR) run dev -- --host 127.0.0.1 --port $(FRONTEND_PORT)
 
-kill:
+kill: ensure-backend-python
 	$(PYTHON) scripts/kill_ports.py $(BACKEND_PORT) $(FRONTEND_PORT)
 
-test:
+test: ensure-backend-python
 	$(PYTHON) -m pytest -q
 
 lint: lint-backend lint-frontend
 
-lint-backend:
+lint-backend: ensure-backend-python
 	$(PYTHON) -m ruff check backend tests
 
 lint-frontend:

@@ -34,7 +34,7 @@ def naming_payload(
         "naming_rules": [
             "Use concise developer-facing subsystem names, 2-6 words.",
             "Prefer capability/workflow names over generic layer names.",
-            "Avoid names like Backend Subsystem, Frontend Subsystem, Community 1, Cluster, Misc, Core.",
+            "Avoid names like Backend Subsystem, Frontend Subsystem, Community 1, Cluster 23, Misc, Core.",
             "Do not invent modules, products, files, or dependencies.",
             "Return one object per input community id.",
         ],

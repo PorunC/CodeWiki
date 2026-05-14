@@ -43,7 +43,9 @@ def apply_llm_names(
         name = normalize_name(raw_item.get("name"), fallback=community.name)
         if is_generic_name(name):
             fallback_name = (fallback_names or {}).get(community_id) or community.name
-            name = normalize_name(fallback_name, fallback=f"Subsystem {index + 1}")
+            name = non_generic_fallback_name(fallback_name, index=index)
+        if is_generic_name(name):
+            name = f"Code Area {index + 1}"
         name = dedupe_name(name, seen_names)
         seen_names.add(name.lower())
         summary = normalize_summary(raw_item.get("summary"), fallback=community.summary or "")
@@ -72,7 +74,7 @@ def json_object(content: str) -> dict[str, Any]:
 
 def normalize_name(value: Any, *, fallback: str) -> str:
     name = re.sub(r"\s+", " ", str(value or "").strip())
-    name = re.sub(r"^community\s+\d+\s*[:\-]\s*", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"^(?:community|cluster)\s+\d+\s*[:\-]\s*", "", name, flags=re.IGNORECASE)
     if not name:
         name = fallback
     name = name[:MAX_NAME_LENGTH].strip(" :-")
@@ -97,7 +99,13 @@ def is_generic_name(name: str) -> bool:
         "miscellaneous",
         "cluster",
         "community",
-    } or normalized.startswith(("community ", "cluster "))
+    } or re.fullmatch(r"(?:community|cluster)[\s_:#-]*(?:\d+|n)", normalized) is not None
+
+
+def non_generic_fallback_name(name: str, *, index: int) -> str:
+    fallback = f"Code Area {index + 1}"
+    candidate = normalize_name(name, fallback=fallback)
+    return fallback if is_generic_name(candidate) else candidate
 
 
 def dedupe_name(name: str, seen_names: set[str]) -> str:
