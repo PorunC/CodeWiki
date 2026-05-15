@@ -1,6 +1,8 @@
 import type { CodeEdge, CodeNode, GraphResponse } from "../../api/types";
 import {
   DRILLDOWN_EDGE_LIMIT,
+  FILE_CONTAINER_MIN_HEIGHT,
+  FILE_CONTAINER_MIN_WIDTH,
   FILE_NODE_HEIGHT,
   FILE_NODE_WIDTH,
   GROUP_HEADER_HEIGHT,
@@ -10,7 +12,7 @@ import {
 } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
 import { fileDisplayName, filePathLabel, formatLineRange, isFileLikeNode, nodeSummary } from "../formatters";
-import { layoutBoxesCached, nodeSize } from "../layout";
+import { layoutBoxesCached, measureLayoutBounds, nodeSize, normalizeLayoutPositions, type LayoutBox } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { computeStatsByRawNode, computeStatsForNodeIds } from "../stats";
 import { nodeTone } from "../styles";
@@ -28,10 +30,6 @@ import { buildOverviewGraph } from "./overviewGraph";
 
 const DRILLDOWN_MIN_WIDTH = 900;
 const DRILLDOWN_MIN_HEIGHT = 560;
-const FILE_CONTAINER_MIN_WIDTH = 360;
-const FILE_CONTAINER_MIN_HEIGHT = 170;
-
-type LayoutBox = { id: string; width: number; height: number };
 
 type FileDrilldownContext = {
   file: CodeNode;
@@ -98,8 +96,8 @@ export async function buildContainerDrilldownGraph(
       ranksep: 128
     }
   );
-  const filePositions = normalizePositions(rawFilePositions, fileBoxes, GROUP_PADDING_X, GROUP_HEADER_HEIGHT + 30);
-  const fileBounds = measureBounds(filePositions, fileBoxes);
+  const filePositions = normalizeLayoutPositions(rawFilePositions, fileBoxes, GROUP_PADDING_X, GROUP_HEADER_HEIGHT + 30);
+  const fileBounds = measureLayoutBounds(filePositions, fileBoxes);
   const rootId = drilldownRootVisualId(drilldownContainer.id);
   const rootWidth = Math.max(DRILLDOWN_MIN_WIDTH, fileBounds.width + GROUP_PADDING_X * 2);
   const rootHeight = Math.max(DRILLDOWN_MIN_HEIGHT, fileBounds.height + GROUP_HEADER_HEIGHT + 60);
@@ -245,8 +243,8 @@ async function buildFileContext(
       ranksep: 34
     }
   );
-  const symbolPositions = normalizePositions(rawPositions, symbolBoxes, GROUP_PADDING_X, GROUP_HEADER_HEIGHT + 24);
-  const symbolBounds = measureBounds(symbolPositions, symbolBoxes);
+  const symbolPositions = normalizeLayoutPositions(rawPositions, symbolBoxes, GROUP_PADDING_X, GROUP_HEADER_HEIGHT + 24);
+  const symbolBounds = measureLayoutBounds(symbolPositions, symbolBoxes);
 
   return {
     file,
@@ -275,54 +273,4 @@ function fileLevelLayoutEdges(
     }
     return [{ source, target }];
   });
-}
-
-function normalizePositions(
-  positions: Map<string, { x: number; y: number }>,
-  boxes: LayoutBox[],
-  offsetX: number,
-  offsetY: number
-): Map<string, { x: number; y: number }> {
-  const bounds = measureBounds(positions, boxes);
-  return new Map(
-    boxes.map((box) => {
-      const position = positions.get(box.id) ?? { x: 0, y: 0 };
-      return [
-        box.id,
-        {
-          x: offsetX + position.x - bounds.minX,
-          y: offsetY + position.y - bounds.minY
-        }
-      ];
-    })
-  );
-}
-
-function measureBounds(
-  positions: Map<string, { x: number; y: number }>,
-  boxes: LayoutBox[]
-): { minX: number; minY: number; width: number; height: number } {
-  if (boxes.length === 0) {
-    return { minX: 0, minY: 0, width: 0, height: 0 };
-  }
-
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  boxes.forEach((box) => {
-    const position = positions.get(box.id) ?? { x: 0, y: 0 };
-    minX = Math.min(minX, position.x);
-    minY = Math.min(minY, position.y);
-    maxX = Math.max(maxX, position.x + box.width);
-    maxY = Math.max(maxY, position.y + box.height);
-  });
-
-  return {
-    minX,
-    minY,
-    width: maxX - minX,
-    height: maxY - minY
-  };
 }

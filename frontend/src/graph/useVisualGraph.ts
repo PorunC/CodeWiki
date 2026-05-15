@@ -70,7 +70,7 @@ export function useVisualGraph({
       try {
         let nextGraph: { nodes: FlowNode[]; edges: FlowEdge[] };
         if (viewMode === "file") {
-          nextGraph = buildFileDetailGraph(
+          nextGraph = await buildFileDetailGraph(
             graph,
             filteredGraph,
             containment,

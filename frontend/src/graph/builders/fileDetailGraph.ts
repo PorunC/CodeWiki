@@ -1,13 +1,18 @@
 import type { CodeNode, GraphResponse } from "../../api/types";
 import {
-  FILE_DETAIL_WIDTH,
+  FILE_CONTAINER_MIN_HEIGHT,
+  FILE_CONTAINER_MIN_WIDTH,
+  FILE_NODE_HEIGHT,
   FILE_NODE_WIDTH,
   GROUP_HEADER_HEIGHT,
-  MAX_PORTAL_NODES
+  GROUP_PADDING_X,
+  MAX_PORTAL_NODES,
+  SYMBOL_NODE_HEIGHT,
+  SYMBOL_NODE_WIDTH
 } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
-import { fileDisplayName, filePathLabel, isFileLikeNode } from "../formatters";
-import { nodeSize } from "../layout";
+import { fileDisplayName, filePathLabel, formatLineRange, isFileLikeNode, nodeSummary } from "../formatters";
+import { layoutBoxesCached, measureLayoutBounds, nodeSize, normalizeLayoutPositions } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { collectFilePortals, portalToNode } from "../portals";
 import { computeStatsByRawNode, computeStatsForNodeIds } from "../stats";
@@ -15,16 +20,15 @@ import { nodeTone } from "../styles";
 import { compareBySourceOrder } from "../topology";
 import type { ContainmentIndex, FilteredGraph, FlowEdge, FlowNode, VisualGraph } from "../types";
 import { applyVisualState } from "../visualState";
-import { layoutFileDetailSymbols } from "./fileDetailSymbols";
 
-export function buildFileDetailGraph(
+export async function buildFileDetailGraph(
   graph: GraphResponse,
   filtered: FilteredGraph,
   containment: ContainmentIndex,
   selectedFileId: string | null,
   selectedNodeId: string | null,
   selectedVisualId: string | null
-): VisualGraph {
+): Promise<VisualGraph> {
   const fileNode =
     (selectedFileId ? containment.nodeById.get(selectedFileId) : null) ??
     graph.nodes.find(isFileLikeNode) ??
@@ -41,15 +45,43 @@ export function buildFileDetailGraph(
     .filter((node) => filtered.nodeIds.has(node.id))
     .filter((node) => node.type === "class" || node.type === "function" || node.type === "method")
     .sort(compareBySourceOrder);
-  const symbolSlots = layoutFileDetailSymbols(visibleSymbols, fileNode.id, containment);
+  const symbolBoxes = visibleSymbols.map((node) => ({
+    id: node.id,
+    width: SYMBOL_NODE_WIDTH,
+    height: SYMBOL_NODE_HEIGHT
+  }));
+  const symbolIds = new Set(visibleSymbols.map((node) => node.id));
+  const symbolLayoutEdges = filtered.edges.filter(
+    (edge) => edge.type !== "contains" && symbolIds.has(edge.source) && symbolIds.has(edge.target)
+  );
+  const rawSymbolPositions = await layoutBoxesCached(
+    `file-detail:${fileNode.id}:symbols`,
+    symbolBoxes,
+    symbolLayoutEdges,
+    "TB",
+    {
+      edgesep: 16,
+      marginx: 0,
+      marginy: 0,
+      nodesep: 16,
+      ranksep: 34
+    }
+  );
+  const symbolPositions = normalizeLayoutPositions(
+    rawSymbolPositions,
+    symbolBoxes,
+    GROUP_PADDING_X,
+    GROUP_HEADER_HEIGHT + 24
+  );
+  const symbolBounds = measureLayoutBounds(symbolPositions, symbolBoxes);
 
   const fileContainerId = `file-detail:${fileNode.id}`;
-  const fileHeight = Math.max(
-    320,
-    GROUP_HEADER_HEIGHT +
-      38 +
-      Math.max(0, ...symbolSlots.map((slot) => slot.y + slot.height - GROUP_HEADER_HEIGHT))
+  const fileWidth = Math.max(
+    FILE_CONTAINER_MIN_WIDTH,
+    symbolBounds.width + GROUP_PADDING_X * 2,
+    FILE_NODE_WIDTH + GROUP_PADDING_X
   );
+  const fileHeight = Math.max(FILE_CONTAINER_MIN_HEIGHT, symbolBounds.height + GROUP_HEADER_HEIGHT + 42, FILE_NODE_HEIGHT);
   const stats = computeStatsForNodeIds([fileNode.id, ...descendantIds], filtered.edges);
   const nodes: FlowNode[] = [
     {
@@ -74,37 +106,32 @@ export function buildFileDetailGraph(
         isFocusedViaChild: Boolean(selectedNodeId && selectedNodeId !== fileNode.id),
         isCompact: false
       },
-      ...nodeSize(FILE_DETAIL_WIDTH, fileHeight),
+      ...nodeSize(fileWidth, fileHeight),
       selectable: true,
       draggable: false
     }
   ];
 
   const statsByRawNode = computeStatsByRawNode(graph.edges);
-  symbolSlots.forEach((slot) => {
-    const node = slot.node;
+  visibleSymbols.forEach((node) => {
     nodes.push({
       id: node.id,
       type: "code",
       parentId: fileContainerId,
       extent: "parent",
-      position: {
-        x: slot.x,
-        y: slot.y
-      },
+      position: symbolPositions.get(node.id) ?? { x: GROUP_PADDING_X, y: GROUP_HEADER_HEIGHT + 24 },
       data: toCodeVisualData(node, {
         containment,
-        label: slot.label,
         fileId: fileNode.id,
         rawNodeIds: [node.id],
-        summary: slot.summary,
-        countLabel: slot.countLabel,
-        pathLabel: slot.pathLabel,
+        summary: nodeSummary(node),
+        countLabel: formatLineRange(node),
+        pathLabel: filePathLabel(node),
         stats: statsByRawNode.get(node.id),
         isContained: true,
         isExternal: false
       }),
-      ...nodeSize(slot.width, slot.height),
+      ...nodeSize(SYMBOL_NODE_WIDTH, SYMBOL_NODE_HEIGHT),
       selectable: true,
       draggable: false,
       zIndex: 6
@@ -132,7 +159,7 @@ export function buildFileDetailGraph(
   const incoming = portals.filter((portal) => portal.direction === "in").slice(0, MAX_PORTAL_NODES);
 
   outgoing.forEach((portal, index) => {
-    nodes.push(portalToNode(portal, { x: FILE_DETAIL_WIDTH + 150, y: 36 + index * 150 }, containment));
+    nodes.push(portalToNode(portal, { x: fileWidth + 150, y: 36 + index * 150 }, containment));
     edges.push(toFlowEdge(portal.bucket, selectedSymbolId ?? fileContainerId, portal.visualId));
   });
 

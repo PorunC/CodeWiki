@@ -5,6 +5,7 @@ import { GROUP_GAP_X, GROUP_GAP_Y } from "./constants";
 import type { FlowNode } from "./types";
 
 export type LayoutDirection = "LR" | "TB";
+export type LayoutBox = { id: string; width: number; height: number };
 export type LayoutOptions = {
   edgesep?: number;
   marginx?: number;
@@ -33,7 +34,7 @@ export function nodeSize(
 }
 
 export async function layoutBoxes(
-  nodes: Array<{ id: string; width: number; height: number }>,
+  nodes: LayoutBox[],
   edges: Array<{ source: string; target: string }>,
   direction: LayoutDirection,
   options: LayoutOptions = {}
@@ -89,7 +90,7 @@ export async function layoutBoxes(
 
 export async function layoutBoxesCached(
   scope: string,
-  nodes: Array<{ id: string; width: number; height: number }>,
+  nodes: LayoutBox[],
   edges: Array<{ source: string; target: string }>,
   direction: LayoutDirection,
   options: LayoutOptions = {}
@@ -119,8 +120,58 @@ export function withConnectionAnchors(node: FlowNode): FlowNode {
   };
 }
 
+export function normalizeLayoutPositions(
+  positions: Map<string, { x: number; y: number }>,
+  boxes: LayoutBox[],
+  offsetX: number,
+  offsetY: number
+): Map<string, { x: number; y: number }> {
+  const bounds = measureLayoutBounds(positions, boxes);
+  return new Map(
+    boxes.map((box) => {
+      const position = positions.get(box.id) ?? { x: 0, y: 0 };
+      return [
+        box.id,
+        {
+          x: offsetX + position.x - bounds.minX,
+          y: offsetY + position.y - bounds.minY
+        }
+      ];
+    })
+  );
+}
+
+export function measureLayoutBounds(
+  positions: Map<string, { x: number; y: number }>,
+  boxes: LayoutBox[]
+): { minX: number; minY: number; width: number; height: number } {
+  if (boxes.length === 0) {
+    return { minX: 0, minY: 0, width: 0, height: 0 };
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  boxes.forEach((box) => {
+    const position = positions.get(box.id) ?? { x: 0, y: 0 };
+    minX = Math.min(minX, position.x);
+    minY = Math.min(minY, position.y);
+    maxX = Math.max(maxX, position.x + box.width);
+    maxY = Math.max(maxY, position.y + box.height);
+  });
+
+  return {
+    minX,
+    minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+}
+
 function fallbackLayoutBoxes(
-  nodes: Array<{ id: string; width: number; height: number }>,
+  nodes: LayoutBox[],
   direction: LayoutDirection,
   options: LayoutOptions
 ): Map<string, { x: number; y: number }> {
@@ -145,7 +196,7 @@ function fallbackLayoutBoxes(
 
 function layoutCacheKey(
   scope: string,
-  nodes: Array<{ id: string; width: number; height: number }>,
+  nodes: LayoutBox[],
   edges: Array<{ source: string; target: string }>,
   direction: LayoutDirection,
   options: LayoutOptions
