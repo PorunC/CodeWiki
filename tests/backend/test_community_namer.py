@@ -117,6 +117,8 @@ class _FakeCommunityLLM:
     ) -> LLMResult:
         assert task_type == "community_summary"
         assert response_format == "json_object"
+        assert "Name and summarize graph communities" in messages[0]["content"]
+        assert "Return only JSON in the requested shape" in messages[0]["content"]
         payload_text = "\n".join(message["content"] for message in messages)
         assert self.community_id in payload_text
         payload = {

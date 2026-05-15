@@ -13,6 +13,7 @@ from backend.app.services.community_naming import (
 )
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_run_recorder import complete_with_cache, unique_cache_key
+from backend.app.services.prompts import load_prompt
 
 
 class CommunityNamer:
@@ -51,6 +52,7 @@ class CommunityNamer:
         renamed = communities
         errors: list[str] = []
         llm_run_ids: list[str] = []
+        prompt = load_prompt("community_summary.md")
         for batch_index, batch in enumerate(batches(target_communities, COMMUNITIES_PER_BATCH), start=1):
             payload = naming_payload(repo.id, repo.name, repo.path, batch, node_by_id, edges)
             fallback_names = {
@@ -64,13 +66,7 @@ class CommunityNamer:
                 llm=self.llm,
                 task_type="community_summary",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You name code graph communities for a Code Wiki. "
-                            "You must stay grounded in provided graph evidence and return only JSON."
-                        ),
-                    },
+                    {"role": "system", "content": prompt},
                     {
                         "role": "user",
                         "content": json.dumps(payload, ensure_ascii=False),

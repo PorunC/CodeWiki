@@ -1,13 +1,13 @@
 import json
 from dataclasses import dataclass
 from hashlib import sha256
-from importlib import resources
 
 from backend.app.database import SQLiteStore
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_run_recorder import complete_with_cache
+from backend.app.services.prompts import load_prompt
 
 
 @dataclass(frozen=True)
@@ -104,4 +104,4 @@ def _source_refs(chunks: list[dict[str, object]]) -> list[SourceRef]:
 
 
 def _load_prompt(name: str) -> str:
-    return resources.files("backend.app.prompts").joinpath(name).read_text(encoding="utf-8")
+    return load_prompt(name)

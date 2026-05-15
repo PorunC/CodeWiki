@@ -1,7 +1,9 @@
 import json
 import re
-from importlib import resources
 from typing import Any
+
+from backend.app.services.prompts import load_prompt
+
 
 def _page_messages(
     prompt: str,
@@ -54,7 +56,7 @@ def _catalog_messages(
 
 
 def _load_prompt(name: str) -> str:
-    return resources.files("backend.app.prompts").joinpath(name).read_text(encoding="utf-8")
+    return load_prompt(name)
 
 
 def _json_object(content: str) -> dict[str, Any]:
@@ -74,4 +76,3 @@ def _json_object(content: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("LLM response must be a JSON object.")
     return payload
-
