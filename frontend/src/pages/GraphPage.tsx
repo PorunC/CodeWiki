@@ -11,6 +11,7 @@ import {
 import { GraphFiltersPanel } from "../graph/GraphFiltersPanel";
 import { GraphFilesPanel } from "../graph/GraphFilesPanel";
 import { GraphFlowCanvas } from "../graph/GraphFlowCanvas";
+import { GraphBreadcrumbs } from "../graph/GraphBreadcrumbs";
 import { GraphToolbar } from "../graph/GraphToolbar";
 import { NodeDetails } from "../graph/NodeDetails";
 import { useGraphPageController } from "../graph/hooks/useGraphPageController";
@@ -65,6 +66,7 @@ export function GraphPage({
     analysisMessage,
     viewMode,
     densityMode,
+    drilldownContainer,
     drilldownAvailable,
     selectedFileId,
     selectedNodeId,
@@ -201,6 +203,18 @@ export function GraphPage({
         onDensityModeToggle={actions.toggleDensityMode}
         onFullAnalyze={actions.runFullAnalysis}
         onIncrementalUpdate={actions.runIncrementalUpdate}
+      />
+
+      <GraphBreadcrumbs
+        selectedRepo={selectedRepo}
+        graph={graph}
+        viewMode={viewMode}
+        drilldownContainer={drilldownContainer}
+        selectedFileId={selectedFileId}
+        selectedNode={selectedNode}
+        selectedVisualData={selectedVisualData}
+        onModeSelect={actions.selectMode}
+        onOverviewSelect={actions.openOverview}
       />
 
       {repoError || error ? <div className="state-banner error-banner">{repoError ?? error}</div> : null}

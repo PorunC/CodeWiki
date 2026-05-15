@@ -34,23 +34,29 @@ class EmbeddingIndex:
         chunks: list[CodeChunkRecord],
     ) -> EmbeddingIndexBuildResult:
         model = self.model
-        records: list[CodeChunkEmbeddingRecord] = []
-        for batch in batched(chunks, self.batch_size):
+        unique_chunks = _dedupe_chunks_by_content_hash(chunks)
+        vectors_by_hash: dict[str, list[float]] = {}
+        for batch in batched(unique_chunks, self.batch_size):
             texts = [embedding_text(chunk) for chunk in batch]
             vectors = await self.llm.embed(texts, task_type="embedding")
             for chunk, vector in zip(batch, vectors, strict=True):
-                records.append(
-                    CodeChunkEmbeddingRecord(
-                        id=stable_id(repo_id, "embedding", model, chunk.id, chunk.content_hash),
-                        repo_id=repo_id,
-                        chunk_id=chunk.id,
-                        model=model,
-                        dimensions=len(vector),
-                        embedding=vector,
-                        content_hash=chunk.content_hash,
-                        created_at=None,
-                    )
+                vectors_by_hash[chunk.content_hash] = vector
+
+        records: list[CodeChunkEmbeddingRecord] = []
+        for chunk in chunks:
+            vector = vectors_by_hash[chunk.content_hash]
+            records.append(
+                CodeChunkEmbeddingRecord(
+                    id=stable_id(repo_id, "embedding", model, chunk.id, chunk.content_hash),
+                    repo_id=repo_id,
+                    chunk_id=chunk.id,
+                    model=model,
+                    dimensions=len(vector),
+                    embedding=vector,
+                    content_hash=chunk.content_hash,
+                    created_at=None,
                 )
+            )
         self.store.replace_code_chunk_embeddings(repo_id, model=model, embeddings=records)
         return EmbeddingIndexBuildResult(count=len(records), model=model)
 
@@ -96,3 +102,14 @@ async def embed_chunks(
 ) -> tuple[int, str]:
     result = await EmbeddingIndex(store, llm).build(repo_id, chunks)
     return result.count, result.model
+
+
+def _dedupe_chunks_by_content_hash(chunks: list[CodeChunkRecord]) -> list[CodeChunkRecord]:
+    unique_chunks: list[CodeChunkRecord] = []
+    seen_hashes: set[str] = set()
+    for chunk in chunks:
+        if chunk.content_hash in seen_hashes:
+            continue
+        seen_hashes.add(chunk.content_hash)
+        unique_chunks.append(chunk)
+    return unique_chunks

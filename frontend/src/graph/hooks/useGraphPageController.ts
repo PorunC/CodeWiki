@@ -402,6 +402,14 @@ export function useGraphPageController({
     setHighlightedRawNodeIds(new Set());
   }, []);
 
+  const openOverview = useCallback(() => {
+    setViewMode("overview");
+    setSelectedVisualId(null);
+    setSelectedNodeId(null);
+    setSelectedFileId(null);
+    setFocusNodeId(null);
+  }, []);
+
   const openFileDetail = useCallback(
     (fileId: string) => {
       const fileNode = graph?.nodes.find((node) => node.id === fileId) ?? null;
@@ -657,6 +665,7 @@ export function useGraphPageController({
     analysisMessage,
     viewMode,
     densityMode,
+    drilldownContainer,
     drilldownAvailable: Boolean(drilldownContainer),
     selectedFileId,
     selectedNodeId,
@@ -691,6 +700,7 @@ export function useGraphPageController({
       showHiddenNode,
       showAllHiddenNodes,
       clearHighlights,
+      openOverview,
       openFileDetail,
       runFullAnalysis,
       runIncrementalUpdate,

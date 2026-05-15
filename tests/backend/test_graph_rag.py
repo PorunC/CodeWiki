@@ -129,6 +129,65 @@ async def test_chunk_builder_and_embedding_index_are_standalone_services(tmp_pat
     assert store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0].chunk_id == chunks[0].id
 
 
+@pytest.mark.asyncio
+async def test_embedding_index_deduplicates_llm_calls_by_content_hash(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    chunks = [
+        CodeChunkRecord(
+            id="chunk-a",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="a.py",
+            start_line=1,
+            end_line=1,
+            content="return 42\n",
+            content_hash="same-content",
+            token_count=2,
+        ),
+        CodeChunkRecord(
+            id="chunk-b",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="b.py",
+            start_line=1,
+            end_line=1,
+            content="return 42\n",
+            content_hash="same-content",
+            token_count=2,
+        ),
+        CodeChunkRecord(
+            id="chunk-c",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="c.py",
+            start_line=1,
+            end_line=1,
+            content="return 43\n",
+            content_hash="other-content",
+            token_count=2,
+        ),
+    ]
+    store.replace_code_chunks(repo.id, chunks)
+    llm = _RecordingLLM()
+
+    result = await EmbeddingIndex(store, llm, batch_size=10).build(repo.id, chunks)
+
+    assert result.count == len(chunks)
+    assert sum(len(call) for call in llm.calls) == 2
+    assert llm.calls[0][0].startswith("a.py:")
+    assert llm.calls[0][1].startswith("c.py:")
+    embeddings = {
+        embedding.chunk_id: embedding
+        for embedding in store.list_code_chunk_embeddings(repo.id, model="fake/embed")
+    }
+    assert set(embeddings) == {"chunk-a", "chunk-b", "chunk-c"}
+    assert embeddings["chunk-a"].embedding == embeddings["chunk-b"].embedding
+    assert embeddings["chunk-a"].content_hash == embeddings["chunk-b"].content_hash
+
+
 def test_graphrag_hybrid_ranking_uses_five_factor_formula() -> None:
     old_chunk = _chunk("old", "node-old", "old.py")
     fresh_chunk = _chunk("fresh", "node-fresh", "fresh.py")
@@ -236,6 +295,19 @@ class _FakeLLM:
     async def embed(self, texts: list[str], *, task_type: str = "embedding") -> list[list[float]]:
         assert task_type == "embedding"
         return [[float(len(text) % 7 + 1), 1.0] for text in texts]
+
+
+class _RecordingLLM:
+    router = _FakeRouter()
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    async def embed(self, texts: list[str], *, task_type: str = "embedding") -> list[list[float]]:
+        assert task_type == "embedding"
+        self.calls.append(list(texts))
+        start = sum(len(call) for call in self.calls[:-1])
+        return [[float(start + index + 1), 1.0] for index, _text in enumerate(texts)]
 
 
 def _chunk(chunk_id: str, node_id: str, file_path: str) -> CodeChunkRecord:
