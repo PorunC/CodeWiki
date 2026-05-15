@@ -12,6 +12,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@xyflow/react": "^12.3.6",
     "elkjs": "^0.9.3",
+    "fuse.js": "^7.1.0",
     "lucide-react": "^0.468.0",
     "mermaid": "^11.15.0",
     "react": "^19.0.0",

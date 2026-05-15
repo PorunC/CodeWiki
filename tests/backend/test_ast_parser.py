@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from backend.app.config import get_settings
 from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol
 from backend.app.services.repo_scanner.file_info import sha256_file
 
@@ -226,6 +227,24 @@ def test_ast_parser_caches_symbols_by_file_hash(tmp_path: Path) -> None:
     parser.parse_file(source, repo_root=tmp_path)
 
     assert language_parser.parse_count == 2
+
+
+def test_ast_parser_default_cache_uses_storage_cache_ast(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "default_cached.py"
+    source.write_text("print('cached by default')\n")
+    storage_dir = tmp_path / "storage"
+    monkeypatch.setenv("CODEWIKI_STORAGE_DIR", str(storage_dir))
+    get_settings.cache_clear()
+    language_parser = _CountingParser()
+    registry = AstParserRegistry()
+    registry.register(language_parser)
+
+    try:
+        AstParser(registry=registry).parse_file(source, repo_root=tmp_path)
+    finally:
+        get_settings.cache_clear()
+
+    assert (storage_dir / "cache" / "ast" / f"{sha256_file(source)}.json").is_file()
 
 
 class _CountingParser:

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { getRepoFiles } from "../api/files";
 import type { GraphResponse, RepoFileRecord, RepoFilesResponse, RepoFileTreeNode } from "../api/types";
+import { fuzzySearch } from "../search/fuzzy";
 import { isFileLikeNode } from "./formatters";
 
 type TreeRow = {
@@ -287,13 +288,5 @@ function toggleExpandedPath(path: string, setExpandedPaths: (value: (current: Se
 }
 
 function filterFiles(files: RepoFileRecord[], query: string): RepoFileRecord[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) {
-    return files;
-  }
-  return files.filter(
-    (file) =>
-      file.path.toLowerCase().includes(normalized) ||
-      file.language.toLowerCase().includes(normalized)
-  );
+  return fuzzySearch(files, query, ["path", "language"], { threshold: 0.38 });
 }

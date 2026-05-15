@@ -4,6 +4,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { createRepo, deleteRepo } from "../api/repos";
 import type { RepoSummary } from "../api/types";
 import { useRepos } from "../hooks/useRepos";
+import { fuzzySearch } from "../search/fuzzy";
 import type { WorkspaceSection } from "../App";
 
 export function ReposPage({
@@ -217,17 +218,9 @@ export function ReposPage({
 }
 
 function filterRepos(repos: RepoSummary[], query: string): RepoSummary[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) {
-    return repos;
-  }
-  return repos.filter(
-    (repo) =>
-      repo.name.toLowerCase().includes(normalized) ||
-      repo.path.toLowerCase().includes(normalized) ||
-      repo.source_type.toLowerCase().includes(normalized) ||
-      repo.commit_hash?.toLowerCase().includes(normalized)
-  );
+  return fuzzySearch(repos, query, ["name", "path", "source_type", "commit_hash"], {
+    threshold: 0.36
+  });
 }
 
 function sourceTypeSummary(repos: RepoSummary[]): string {
