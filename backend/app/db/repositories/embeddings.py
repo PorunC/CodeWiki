@@ -1,8 +1,8 @@
-import sqlite3
 import struct
 
-from backend.app.db.records import CodeChunkEmbeddingRecord, CodeChunkSearchHit
-from backend.app.db.mappers import code_chunk_embedding_from_row
+from sqlalchemy import delete, select, text
+
+from backend.app.models import CodeChunkEmbeddingRecord, CodeChunkSearchHit
 
 
 class CodeChunkEmbeddingRepositoryMixin:
@@ -13,48 +13,46 @@ class CodeChunkEmbeddingRepositoryMixin:
         model: str,
         embeddings: list[CodeChunkEmbeddingRecord],
     ) -> None:
-        with self.connect() as connection:
-            _delete_existing_vectors(connection, repo_id, model)
-            connection.execute(
-                "DELETE FROM code_chunk_embedding WHERE repo_id = ? AND model = ?",
-                (repo_id, model),
+        with self.orm_session() as session:
+            _delete_existing_vectors(session, repo_id, model)
+            session.execute(
+                delete(CodeChunkEmbeddingRecord).where(
+                    CodeChunkEmbeddingRecord.repo_id == repo_id,
+                    CodeChunkEmbeddingRecord.model == model,
+                )
             )
             for embedding in embeddings:
                 if embedding.dimensions <= 0 or len(embedding.embedding) != embedding.dimensions:
                     raise ValueError(f"Invalid embedding dimensions for chunk {embedding.chunk_id}")
 
                 vec_table = _vec_table_name(embedding.dimensions)
-                _ensure_vec_table(connection, embedding.dimensions)
-                cursor = connection.execute(
-                    f"""
+                _ensure_vec_table(session, embedding.dimensions)
+                cursor = session.execute(
+                    text(
+                        f"""
                     INSERT INTO {vec_table} (embedding, repo_id, model, chunk_id)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        _serialize_float32(embedding.embedding),
-                        embedding.repo_id,
-                        embedding.model,
-                        embedding.chunk_id,
-                    ),
-                )
-                connection.execute(
+                    VALUES (:embedding, :repo_id, :model, :chunk_id)
                     """
-                    INSERT INTO code_chunk_embedding (
-                      id, repo_id, chunk_id, model, dimensions,
-                      vec_table, vec_rowid, content_hash
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        embedding.id,
-                        embedding.repo_id,
-                        embedding.chunk_id,
-                        embedding.model,
-                        embedding.dimensions,
-                        vec_table,
-                        cursor.lastrowid,
-                        embedding.content_hash,
                     ),
+                    {
+                        "embedding": _serialize_float32(embedding.embedding),
+                        "repo_id": embedding.repo_id,
+                        "model": embedding.model,
+                        "chunk_id": embedding.chunk_id,
+                    },
+                )
+                session.add(
+                    CodeChunkEmbeddingRecord(
+                        id=embedding.id,
+                        repo_id=embedding.repo_id,
+                        chunk_id=embedding.chunk_id,
+                        model=embedding.model,
+                        dimensions=embedding.dimensions,
+                        embedding=[],
+                        content_hash=embedding.content_hash,
+                        vec_table=vec_table,
+                        vec_rowid=cursor.lastrowid,
+                    )
                 )
 
     def list_code_chunk_embeddings(
@@ -63,32 +61,16 @@ class CodeChunkEmbeddingRepositoryMixin:
         *,
         model: str | None = None,
     ) -> list[CodeChunkEmbeddingRecord]:
-        params: tuple[str, ...]
-        where = "repo_id = ?"
-        params = (repo_id,)
-        if model is not None:
-            where += " AND model = ?"
-            params = (repo_id, model)
-        with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT id, repo_id, chunk_id, model, dimensions,
-                       vec_table, vec_rowid, content_hash, created_at
-                FROM code_chunk_embedding
-                WHERE {where}
-                ORDER BY created_at DESC, chunk_id
-                """,
-                params,
-            ).fetchall()
-            return [
-                CodeChunkEmbeddingRecord(
-                    **{
-                        **code_chunk_embedding_from_row(row).__dict__,
-                        "embedding": _load_vector(connection, row["vec_table"], row["vec_rowid"]),
-                    }
-                )
-                for row in rows
-            ]
+        with self.orm_session() as session:
+            query = select(CodeChunkEmbeddingRecord).where(CodeChunkEmbeddingRecord.repo_id == repo_id)
+            if model is not None:
+                query = query.where(CodeChunkEmbeddingRecord.model == model)
+            rows = session.scalars(
+                query.order_by(CodeChunkEmbeddingRecord.created_at.desc(), CodeChunkEmbeddingRecord.chunk_id)
+            ).all()
+            for row in rows:
+                row.embedding = _load_vector(session, row.vec_table, row.vec_rowid)
+            return list(rows)
 
     def search_code_chunk_embeddings(
         self,
@@ -102,21 +84,28 @@ class CodeChunkEmbeddingRepositoryMixin:
             return []
         dimensions = len(query_embedding)
         vec_table = _vec_table_name(dimensions)
-        with self.connect() as connection:
-            if not _table_exists(connection, vec_table):
+        with self.orm_session() as session:
+            if not _table_exists(session, vec_table):
                 return []
-            rows = connection.execute(
-                f"""
+            rows = session.execute(
+                text(
+                    f"""
                 SELECT chunk_id, distance
                 FROM {vec_table}
-                WHERE embedding MATCH ?
-                  AND repo_id = ?
-                  AND model = ?
-                  AND k = ?
+                WHERE embedding MATCH :embedding
+                  AND repo_id = :repo_id
+                  AND model = :model
+                  AND k = :limit
                 ORDER BY distance
-                """,
-                (_serialize_float32(query_embedding), repo_id, model, limit),
-            ).fetchall()
+                """
+                ),
+                {
+                    "embedding": _serialize_float32(query_embedding),
+                    "repo_id": repo_id,
+                    "model": model,
+                    "limit": limit,
+                },
+            ).mappings().all()
 
         chunk_ids = [row["chunk_id"] for row in rows]
         chunks = {chunk.id: chunk for chunk in self.get_code_chunks_by_ids(repo_id, chunk_ids)}
@@ -132,35 +121,40 @@ class CodeChunkEmbeddingRepositoryMixin:
         return hits[:limit]
 
 
-def _delete_existing_vectors(connection: sqlite3.Connection, repo_id: str, model: str) -> None:
-    metadata_rows = connection.execute(
-        """
+def _delete_existing_vectors(session, repo_id: str, model: str) -> None:
+    metadata_rows = session.execute(
+        text(
+            """
         SELECT DISTINCT vec_table
         FROM code_chunk_embedding
-        WHERE repo_id = ? AND model = ?
-        """,
-        (repo_id, model),
-    ).fetchall()
-    table_rows = connection.execute(
+        WHERE repo_id = :repo_id AND model = :model
         """
+        ),
+        {"repo_id": repo_id, "model": model},
+    ).mappings().all()
+    table_rows = session.execute(
+        text(
+            """
         SELECT name AS vec_table
         FROM sqlite_master
         WHERE name LIKE 'code_chunk_embedding_vec_%'
         """
-    ).fetchall()
+        )
+    ).mappings().all()
     vec_tables = {row["vec_table"] for row in [*metadata_rows, *table_rows]}
     for vec_table in vec_tables:
-        if _is_vec_table_name(vec_table) and _table_exists(connection, vec_table):
-            connection.execute(
-                f"DELETE FROM {vec_table} WHERE repo_id = ? AND model = ?",
-                (repo_id, model),
+        if _is_vec_table_name(vec_table) and _table_exists(session, vec_table):
+            session.execute(
+                text(f"DELETE FROM {vec_table} WHERE repo_id = :repo_id AND model = :model"),
+                {"repo_id": repo_id, "model": model},
             )
 
 
-def _ensure_vec_table(connection: sqlite3.Connection, dimensions: int) -> None:
+def _ensure_vec_table(session, dimensions: int) -> None:
     vec_table = _vec_table_name(dimensions)
-    connection.execute(
-        f"""
+    session.execute(
+        text(
+            f"""
         CREATE VIRTUAL TABLE IF NOT EXISTS {vec_table}
         USING vec0(
           embedding float[{dimensions}] distance_metric=cosine,
@@ -169,16 +163,17 @@ def _ensure_vec_table(connection: sqlite3.Connection, dimensions: int) -> None:
           chunk_id text
         )
         """
+        )
     )
 
 
-def _load_vector(connection: sqlite3.Connection, vec_table: str, vec_rowid: int) -> list[float]:
-    if not _is_vec_table_name(vec_table) or not _table_exists(connection, vec_table):
+def _load_vector(session, vec_table: str, vec_rowid: int) -> list[float]:
+    if not _is_vec_table_name(vec_table) or not _table_exists(session, vec_table):
         return []
-    row = connection.execute(
-        f"SELECT embedding FROM {vec_table} WHERE rowid = ?",
-        (vec_rowid,),
-    ).fetchone()
+    row = session.execute(
+        text(f"SELECT embedding FROM {vec_table} WHERE rowid = :vec_rowid"),
+        {"vec_rowid": vec_rowid},
+    ).mappings().first()
     if row is None:
         return []
     return _deserialize_float32(row["embedding"])
@@ -196,11 +191,11 @@ def _deserialize_float32(blob: bytes) -> list[float]:
     return [value for (value,) in struct.iter_unpack("f", blob)]
 
 
-def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
-    row = connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE name = ? AND type IN ('table', 'virtual table')",
-        (table_name,),
-    ).fetchone()
+def _table_exists(session, table_name: str) -> bool:
+    row = session.execute(
+        text("SELECT 1 FROM sqlite_master WHERE name = :table_name AND type IN ('table', 'virtual table')"),
+        {"table_name": table_name},
+    ).first()
     return row is not None
 
 

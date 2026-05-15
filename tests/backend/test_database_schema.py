@@ -8,8 +8,16 @@ from backend.app.database import (
     GraphCommunityRecord,
     SQLiteStore,
 )
+from backend.app.models import Base, CodeNodeRecord, DocCatalogRecord, RepoRecord
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.repo_scanner import RepoScanner
+
+
+def test_persistence_models_are_sqlalchemy_orm_tables() -> None:
+    assert RepoRecord.__table__.name == "repo"
+    assert CodeNodeRecord.__table__.name == "code_node"
+    assert DocCatalogRecord.__table__.name == "doc_catalog"
+    assert {"repo", "code_node", "doc_catalog"} <= set(Base.metadata.tables)
 
 
 def test_schema_contains_graphrag_wiki_and_llm_tables(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-from backend.app.db.records import (
+from backend.app.models import (
     AnalysisRunRecord,
     CodeChunkEmbeddingRecord,
     CodeChunkRecord,

@@ -1,7 +1,7 @@
-import json
-import sqlite3
+from collections.abc import Mapping
+from typing import Any
 
-from backend.app.db.records import (
+from backend.app.models import (
     AnalysisRunRecord,
     CodeChunkEmbeddingRecord,
     CodeChunkRecord,
@@ -13,133 +13,144 @@ from backend.app.db.records import (
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
-def analysis_run_from_row(row: sqlite3.Row) -> AnalysisRunRecord:
+def analysis_run_from_row(row: Mapping[str, Any]) -> AnalysisRunRecord:
     return AnalysisRunRecord(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        status=row["status"],
-        started_at=row["started_at"],
-        finished_at=row["finished_at"],
-        error=row["error"],
-        stats=json.loads(row["stats_json"] or "{}"),
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        status=_get(row, "status"),
+        started_at=_get(row, "started_at"),
+        finished_at=_get(row, "finished_at"),
+        error=_get(row, "error"),
+        stats=_get(row, "stats", _get(row, "stats_json", {})),
     )
 
 
-def node_from_row(row: sqlite3.Row) -> CodeGraphNode:
+def node_from_row(row: Mapping[str, Any]) -> CodeGraphNode:
     return CodeGraphNode(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        type=row["type"],
-        name=row["name"],
-        file_path=row["file_path"],
-        start_line=row["start_line"],
-        end_line=row["end_line"],
-        language=row["language"],
-        symbol_id=row["symbol_id"],
-        summary=row["summary"],
-        hash=row["hash"],
-        metadata=json.loads(row["metadata_json"] or "{}"),
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        type=_get(row, "type"),
+        name=_get(row, "name"),
+        file_path=_get(row, "file_path"),
+        start_line=_get(row, "start_line"),
+        end_line=_get(row, "end_line"),
+        language=_get(row, "language"),
+        symbol_id=_get(row, "symbol_id"),
+        summary=_get(row, "summary"),
+        hash=_get(row, "hash"),
+        metadata=_get(row, "metadata_json", {}),
     )
 
 
-def edge_from_row(row: sqlite3.Row) -> CodeGraphEdge:
+def edge_from_row(row: Mapping[str, Any]) -> CodeGraphEdge:
     return CodeGraphEdge(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        source_id=row["source_id"],
-        target_id=row["target_id"],
-        type=row["type"],
-        confidence=row["confidence"],
-        weight=row["weight"],
-        is_inferred=bool(row["is_inferred"]),
-        metadata=json.loads(row["metadata_json"] or "{}"),
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        source_id=_get(row, "source_id"),
+        target_id=_get(row, "target_id"),
+        type=_get(row, "type"),
+        confidence=_get(row, "confidence"),
+        weight=_get(row, "weight"),
+        is_inferred=bool(_get(row, "is_inferred")),
+        metadata=_get(row, "metadata_json", {}),
     )
 
 
-def code_chunk_from_row(row: sqlite3.Row) -> CodeChunkRecord:
+def code_chunk_from_row(row: Mapping[str, Any]) -> CodeChunkRecord:
     return CodeChunkRecord(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        node_id=row["node_id"],
-        file_path=row["file_path"],
-        start_line=row["start_line"],
-        end_line=row["end_line"],
-        content=row["content"],
-        content_hash=row["content_hash"],
-        token_count=row["token_count"],
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        node_id=_get(row, "node_id"),
+        file_path=_get(row, "file_path"),
+        start_line=_get(row, "start_line"),
+        end_line=_get(row, "end_line"),
+        content=_get(row, "content"),
+        content_hash=_get(row, "content_hash"),
+        token_count=_get(row, "token_count"),
     )
 
 
-def code_chunk_embedding_from_row(row: sqlite3.Row) -> CodeChunkEmbeddingRecord:
+def code_chunk_embedding_from_row(row: Mapping[str, Any]) -> CodeChunkEmbeddingRecord:
     return CodeChunkEmbeddingRecord(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        chunk_id=row["chunk_id"],
-        model=row["model"],
-        dimensions=row["dimensions"],
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        chunk_id=_get(row, "chunk_id"),
+        model=_get(row, "model"),
+        dimensions=_get(row, "dimensions"),
         embedding=[],
-        content_hash=row["content_hash"],
-        created_at=row["created_at"],
+        content_hash=_get(row, "content_hash"),
+        created_at=_get(row, "created_at"),
     )
 
 
-def graph_community_from_row(row: sqlite3.Row) -> GraphCommunityRecord:
+def graph_community_from_row(row: Mapping[str, Any]) -> GraphCommunityRecord:
     return GraphCommunityRecord(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        name=row["name"],
-        level=row["level"],
-        node_ids=json.loads(row["node_ids_json"] or "[]"),
-        summary=row["summary"],
-        summary_hash=row["summary_hash"],
-        created_at=row["created_at"],
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        name=_get(row, "name"),
+        level=_get(row, "level"),
+        node_ids=_get(row, "node_ids", _get(row, "node_ids_json", [])),
+        summary=_get(row, "summary"),
+        summary_hash=_get(row, "summary_hash"),
+        created_at=_get(row, "created_at"),
     )
 
 
-def doc_catalog_from_row(row: sqlite3.Row) -> DocCatalogRecord:
+def doc_catalog_from_row(row: Mapping[str, Any]) -> DocCatalogRecord:
     return DocCatalogRecord(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        title=row["title"],
-        structure=json.loads(row["structure_json"] or "{}"),
-        generated_at=row["generated_at"],
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        title=_get(row, "title"),
+        structure=_get(row, "structure", _get(row, "structure_json", {})),
+        generated_at=_get(row, "generated_at"),
     )
 
 
-def doc_page_from_row(row: sqlite3.Row) -> DocPageRecord:
+def doc_page_from_row(row: Mapping[str, Any]) -> DocPageRecord:
     return DocPageRecord(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        slug=row["slug"],
-        title=row["title"],
-        parent_slug=row["parent_slug"],
-        markdown=row["markdown"],
-        source_refs=json.loads(row["source_refs_json"] or "[]"),
-        graph_refs=json.loads(row["graph_refs_json"] or "[]"),
-        status=row["status"],
-        updated_at=row["updated_at"],
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        slug=_get(row, "slug"),
+        title=_get(row, "title"),
+        parent_slug=_get(row, "parent_slug"),
+        markdown=_get(row, "markdown"),
+        source_refs=_get(row, "source_refs", _get(row, "source_refs_json", [])),
+        graph_refs=_get(row, "graph_refs", _get(row, "graph_refs_json", [])),
+        status=_get(row, "status"),
+        updated_at=_get(row, "updated_at"),
     )
 
 
-def llm_run_from_row(row: sqlite3.Row) -> LLMRunRecord:
+def llm_run_from_row(row: Mapping[str, Any]) -> LLMRunRecord:
     return LLMRunRecord(
-        id=row["id"],
-        repo_id=row["repo_id"],
-        task_type=row["task_type"],
-        provider=row["provider"],
-        model=row["model"],
-        model_alias=row["model_alias"],
-        prompt_version=row["prompt_version"],
-        input_hash=row["input_hash"],
-        cache_key=row["cache_key"],
-        tokens_in=row["tokens_in"],
-        tokens_out=row["tokens_out"],
-        cost_usd=row["cost_usd"],
-        duration_ms=row["duration_ms"],
-        response_content=row["response_content"],
-        response_usage=json.loads(row["response_usage_json"] or "{}"),
-        cached=bool(row["cached"]),
-        status=row["status"],
-        error=row["error"],
-        created_at=row["created_at"],
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        task_type=_get(row, "task_type"),
+        provider=_get(row, "provider"),
+        model=_get(row, "model"),
+        model_alias=_get(row, "model_alias"),
+        prompt_version=_get(row, "prompt_version"),
+        input_hash=_get(row, "input_hash"),
+        cache_key=_get(row, "cache_key"),
+        tokens_in=_get(row, "tokens_in"),
+        tokens_out=_get(row, "tokens_out"),
+        cost_usd=_get(row, "cost_usd"),
+        duration_ms=_get(row, "duration_ms"),
+        response_content=_get(row, "response_content"),
+        response_usage=_get(row, "response_usage", _get(row, "response_usage_json", {})),
+        cached=bool(_get(row, "cached")),
+        status=_get(row, "status"),
+        error=_get(row, "error"),
+        created_at=_get(row, "created_at"),
     )
+
+
+def model_mapping(model: object, fields: tuple[str, ...]) -> dict[str, Any]:
+    return {field: getattr(model, field) for field in fields}
+
+
+def _get(row: Mapping[str, Any], key: str, default: Any = None) -> Any:
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default

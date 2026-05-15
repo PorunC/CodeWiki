@@ -1,6 +1,5 @@
 import json
 import re
-from dataclasses import replace
 from hashlib import sha256
 from typing import Any
 
@@ -49,11 +48,15 @@ def apply_llm_names(
         name = dedupe_name(name, seen_names)
         seen_names.add(name.lower())
         summary = normalize_summary(raw_item.get("summary"), fallback=community.summary or "")
-        updates[community_id] = replace(
-            community,
+        updates[community_id] = GraphCommunityRecord(
+            id=community.id,
+            repo_id=community.repo_id,
             name=name,
+            level=community.level,
+            node_ids=community.node_ids,
             summary=summary,
             summary_hash=sha256(summary.encode("utf-8")).hexdigest(),
+            created_at=community.created_at,
         )
 
     return [updates.get(community.id, community) for community in all_communities], errors

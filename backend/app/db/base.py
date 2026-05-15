@@ -1,15 +1,24 @@
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from typing import Mapping
 
-from backend.app.db.schema import SCHEMA_SQL
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from backend.app.db.schema import AUXILIARY_SCHEMA_SQL
 from backend.app.db.utils import sqlite_path_from_url
+from backend.app.models import Base
 
 
 class BaseSQLiteStore:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.engine = self._create_engine()
+        self.session_factory = sessionmaker(self.engine, expire_on_commit=False)
         self.ensure_schema()
 
     @classmethod
@@ -23,9 +32,20 @@ class BaseSQLiteStore:
         self._load_sqlite_vec(connection)
         return connection
 
+    @contextmanager
+    def orm_session(self) -> Iterator[Session]:
+        with self.session_factory() as session:
+            try:
+                yield session
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
+
     def ensure_schema(self) -> None:
+        Base.metadata.create_all(self.engine)
         with self.connect() as connection:
-            connection.executescript(SCHEMA_SQL)
+            connection.executescript(AUXILIARY_SCHEMA_SQL)
             self._ensure_columns(
                 connection,
                 "repo",
@@ -42,6 +62,16 @@ class BaseSQLiteStore:
                     "response_usage_json": "TEXT NOT NULL DEFAULT '{}'",
                 },
             )
+
+    def _create_engine(self) -> Engine:
+        engine = create_engine(f"sqlite:///{self.database_path}", future=True)
+
+        @event.listens_for(engine, "connect")
+        def configure_connection(dbapi_connection, _connection_record) -> None:
+            dbapi_connection.execute("PRAGMA foreign_keys = ON")
+            self._load_sqlite_vec(dbapi_connection)
+
+        return engine
 
     def _load_sqlite_vec(self, connection: sqlite3.Connection) -> None:
         try:

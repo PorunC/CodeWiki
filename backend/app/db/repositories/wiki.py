@@ -1,9 +1,9 @@
-import json
 import uuid
 from typing import Any
 
-from backend.app.db.mappers import doc_catalog_from_row, doc_page_from_row
-from backend.app.db.records import DocCatalogRecord, DocPageRecord
+from sqlalchemy import delete, select
+
+from backend.app.models import DocCatalogRecord, DocPageRecord
 from backend.app.db.utils import now_iso
 
 
@@ -23,115 +23,78 @@ class WikiRepositoryMixin:
             structure=structure,
             generated_at=now_iso(),
         )
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO doc_catalog (id, repo_id, title, structure_json, generated_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                  title = excluded.title,
-                  structure_json = excluded.structure_json,
-                  generated_at = excluded.generated_at
-                """,
-                (
-                    record.id,
-                    record.repo_id,
-                    record.title,
-                    json.dumps(record.structure, sort_keys=True),
-                    record.generated_at,
-                ),
-            )
+        with self.orm_session() as session:
+            existing = session.get(DocCatalogRecord, record.id)
+            if existing is None:
+                session.add(record)
+            else:
+                existing.title = record.title
+                existing.structure = record.structure
+                existing.generated_at = record.generated_at
         return record
 
     def get_latest_doc_catalog(self, repo_id: str) -> DocCatalogRecord | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT id, repo_id, title, structure_json, generated_at
-                FROM doc_catalog
-                WHERE repo_id = ?
-                ORDER BY generated_at DESC
-                LIMIT 1
-                """,
-                (repo_id,),
-            ).fetchone()
-        return doc_catalog_from_row(row) if row is not None else None
+        with self.orm_session() as session:
+            return session.scalars(
+                select(DocCatalogRecord)
+                .where(DocCatalogRecord.repo_id == repo_id)
+                .order_by(DocCatalogRecord.generated_at.desc())
+                .limit(1)
+            ).first()
 
     def upsert_doc_page(self, page: DocPageRecord) -> DocPageRecord:
         updated_at = page.updated_at or now_iso()
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO doc_page (
-                  id, repo_id, slug, title, parent_slug, markdown,
-                  source_refs_json, graph_refs_json, status, updated_at
+        with self.orm_session() as session:
+            existing = session.scalars(
+                select(DocPageRecord).where(
+                    DocPageRecord.repo_id == page.repo_id,
+                    DocPageRecord.slug == page.slug,
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(repo_id, slug) DO UPDATE SET
-                  title = excluded.title,
-                  parent_slug = excluded.parent_slug,
-                  markdown = excluded.markdown,
-                  source_refs_json = excluded.source_refs_json,
-                  graph_refs_json = excluded.graph_refs_json,
-                  status = excluded.status,
-                  updated_at = excluded.updated_at
-                """,
-                (
-                    page.id,
-                    page.repo_id,
-                    page.slug,
-                    page.title,
-                    page.parent_slug,
-                    page.markdown,
-                    json.dumps(page.source_refs, sort_keys=True),
-                    json.dumps(page.graph_refs, sort_keys=True),
-                    page.status,
-                    updated_at,
-                ),
-            )
-        return DocPageRecord(**{**page.__dict__, "updated_at": updated_at})
+            ).first()
+            if existing is None:
+                saved = DocPageRecord(**{**page.as_record_dict(), "updated_at": updated_at})
+                session.add(saved)
+                return saved
+
+            existing.title = page.title
+            existing.parent_slug = page.parent_slug
+            existing.markdown = page.markdown
+            existing.source_refs = page.source_refs
+            existing.graph_refs = page.graph_refs
+            existing.status = page.status
+            existing.updated_at = updated_at
+            return existing
 
     def get_doc_page(self, repo_id: str, slug: str) -> DocPageRecord | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT id, repo_id, slug, title, parent_slug, markdown,
-                       source_refs_json, graph_refs_json, status, updated_at
-                FROM doc_page
-                WHERE repo_id = ? AND slug = ?
-                """,
-                (repo_id, slug),
-            ).fetchone()
-        return doc_page_from_row(row) if row is not None else None
+        with self.orm_session() as session:
+            return session.scalars(
+                select(DocPageRecord).where(
+                    DocPageRecord.repo_id == repo_id,
+                    DocPageRecord.slug == slug,
+                )
+            ).first()
 
     def list_doc_pages(self, repo_id: str) -> list[DocPageRecord]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT id, repo_id, slug, title, parent_slug, markdown,
-                       source_refs_json, graph_refs_json, status, updated_at
-                FROM doc_page
-                WHERE repo_id = ?
-                ORDER BY parent_slug, slug
-                """,
-                (repo_id,),
-            ).fetchall()
-        return [doc_page_from_row(row) for row in rows]
+        with self.orm_session() as session:
+            return list(
+                session.scalars(
+                    select(DocPageRecord)
+                    .where(DocPageRecord.repo_id == repo_id)
+                    .order_by(DocPageRecord.parent_slug, DocPageRecord.slug)
+                )
+            )
 
     def delete_doc_pages_not_in(self, repo_id: str, slugs: list[str]) -> int:
         if not slugs:
             return 0
-        placeholders = ",".join("?" for _ in slugs)
-        with self.connect() as connection:
-            cursor = connection.execute(
-                f"""
-                DELETE FROM doc_page
-                WHERE repo_id = ?
-                  AND slug NOT IN ({placeholders})
-                """,
-                (repo_id, *slugs),
+        with self.orm_session() as session:
+            result = session.execute(
+                delete(DocPageRecord).where(
+                    DocPageRecord.repo_id == repo_id,
+                    DocPageRecord.slug.not_in(slugs),
+                )
             )
-        return int(cursor.rowcount or 0)
+        return int(result.rowcount or 0)
 
     def mark_doc_pages_stale(
         self,
