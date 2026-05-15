@@ -1,4 +1,4 @@
-from backend.app.services.ast_parsers.ecma.tree import (
+from backend.app.services.ast_parsers.tree import (
     descendants_of_type,
     first_descendant_of_type,
     node_text,

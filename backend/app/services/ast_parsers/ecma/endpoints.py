@@ -1,6 +1,6 @@
 from backend.app.services.ast_parsers.base import AstSymbol
 from backend.app.services.ast_parsers.common import HTTP_METHODS
-from backend.app.services.ast_parsers.ecma.tree import (
+from backend.app.services.ast_parsers.tree import (
     descendants_of_type,
     end_line,
     node_text,

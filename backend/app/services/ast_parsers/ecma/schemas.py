@@ -1,5 +1,5 @@
 from backend.app.services.ast_parsers.base import AstSymbol
-from backend.app.services.ast_parsers.ecma.tree import (
+from backend.app.services.ast_parsers.tree import (
     end_line,
     field_text,
     first_descendant_of_type,
