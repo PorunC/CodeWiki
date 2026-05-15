@@ -177,6 +177,71 @@ async def test_wiki_generator_generates_leaf_pages_for_category_catalog(
 
 
 @pytest.mark.asyncio
+async def test_wiki_generator_synthesizes_parent_from_generated_child_pages(
+    tmp_path: Path,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    llm = _FakeWikiLLM(
+        catalog_payload={
+            "title": "Repo Wiki",
+            "items": [
+                {
+                    "title": "Core Runtime",
+                    "slug": "core-runtime",
+                    "path": "core-runtime",
+                    "order": 0,
+                    "kind": "category",
+                    "topic": "handler answer",
+                    "source_hints": ["api.py"],
+                    "children": [
+                        {
+                            "title": "Request Handler",
+                            "slug": "request-handler",
+                            "path": "core-runtime/request-handler",
+                            "order": 0,
+                            "kind": "page",
+                            "topic": "handler answer",
+                            "children": [],
+                        }
+                    ],
+                }
+            ],
+        },
+        page_payload={
+            "title": "Request Handler",
+            "markdown": (
+                "# Request Handler\n\n"
+                "## Purpose and Scope\n\n"
+                "The child handler delegates to answer(). [[S1]]"
+            ),
+            "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+        page_payloads_by_slug={
+            "core-runtime": {
+                "title": "Core Runtime",
+                "markdown": (
+                    "# Core Runtime\n\n"
+                    "## Purpose and Scope\n\n"
+                    "The parent page summarizes the generated child page. [[S1]]"
+                ),
+                "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+            }
+        },
+    )
+    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+
+    await generator.generate_catalog(repo.id)
+    results = await generator.generate_all_pages(repo.id)
+
+    assert [result.page.slug for result in results] == ["core-runtime", "request-handler"]
+    assert llm.page_call_slugs == ["request-handler", "core-runtime"]
+    parent_request = next(request for request in llm.page_requests if request["slug"] == "core-runtime")
+    assert parent_request["parent_synthesis"]["has_child_pages"] is True
+    assert parent_request["child_page_summaries"][0]["slug"] == "request-handler"
+    assert "The child handler delegates to answer()." in parent_request["child_page_summaries"][0]["overview_markdown"]
+
+
+@pytest.mark.asyncio
 async def test_wiki_generator_prunes_pages_removed_from_catalog(tmp_path: Path) -> None:
     store, repo = _analyzed_repo(tmp_path)
     old_page = store.upsert_doc_page(
@@ -317,9 +382,13 @@ class _FakeWikiLLM:
         *,
         page_payload: dict[str, object],
         catalog_payload: dict[str, object] | None = None,
+        page_payloads_by_slug: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self.page_payload = page_payload
         self.catalog_payload = catalog_payload
+        self.page_payloads_by_slug = page_payloads_by_slug or {}
+        self.page_requests: list[dict[str, object]] = []
+        self.page_call_slugs: list[str] = []
 
     async def complete(
         self,
@@ -349,7 +418,19 @@ class _FakeWikiLLM:
             assert '"catalog_context"' in message_text
             assert '"detail_expectations"' in message_text
             assert "do not invent wiki pages or links" in message_text
-            payload = self.page_payload
+            request_payload = _request_payload_from_message(messages[-1]["content"])
+            self.page_requests.append(request_payload)
+            slug = str(request_payload.get("slug") or "")
+            self.page_call_slugs.append(slug)
+            payload = self.page_payloads_by_slug.get(slug, self.page_payload)
         else:
             raise AssertionError(f"Unexpected task type: {task_type}")
         return LLMResult(content=json.dumps(payload), model="fake/wiki", usage={})
+
+
+def _request_payload_from_message(message_text: str) -> dict[str, object]:
+    start = message_text.find("{")
+    assert start >= 0
+    payload = json.loads(message_text[start:])
+    assert isinstance(payload, dict)
+    return payload

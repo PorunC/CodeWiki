@@ -36,6 +36,15 @@ from backend.app.services.wiki.sources import (
 )
 
 PAGE_GENERATION_ATTEMPTS = 2
+MAX_CHILD_PAGE_SUMMARIES = 8
+MAX_CHILD_PAGE_SUMMARY_CHARS = 1600
+CHILD_SUMMARY_HEADINGS = ("## Purpose and Scope", "## Overview")
+SERVER_INJECTED_HEADINGS = {
+    "## Relevant source files",
+    "## Graph",
+    "## Sources",
+    "## Validation Errors",
+}
 
 
 @dataclass(frozen=True)
@@ -62,6 +71,7 @@ class WikiPageGenerator:
         item: dict[str, Any],
         *,
         parent_slug: str | None = None,
+        child_pages: list[DocPageRecord] | None = None,
     ) -> PageGenerationResult:
         repo = self.store.get_repo(repo_id)
         if repo is None:
@@ -75,6 +85,7 @@ class WikiPageGenerator:
         trace = _trace_with_source_hint_chunks(trace, self.store, repo_id, source_hints)
         graph_refs = _graph_refs_from_trace(trace)
         allowed_source_refs = _source_refs_from_chunks(trace.source_chunks)
+        child_page_summaries = _child_page_summaries(child_pages or [])
         user_payload = self._page_payload(
             repo,
             item,
@@ -85,6 +96,7 @@ class WikiPageGenerator:
             parent_slug=parent_slug,
             source_hints=source_hints,
             allowed_source_refs=allowed_source_refs,
+            child_page_summaries=child_page_summaries,
         )
 
         payload: dict[str, Any] = {}
@@ -179,6 +191,7 @@ class WikiPageGenerator:
         parent_slug: str | None,
         source_hints: list[str],
         allowed_source_refs: list[dict[str, object]],
+        child_page_summaries: list[dict[str, object]],
     ) -> dict[str, Any]:
         catalog = self.store.get_latest_doc_catalog(repo.id)
         catalog_context = _catalog_context_for_page(
@@ -204,6 +217,16 @@ class WikiPageGenerator:
                 ),
             },
             "catalog_context": catalog_context,
+            "parent_synthesis": {
+                "has_child_pages": bool(child_page_summaries),
+                "instructions": (
+                    "When child_page_summaries is non-empty, synthesize this parent page "
+                    "primarily from the generated child page overviews. Use source_chunks "
+                    "and graph_facts to ground citations, fill gaps, and avoid unsupported "
+                    "claims rather than re-deriving the whole parent topic from scratch."
+                ),
+            },
+            "child_page_summaries": child_page_summaries,
             "documentation_style": {
                 "name": "DeepWiki",
                 "workflow": [
@@ -360,3 +383,66 @@ def _page_validation_repair_payload(
             "only use [[S#]] markers for source_refs you return."
         ),
     }
+
+
+def _child_page_summaries(pages: list[DocPageRecord]) -> list[dict[str, object]]:
+    summaries: list[dict[str, object]] = []
+    for page in pages[:MAX_CHILD_PAGE_SUMMARIES]:
+        summaries.append(
+            {
+                "title": page.title,
+                "slug": page.slug,
+                "status": page.status,
+                "overview_markdown": _trim_child_summary(_extract_child_overview(page.markdown)),
+                "source_refs": page.source_refs[:6],
+                "graph_refs": page.graph_refs[:12],
+            }
+        )
+    return summaries
+
+
+def _extract_child_overview(markdown: str) -> str:
+    for heading in CHILD_SUMMARY_HEADINGS:
+        section = _markdown_section(markdown, heading)
+        if section:
+            return section
+
+    for heading, section in _markdown_sections(markdown):
+        if heading not in SERVER_INJECTED_HEADINGS:
+            return section
+    return markdown.strip()
+
+
+def _markdown_section(markdown: str, heading: str) -> str:
+    for current_heading, section in _markdown_sections(markdown):
+        if current_heading == heading:
+            return section
+    return ""
+
+
+def _markdown_sections(markdown: str) -> list[tuple[str, str]]:
+    lines = markdown.splitlines()
+    sections: list[tuple[str, str]] = []
+    current_heading = ""
+    current_lines: list[str] = []
+
+    for line in lines:
+        if line.startswith("## "):
+            if current_heading:
+                sections.append((current_heading, "\n".join(current_lines).strip()))
+            current_heading = line.strip()
+            current_lines = [line]
+            continue
+        if current_heading:
+            current_lines.append(line)
+
+    if current_heading:
+        sections.append((current_heading, "\n".join(current_lines).strip()))
+    return [(heading, section) for heading, section in sections if section]
+
+
+def _trim_child_summary(markdown: str) -> str:
+    stripped = markdown.strip()
+    if len(stripped) <= MAX_CHILD_PAGE_SUMMARY_CHARS:
+        return stripped
+    return stripped[:MAX_CHILD_PAGE_SUMMARY_CHARS].rstrip() + "\n..."
