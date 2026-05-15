@@ -81,9 +81,127 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
     assert member_endpoint.calls == ["getTeam"]
 
 
+def test_tree_sitter_java_parser_extracts_symbols_imports_and_routes(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "main" / "java" / "com" / "example" / "UserController.java"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "package com.example;",
+                "",
+                "import java.util.List;",
+                "import org.springframework.web.bind.annotation.GetMapping;",
+                "import org.springframework.web.bind.annotation.RequestMapping;",
+                "",
+                "@RestController",
+                "@RequestMapping(\"/api\")",
+                "public class UserController extends BaseController implements Handler {",
+                "  private final UserService service;",
+                "",
+                "  public UserController(UserService service) {",
+                "    this.service = service;",
+                "  }",
+                "",
+                "  @GetMapping(\"/users/{id}\")",
+                "  public UserDto getUser(String id) {",
+                "    return service.loadUser(id);",
+                "  }",
+                "}",
+                "",
+                "record UserDto(String id) {}",
+                "interface Handler { void handle(); }",
+            ]
+        )
+        + "\n"
+    )
+
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
+    by_id = {symbol.id: symbol for symbol in symbols}
+    file_id = "file:src/main/java/com/example/UserController.java"
+    class_id = "src/main/java/com/example/UserController.java::UserController"
+
+    assert by_id[file_id].imports == [
+        "java.util.List",
+        "org.springframework.web.bind.annotation.GetMapping",
+        "org.springframework.web.bind.annotation.RequestMapping",
+    ]
+    assert by_id[file_id].exports == ["Handler", "UserController", "UserDto"]
+    assert by_id[file_id].metadata["package"] == "com.example"
+    assert by_id[class_id].type == "class"
+    assert by_id[class_id].bases == ["BaseController"]
+    assert by_id[class_id].implements == ["Handler"]
+    assert by_id[class_id].decorators == ["RequestMapping", "RestController"]
+    assert by_id[f"{class_id}.UserController"].type == "method"
+    assert by_id[f"{class_id}.getUser"].type == "method"
+    assert "loadUser" in by_id[f"{class_id}.getUser"].calls
+    assert "UserDto" in by_id[f"{class_id}.getUser"].references
+    assert by_id["src/main/java/com/example/UserController.java::UserDto"].type == "schema"
+    assert by_id["src/main/java/com/example/UserController.java::Handler"].type == "interface"
+    endpoint = by_id["src/main/java/com/example/UserController.java::endpoint:GET:/api/users/{id}:16"]
+    assert endpoint.type == "endpoint"
+    assert endpoint.metadata["route_path"] == "/api/users/{id}"
+    assert endpoint.calls == ["getUser"]
+
+
+def test_tree_sitter_go_parser_extracts_symbols_imports_methods_and_routes(tmp_path: Path) -> None:
+    source = tmp_path / "cmd" / "api" / "main.go"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            [
+                "package api",
+                "",
+                "import (",
+                "  \"context\"",
+                "  alias \"example.com/project/pkg/service\"",
+                ")",
+                "",
+                "type Server struct { svc *alias.Service }",
+                "type Handler interface { Handle(ctx context.Context) error }",
+                "type User = alias.User",
+                "",
+                "func NewServer(svc *alias.Service) *Server {",
+                "  return &Server{svc: svc}",
+                "}",
+                "",
+                "func (s *Server) GetUser(ctx context.Context, id string) (*User, error) {",
+                "  return s.svc.LoadUser(ctx, id)",
+                "}",
+                "",
+                "func registerRoutes(router *Router, server *Server) {",
+                "  router.GET(\"/users/:id\", server.GetUser)",
+                "}",
+            ]
+        )
+        + "\n"
+    )
+
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
+    by_id = {symbol.id: symbol for symbol in symbols}
+
+    assert by_id["file:cmd/api/main.go"].imports == ["context", "example.com/project/pkg/service"]
+    assert by_id["file:cmd/api/main.go"].exports == ["Handler", "NewServer", "Server", "User"]
+    assert by_id["file:cmd/api/main.go"].metadata["package"] == "api"
+    assert by_id["cmd/api/main.go::Server"].type == "class"
+    assert by_id["cmd/api/main.go::Handler"].type == "interface"
+    assert by_id["cmd/api/main.go::Handler.Handle"].type == "method"
+    assert by_id["cmd/api/main.go::User"].type == "schema"
+    assert by_id["cmd/api/main.go::NewServer"].type == "function"
+    assert "Server" in by_id["cmd/api/main.go::NewServer"].references
+    assert by_id["cmd/api/main.go::Server.GetUser"].type == "method"
+    assert by_id["cmd/api/main.go::Server.GetUser"].parent_id == "cmd/api/main.go::Server"
+    assert by_id["cmd/api/main.go::Server.GetUser"].calls == ["LoadUser"]
+    endpoint = by_id["cmd/api/main.go::endpoint:GET:/users/:id:21"]
+    assert endpoint.type == "endpoint"
+    assert endpoint.metadata["handler"] == "GetUser"
+    assert endpoint.calls == ["GetUser"]
+
+
 def test_registry_reports_supported_languages() -> None:
     parser = AstParser()
 
+    assert "go" in parser.registry.supported_languages()
+    assert "java" in parser.registry.supported_languages()
     assert "python" in parser.registry.supported_languages()
     assert "typescript" in parser.registry.supported_languages()
 

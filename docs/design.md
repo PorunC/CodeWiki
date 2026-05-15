@@ -518,9 +518,7 @@ POST   /api/repos/{repo_id}/ask                     # 问答
 /repos                           # 仓库列表
 /repos/:id/wiki                  # Wiki 文档浏览
 /repos/:id/graph                 # 代码图谱 (React Flow)
-/repos/:id/files                 # 文件树 + 符号列表
 /repos/:id/ask                   # 问答面板
-/repos/:id/runs                  # 分析任务记录
 /repos/:id/settings              # 仓库设置 (ignore、语言、模型)
 ```
 
@@ -530,7 +528,6 @@ POST   /api/repos/{repo_id}/ask                     # 问答
 |---|---|
 | **Wiki** | 左侧目录树，右侧渲染 Markdown + Mermaid，源码引用可点击跳转 |
 | **Graph** | React Flow + ELK 分层布局，overview（模块级）和 detail（文件/函数级）双层 |
-| **Files** | 文件树 + 符号列表 + 节点详情面板 |
 | **Ask** | 问答输入，流式返回，相关图谱节点高亮，源码引用可点击 |
 
 ### Graph 视图设计（借鉴 Understand-Anything）

@@ -7,6 +7,8 @@ from backend.app.services.ast_parsers import (
     AstSymbol,
     LanguageParser,
     PythonAstParser,
+    TreeSitterGoParser,
+    TreeSitterJavaParser,
     TreeSitterJavaScriptParser,
     TreeSitterTypeScriptParser,
 )
@@ -47,6 +49,8 @@ __all__ = [
     "AstSymbol",
     "LanguageParser",
     "PythonAstParser",
+    "TreeSitterGoParser",
+    "TreeSitterJavaParser",
     "TreeSitterJavaScriptParser",
     "TreeSitterTypeScriptParser",
     "parse_scanned_files",
