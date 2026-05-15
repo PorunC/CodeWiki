@@ -105,7 +105,7 @@ async def _name_communities(repo_id: str) -> CommunityNamingResult:
             errors=["LLM community naming skipped because no LLM endpoint or API key is configured."],
         )
     try:
-        return await CommunityNamer(LLMGateway(settings), store=get_store()).name_communities(repo_id)
+        return await CommunityNamer(LLMGateway(settings), store=get_store()).summarize_communities(repo_id)
     except Exception as exc:
         return CommunityNamingResult(
             repo_id=repo_id,

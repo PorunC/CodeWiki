@@ -87,7 +87,7 @@ class AnalysisService:
 
         namer = community_namer or CommunityNamer(LLMGateway(settings), store=self.store)
         try:
-            naming_result = await namer.name_communities(repo_id)
+            naming_result = await _summarize_communities(namer, repo_id)
         except Exception as exc:
             naming_result = CommunityNamingResult(
                 repo_id=repo_id,
@@ -160,3 +160,10 @@ def _llm_configured(settings: Settings) -> bool:
         or (settings.llm_mode == "proxy" and settings.litellm_proxy_base_url)
         or not settings.llm_default_model.startswith("provider/")
     )
+
+
+async def _summarize_communities(namer: CommunityNamer, repo_id: str) -> CommunityNamingResult:
+    summarize = getattr(namer, "summarize_communities", None)
+    if callable(summarize):
+        return await summarize(repo_id)
+    return await namer.name_communities(repo_id)

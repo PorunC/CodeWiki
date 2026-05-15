@@ -129,7 +129,7 @@ async def name_communities(
         result = await CommunityNamer(
             LLMGateway(get_settings()),
             store=store,
-        ).name_communities(repo_id, max_communities=request.max_communities)
+        ).summarize_communities(repo_id, max_communities=request.max_communities)
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if message.startswith("Repository not found") else 400

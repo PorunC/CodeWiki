@@ -22,7 +22,7 @@ async def create_repo(payload: CreateRepoRequest) -> RepoDescriptor:
     scanner = RepoScanner()
     try:
         repo = scanner.describe(payload.path, name=payload.name, source_type=payload.source_type)
-    except (FileNotFoundError, NotADirectoryError) as exc:
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return get_store().upsert_repo(repo)
 
@@ -32,7 +32,7 @@ async def scan_repo(payload: ScanRepoRequest) -> RepoScanResult:
     scanner = RepoScanner()
     try:
         return scanner.scan(payload.path, name=payload.name, source_type=payload.source_type)
-    except (FileNotFoundError, NotADirectoryError) as exc:
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

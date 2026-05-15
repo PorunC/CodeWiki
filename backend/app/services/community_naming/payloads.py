@@ -24,8 +24,8 @@ def naming_payload(
             "path": repo_path,
         },
         "task": (
-            "Rename graph communities using only the provided files, symbols, summaries, "
-            "and graph relationships. Keep node membership unchanged."
+            "Name and summarize graph communities using only the provided files, symbols, "
+            "deterministic summaries, and graph relationships. Keep node membership unchanged."
         ),
         "communities": [
             community_payload(community, node_by_id, edges)
@@ -37,6 +37,12 @@ def naming_payload(
             "Avoid names like Backend Subsystem, Frontend Subsystem, Community 1, Cluster 23, Misc, Core.",
             "Do not invent modules, products, files, or dependencies.",
             "Return one object per input community id.",
+        ],
+        "summary_rules": [
+            "Write a fresh source-grounded summary, not a copy of the deterministic summary.",
+            "Describe responsibility, important files or symbols, and boundary dependencies.",
+            "Keep each summary to one or two concise sentences.",
+            "Call out unclear boundaries only when the graph evidence supports that uncertainty.",
         ],
         "required_json_shape": {
             "communities": [

@@ -15,7 +15,7 @@ from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.question_answerer import QuestionAnswerer
-from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner
+from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner, is_git_url
 from backend.app.services.wiki import WikiGenerator
 
 
@@ -41,7 +41,7 @@ def repos_group() -> None:
 
 
 @repos_group.command("add")
-@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=str))
+@click.argument("path", type=str)
 @click.option("--name", help="Repository display name.")
 @click.option("--source-type", default="local", show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
@@ -53,7 +53,7 @@ def add_repo(
     source_type: str,
     as_json: bool,
 ) -> None:
-    """Register PATH in the local Code Wiki database."""
+    """Register PATH or Git URL in the local Code Wiki database."""
     store = _store(ctx)
     repo = _run_click_errors(lambda: RepoScanner().describe(path, name=name, source_type=source_type))
     repo = store.upsert_repo(repo)
@@ -83,12 +83,12 @@ def list_repos(ctx: click.Context, as_json: bool) -> None:
 
 
 @repos_group.command("scan")
-@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=str))
+@click.argument("path", type=str)
 @click.option("--name", help="Repository display name.")
 @click.option("--source-type", default="local", show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
 def scan_repo(path: str, name: str | None, source_type: str, as_json: bool) -> None:
-    """Scan PATH without registering it."""
+    """Scan PATH or Git URL without registering it."""
     scan = _run_click_errors(lambda: RepoScanner().scan(path, name=name, source_type=source_type))
     if as_json:
         _echo_json(_scan_payload(scan))
@@ -101,23 +101,39 @@ def scan_repo(path: str, name: str | None, source_type: str, as_json: bool) -> N
 
 @main.command("analyze")
 @click.argument("repo", required=False)
+@click.option("--community-summaries/--no-community-summaries", default=True, show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
 @click.pass_context
-def analyze_repo(ctx: click.Context, repo: str | None, as_json: bool) -> None:
+def analyze_repo(
+    ctx: click.Context,
+    repo: str | None,
+    community_summaries: bool,
+    as_json: bool,
+) -> None:
     """Run full AST graph analysis for REPO.
 
-    REPO can be an id, id prefix, registered name, path, or omitted for the
+    REPO can be an id, id prefix, registered name, path, Git URL, or omitted for the
     current directory.
     """
     store = _store(ctx)
     selected_repo = _run_click_errors(lambda: _resolve_repo(store, repo))
-    result = _run_click_errors(lambda: AnalysisService(store=store).analyze(selected_repo.id))
+    analysis = _run_click_errors(
+        lambda: asyncio.run(
+            AnalysisService(store=store).analyze_with_community_summaries(
+                selected_repo.id,
+                name_communities=community_summaries,
+            )
+        )
+    )
+    result = analysis.analysis
     payload = {
         "run_id": result.run_id,
         "repo_id": result.repo_id,
         "status": result.status,
         **result.stats(),
     }
+    if analysis.community_naming is not None:
+        payload["community_naming"] = _jsonable(analysis.community_naming)
     if as_json:
         _echo_json(payload)
         return
@@ -125,6 +141,8 @@ def analyze_repo(ctx: click.Context, repo: str | None, as_json: bool) -> None:
         f"Analysis {result.status}: {result.node_count} nodes, "
         f"{result.edge_count} edges, {result.community_count} communities"
     )
+    if analysis.community_naming is not None:
+        click.echo(f"Community summaries: {analysis.community_naming.status}")
     click.echo(f"Run: {result.run_id}")
 
 
@@ -365,8 +383,11 @@ def _resolve_repo(
         if auto_register_paths:
             return store.upsert_repo(RepoScanner().describe(str(resolved_path)))
 
+    if is_git_url(selector) and auto_register_paths:
+        return store.upsert_repo(RepoScanner().describe(selector))
+
     raise ValueError(
-        f"Repository not found: {selector}. Use a repo id, id prefix, name, path, "
+        f"Repository not found: {selector}. Use a repo id, id prefix, name, path, Git URL, "
         "or run from inside a repository directory."
     )
 

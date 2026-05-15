@@ -17,6 +17,8 @@ from backend.app.services.prompts import load_prompt
 
 
 class CommunityNamer:
+    """Generate LLM-backed names and summaries for graph communities."""
+
     def __init__(
         self,
         llm: LLMGateway,
@@ -25,6 +27,14 @@ class CommunityNamer:
     ) -> None:
         self.llm = llm
         self.store = store or get_store()
+
+    async def summarize_communities(
+        self,
+        repo_id: str,
+        *,
+        max_communities: int = MAX_COMMUNITIES_PER_LLM_CALL,
+    ) -> CommunityNamingResult:
+        return await self.name_communities(repo_id, max_communities=max_communities)
 
     async def name_communities(
         self,
@@ -75,7 +85,7 @@ class CommunityNamer:
                 input_payload=payload,
                 cache_key=unique_cache_key("community_naming", "batch", batch_index),
                 model_alias="community_namer",
-                prompt_version="community_naming:v1",
+                prompt_version="community_naming:v2",
                 response_format="json_object",
             )
             result = completion.result

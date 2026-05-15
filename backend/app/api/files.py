@@ -17,7 +17,7 @@ async def list_repo_files(repo_id: str) -> dict[str, object]:
 
     try:
         scan = RepoScanner().scan(repo.path, name=repo.name, source_type=repo.source_type)
-    except (FileNotFoundError, NotADirectoryError) as exc:
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {

@@ -42,8 +42,7 @@ export function ReposPage({
     try {
       const repo = await createRepo({
         path: trimmedPath,
-        name: name.trim() || undefined,
-        source_type: "local"
+        name: name.trim() || undefined
       });
       setPath("");
       setName("");
@@ -103,10 +102,10 @@ export function ReposPage({
 
       <form className="repo-create-form" onSubmit={handleCreate}>
         <label className="field">
-          <span>Path</span>
+          <span>Path / Git URL</span>
           <input
             value={path}
-            placeholder="/path/to/repository"
+            placeholder="/path/to/repository or https://github.com/org/repo.git"
             onChange={(event) => setPath(event.target.value)}
           />
         </label>

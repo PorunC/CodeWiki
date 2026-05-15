@@ -8,7 +8,12 @@ from backend.app.services.repo_scanner.git import (
 )
 from backend.app.services.repo_scanner.ignore import DEFAULT_IGNORE_PATTERNS, IgnoreMatcher, IgnorePattern
 from backend.app.services.repo_scanner.models import RepoDescriptor, RepoScanResult, ScannedFile
-from backend.app.services.repo_scanner.scanner import RepoScanner
+from backend.app.services.repo_scanner.scanner import (
+    RepoScanner,
+    clone_path_for_git_url,
+    is_git_url,
+    repo_name_from_git_url,
+)
 
 __all__ = [
     "DEFAULT_IGNORE_PATTERNS",
@@ -18,11 +23,14 @@ __all__ = [
     "RepoScanResult",
     "RepoScanner",
     "ScannedFile",
+    "clone_path_for_git_url",
     "git_file_commit_times",
     "git_diff_changed_paths",
     "git_head_commit",
     "git_metadata",
     "git_origin_url",
+    "is_git_url",
+    "repo_name_from_git_url",
     "is_probably_binary",
     "scan_file",
     "sha256_file",

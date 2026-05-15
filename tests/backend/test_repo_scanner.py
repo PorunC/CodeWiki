@@ -1,5 +1,9 @@
 import hashlib
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from backend.app.services.repo_scanner import RepoScanner
 
@@ -67,3 +71,54 @@ def test_scan_records_git_last_commit_time_for_source_files(tmp_path: Path, monk
 
     assert files["main.py"].last_commit_at == timestamp
     assert files["notes.md"].last_commit_at is None
+
+
+def test_describe_git_url_clones_remote_repository(tmp_path: Path) -> None:
+    if shutil.which("git") is None:
+        pytest.skip("git executable is required for clone integration test")
+
+    source_repo = tmp_path / "source-repo"
+    source_repo.mkdir()
+    _git(source_repo, "init")
+    _git(source_repo, "config", "user.email", "test@example.com")
+    _git(source_repo, "config", "user.name", "Test User")
+    (source_repo / "README.md").write_text("# Source\n")
+    _git(source_repo, "add", "README.md")
+    _git(source_repo, "commit", "-m", "initial")
+    commit_hash = _git_output(source_repo, "rev-parse", "HEAD")
+
+    scanner = RepoScanner(storage_dir=tmp_path / "storage")
+    descriptor = scanner.describe(source_repo.resolve().as_uri())
+
+    clone_path = Path(descriptor.path)
+    assert clone_path != source_repo.resolve()
+    assert clone_path.is_dir()
+    assert (clone_path / "README.md").read_text() == "# Source\n"
+    assert descriptor.name == "source-repo"
+    assert descriptor.source_type == "git"
+    assert descriptor.git_url == source_repo.resolve().as_uri()
+    assert descriptor.commit_hash == commit_hash
+
+    scan = scanner.scan(source_repo.resolve().as_uri())
+    assert scan.repo.id == descriptor.id
+    assert {file.path for file in scan.files} == {"README.md"}
+
+
+def _git(repo_dir: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo_dir), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _git_output(repo_dir: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo_dir), *args],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
