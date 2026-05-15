@@ -618,7 +618,7 @@ export function useGraphPageController({
         setSelectedVisualId(primaryNodeId);
       }
     },
-    [openContainerDrilldown, openFileDetail, viewMode]
+    [openFileDetail, viewMode]
   );
 
   const selectMode = useCallback(

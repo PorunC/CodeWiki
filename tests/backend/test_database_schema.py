@@ -244,3 +244,21 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
         prompt_version="page:v1",
     )
     assert cached_run == llm_run
+
+    assert store.delete_repo(repo.id) is True
+    assert store.delete_repo(repo.id) is False
+    assert store.get_repo(repo.id) is None
+    assert store.list_code_chunks(repo.id) == []
+    assert store.list_code_chunk_embeddings(repo.id, model="fake/embed") == []
+    assert store.list_graph_communities(repo.id) == []
+    assert store.list_doc_pages(repo.id) == []
+    assert store.list_llm_runs(repo.id, task_type="page") == []
+    with store.connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) AS count FROM code_chunk_fts WHERE repo_id = ?",
+            (repo.id,),
+        ).fetchone()["count"] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) AS count FROM code_chunk_embedding_vec_2 WHERE repo_id = ?",
+            (repo.id,),
+        ).fetchone()["count"] == 0

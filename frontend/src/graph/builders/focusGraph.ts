@@ -23,13 +23,11 @@ export async function buildFocusGraph(
   }
 
   const relevantNodeIds = new Set<string>([focusNode.id]);
-  const relevantEdges = filtered.edges.filter((edge) => {
-    const isRelevant = edge.source === focusNode.id || edge.target === focusNode.id;
-    if (isRelevant) {
+  filtered.edges.forEach((edge) => {
+    if (edge.source === focusNode.id || edge.target === focusNode.id) {
       relevantNodeIds.add(edge.source);
       relevantNodeIds.add(edge.target);
     }
-    return isRelevant;
   });
 
   const fileId = containment.fileByNode.get(focusNode.id);

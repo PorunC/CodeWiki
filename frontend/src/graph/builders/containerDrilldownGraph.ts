@@ -12,7 +12,7 @@ import {
 } from "../constants";
 import { aggregateEdges, toFlowEdge } from "../edges";
 import { fileDisplayName, filePathLabel, formatLineRange, isFileLikeNode, nodeSummary } from "../formatters";
-import { layoutBoxesCached, measureLayoutBounds, nodeSize, normalizeLayoutPositions, type LayoutBox } from "../layout";
+import { layoutBoxesCached, measureLayoutBounds, nodeSize, normalizeLayoutPositions } from "../layout";
 import { toCodeVisualData } from "../nodeData";
 import { computeStatsByRawNode, computeStatsForNodeIds } from "../stats";
 import { nodeTone } from "../styles";

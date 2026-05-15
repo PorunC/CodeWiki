@@ -59,3 +59,32 @@ class RepoRepositoryMixin:
             )
             for row in rows
         ]
+
+    def delete_repo(self, repo_id: str) -> bool:
+        with self.connect() as connection:
+            repo_exists = connection.execute(
+                "SELECT 1 FROM repo WHERE id = ?",
+                (repo_id,),
+            ).fetchone()
+            if repo_exists is None:
+                return False
+
+            _delete_vector_rows(connection, repo_id)
+            connection.execute("DELETE FROM code_chunk_fts WHERE repo_id = ?", (repo_id,))
+            connection.execute("DELETE FROM repo WHERE id = ?", (repo_id,))
+            return True
+
+
+def _delete_vector_rows(connection, repo_id: str) -> None:
+    rows = connection.execute(
+        """
+        SELECT name
+        FROM sqlite_master
+        WHERE name LIKE 'code_chunk_embedding_vec_%'
+        """
+    ).fetchall()
+    for row in rows:
+        table_name = row["name"]
+        suffix = table_name.removeprefix("code_chunk_embedding_vec_")
+        if suffix.isdigit():
+            connection.execute(f"DELETE FROM {table_name} WHERE repo_id = ?", (repo_id,))

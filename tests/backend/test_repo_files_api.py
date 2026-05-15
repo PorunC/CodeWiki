@@ -40,3 +40,31 @@ def test_repo_files_api_returns_flat_files_and_tree(tmp_path: Path, monkeypatch)
 
     get_settings.cache_clear()
     get_store.cache_clear()
+
+
+def test_delete_repo_api_removes_repository(tmp_path: Path, monkeypatch) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Repo\n")
+
+    monkeypatch.setenv(
+        "CODEWIKI_DATABASE_URL",
+        f"sqlite+aiosqlite:///{tmp_path / 'codewiki.sqlite3'}",
+    )
+    get_settings.cache_clear()
+    get_store.cache_clear()
+
+    client = TestClient(create_app())
+    repo_response = client.post("/api/repos", json={"path": str(repo_dir), "name": "repo"})
+    repo_response.raise_for_status()
+    repo_id = repo_response.json()["id"]
+
+    delete_response = client.delete(f"/api/repos/{repo_id}")
+
+    assert delete_response.status_code == 204
+    assert client.get(f"/api/repos/{repo_id}").status_code == 404
+    assert client.get("/api/repos").json() == []
+    assert client.delete(f"/api/repos/{repo_id}").status_code == 404
+
+    get_settings.cache_clear()
+    get_store.cache_clear()

@@ -35,7 +35,11 @@ export function NodeDetails({
   containment: ContainmentIndex;
   onNavigateToNode: (nodeId: string, edgeType?: string) => void;
 }) {
-  const rawNodeIds = visualData?.rawNodeIds ?? (node ? [node.id] : []);
+  const visualRawNodeIds = visualData?.rawNodeIds;
+  const rawNodeIds = useMemo(
+    () => visualRawNodeIds ?? (node ? [node.id] : []),
+    [node, visualRawNodeIds]
+  );
   const visualStats = useMemo(
     () => (graph ? computeStatsForNodeIds(rawNodeIds, graph.edges) : { incoming: 0, outgoing: 0, calls: 0, imports: 0 }),
     [graph, rawNodeIds]

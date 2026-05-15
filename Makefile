@@ -23,7 +23,7 @@ export FRONTEND_PORT
 export NPM
 export PYTHON_VERSION
 
-.PHONY: help install install-backend ensure-backend-python ensure-backend-pip install-frontend start dev backend frontend kill test lint lint-backend lint-frontend build clean
+.PHONY: help install install-backend ensure-backend-python ensure-backend-pip install-frontend start dev restart check-ports backend frontend kill test lint lint-backend lint-frontend build clean
 
 help:
 	@echo "Code Wiki Platform"
@@ -31,6 +31,8 @@ help:
 	@echo "Usage:"
 	@echo "  make install          Install backend and frontend dependencies"
 	@echo "  make start            Start FastAPI and Vite together"
+	@echo "  make restart          Kill dev ports, then start FastAPI and Vite"
+	@echo "  make check-ports      Check whether dev ports are free"
 	@echo "  make backend          Start only the FastAPI backend"
 	@echo "  make frontend         Start only the Vite frontend"
 	@echo "  make kill             Kill processes listening on ports 8000 and 5173"
@@ -63,10 +65,17 @@ start: dev
 dev: ensure-backend-python
 	$(PYTHON) scripts/dev.py
 
+restart: kill dev
+
+check-ports: ensure-backend-python
+	$(PYTHON) scripts/kill_ports.py --check $(BACKEND_PORT) $(FRONTEND_PORT)
+
 backend: ensure-backend-python
+	$(PYTHON) scripts/kill_ports.py --check $(BACKEND_PORT)
 	$(PYTHON) -m uvicorn $(BACKEND_APP) --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
 frontend:
+	$(PYTHON) scripts/kill_ports.py --check $(FRONTEND_PORT)
 	$(FRONTEND_NPM) run dev -- --host 127.0.0.1 --port $(FRONTEND_PORT)
 
 kill: ensure-backend-python

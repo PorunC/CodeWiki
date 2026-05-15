@@ -1,7 +1,7 @@
 export { askRepo } from "./ask";
 export { getRepoFiles } from "./files";
 export { getRepoGraph } from "./graph";
-export { getHealth, getRepos } from "./repos";
+export { createRepo, deleteRepo, getHealth, getRepos } from "./repos";
 export { analyzeRepo, updateRepo } from "./runs";
 export { getLlmModels } from "./settings";
 export { getRepoWiki } from "./wiki";

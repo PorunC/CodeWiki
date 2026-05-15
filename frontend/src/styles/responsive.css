@@ -124,6 +124,7 @@
 
   .ops-summary,
   .ops-toolbar,
+  .repo-create-form,
   .settings-section dl div {
     grid-template-columns: 1fr;
   }

@@ -27,15 +27,37 @@ if (process.platform === "win32" && !env.ESBUILD_BINARY_PATH) {
 }
 
 const viteBin = join(root, "node_modules", "vite", "bin", "vite.js");
+const shutdownSignals = new Set(["SIGINT", "SIGTERM", "SIGHUP"]);
+
+process.stdin.on("error", (error) => {
+  if (error?.code !== "EIO") {
+    console.warn(`[dev] stdin error: ${error.message}`);
+  }
+});
+
 const child = spawn(process.execPath, [viteBin, ...process.argv.slice(2)], {
   cwd: root,
   env,
-  stdio: "inherit"
+  stdio: ["ignore", "inherit", "inherit"]
+});
+
+for (const signal of shutdownSignals) {
+  process.on(signal, () => {
+    if (!child.killed) {
+      child.kill(signal);
+    }
+    process.exit(0);
+  });
+}
+
+child.on("error", (error) => {
+  console.error(`[dev] Failed to start Vite: ${error.message}`);
+  process.exit(1);
 });
 
 child.on("exit", (code, signal) => {
   if (signal) {
-    process.kill(process.pid, signal);
+    process.exit(shutdownSignals.has(signal) ? 0 : 1);
     return;
   }
   process.exit(code ?? 0);

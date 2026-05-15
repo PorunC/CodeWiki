@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from backend.app.database import get_store
@@ -64,3 +64,11 @@ async def get_repo(repo_id: str) -> dict[str, str]:
         "git_url": repo.git_url or "",
         "commit_hash": repo.commit_hash or "",
     }
+
+
+@router.delete("/{repo_id}", status_code=204)
+async def delete_repo(repo_id: str) -> Response:
+    deleted = get_store().delete_repo(repo_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+    return Response(status_code=204)

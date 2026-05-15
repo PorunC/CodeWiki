@@ -1,5 +1,6 @@
 import {
   BookOpenText,
+  FolderGit2,
   GitBranch,
   MessageCircleQuestion,
   Network,
@@ -9,10 +10,11 @@ import { useCallback, useEffect, useState, type MouseEvent } from "react";
 
 import { AskPage } from "./pages/AskPage";
 import { GraphPage } from "./pages/GraphPage";
+import { ReposPage } from "./pages/ReposPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { WikiPage } from "./pages/WikiPage";
 
-type WorkspaceSection = "graph" | "wiki" | "ask" | "settings";
+export type WorkspaceSection = "repos" | "graph" | "wiki" | "ask" | "settings";
 
 export function App() {
   const [selectedRepoId, setSelectedRepoId] = useState(() => routeFromLocation().repoId ?? "");
@@ -52,6 +54,12 @@ export function App() {
     [activeSection]
   );
 
+  const openRepoSection = useCallback((repoId: string, section: WorkspaceSection) => {
+    setSelectedRepoId(repoId);
+    setActiveSection(section);
+    window.history.pushState(null, "", pathForSection(section, repoId));
+  }, []);
+
   return (
     <main className="app-shell noise-overlay">
       <header className="app-header">
@@ -66,6 +74,14 @@ export function App() {
         </div>
 
         <nav className="top-nav" aria-label="Workspace">
+          <a
+            className={activeSection === "repos" ? "is-active" : undefined}
+            href={pathForSection("repos", selectedRepoId)}
+            onClick={(event) => navigateToSection(event, "repos")}
+          >
+            <FolderGit2 size={15} />
+            Repos
+          </a>
           <a
             className={activeSection === "graph" ? "is-active" : undefined}
             href={pathForSection("graph", selectedRepoId)}
@@ -114,6 +130,14 @@ export function App() {
         />
         {activeSection !== "graph" ? (
           <aside className="assistant-rail">
+            {activeSection === "repos" ? (
+              <ReposPage
+                selectedRepoId={selectedRepoId}
+                onRepoChange={handleSelectedRepoChange}
+                onOpenRepo={openRepoSection}
+                isActiveSection
+              />
+            ) : null}
             {activeSection === "wiki" ? (
               <WikiPage
                 selectedRepoId={selectedRepoId}
@@ -147,7 +171,7 @@ function routeFromLocation(): { section: WorkspaceSection; repoId?: string } {
   if (pathSegments[0] === "repos") {
     const repoId = pathSegments[1];
     const section = coerceSection(pathSegments[2], "graph");
-    return repoId ? { section, repoId } : { section: "graph" };
+    return repoId ? { section, repoId } : { section: "repos" };
   }
   if (pathSegments[0] === "settings") {
     return { section: "settings" };
@@ -158,11 +182,14 @@ function routeFromLocation(): { section: WorkspaceSection; repoId?: string } {
 }
 
 function coerceSection(value: string | undefined, fallback: WorkspaceSection): WorkspaceSection {
-  const sections: WorkspaceSection[] = ["graph", "wiki", "ask", "settings"];
+  const sections: WorkspaceSection[] = ["repos", "graph", "wiki", "ask", "settings"];
   return sections.includes(value as WorkspaceSection) ? (value as WorkspaceSection) : fallback;
 }
 
 function pathForSection(section: WorkspaceSection, repoId: string): string {
+  if (section === "repos") {
+    return "/repos";
+  }
   if (repoId) {
     return `/repos/${encodeURIComponent(repoId)}/${section}`;
   }

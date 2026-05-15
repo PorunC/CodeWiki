@@ -32,6 +32,17 @@ def test_parse_fuser_pids_accepts_labeled_and_stdout_only_pid_formats() -> None:
     assert kill_ports.parse_fuser_pids(8000, "1234 5678", "8000/tcp:") == {1234, 5678}
 
 
+def test_parse_args_supports_check_mode_and_default_ports() -> None:
+    assert kill_ports.parse_args(["--check", "9000"]) == (True, [9000])
+    assert kill_ports.parse_args([]) == (False, [8000, 5173])
+
+
+def test_format_listener_summary_orders_ports_and_pids() -> None:
+    summary = kill_ports.format_listener_summary({5173: {22, 11}, 8000: {33}})
+
+    assert summary == "  port 5173: PID(s) 11, 22\n  port 8000: PID(s) 33"
+
+
 def test_kill_process_ignores_already_exited_process(monkeypatch) -> None:
     if os.name == "nt":
         return
