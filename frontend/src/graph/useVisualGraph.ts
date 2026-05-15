@@ -30,6 +30,7 @@ export function useVisualGraph({
   selectedVisualId,
   hiddenVisualIds,
   highlightedRawNodeIds,
+  showIsolatedCommunities,
   flowKey
 }: {
   graph: GraphResponse | null;
@@ -43,6 +44,7 @@ export function useVisualGraph({
   selectedVisualId: string | null;
   hiddenVisualIds: Set<string>;
   highlightedRawNodeIds: Set<string>;
+  showIsolatedCommunities: boolean;
   flowKey: string;
 }) {
   const [baseVisualGraph, setBaseVisualGraph] = useState<{ nodes: FlowNode[]; edges: FlowEdge[] }>({
@@ -90,7 +92,10 @@ export function useVisualGraph({
             { densityMode }
           );
         } else {
-          nextGraph = await buildOverviewGraph(graph, filteredGraph, containment, null, { densityMode });
+          nextGraph = await buildOverviewGraph(graph, filteredGraph, containment, null, {
+            densityMode,
+            showIsolatedCommunities
+          });
         }
 
         if (!cancelled) {
@@ -122,6 +127,7 @@ export function useVisualGraph({
     layoutDrilldownContainer,
     layoutSelectedFileId,
     layoutSelectedNodeId,
+    showIsolatedCommunities,
     viewMode
   ]);
 

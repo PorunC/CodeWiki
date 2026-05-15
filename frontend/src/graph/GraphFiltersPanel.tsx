@@ -18,11 +18,14 @@ export function GraphFiltersPanel({
   selectedNodeTypes,
   selectedEdgeTypes,
   showInferredCalls,
+  showIsolatedCommunities,
+  hiddenIsolatedCommunityCount,
   graphLoaded,
   hiddenNodes,
   onNodeTypeToggle,
   onEdgeTypeToggle,
   onShowInferredCallsChange,
+  onShowIsolatedCommunitiesChange,
   onResetFilters,
   onShowHiddenNode,
   onShowAllHiddenNodes,
@@ -34,11 +37,14 @@ export function GraphFiltersPanel({
   selectedNodeTypes: Set<string>;
   selectedEdgeTypes: Set<string>;
   showInferredCalls: boolean;
+  showIsolatedCommunities: boolean;
+  hiddenIsolatedCommunityCount: number;
   graphLoaded: boolean;
   hiddenNodes: HiddenVisualNodeOption[];
   onNodeTypeToggle: (type: string) => void;
   onEdgeTypeToggle: (type: string) => void;
   onShowInferredCallsChange: (show: boolean) => void;
+  onShowIsolatedCommunitiesChange: (show: boolean) => void;
   onResetFilters: () => void;
   onShowHiddenNode: (nodeId: string) => void;
   onShowAllHiddenNodes: () => void;
@@ -72,6 +78,20 @@ export function GraphFiltersPanel({
           />
           <span>Inferred calls</span>
         </label>
+        {viewMode === "overview" ? (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={showIsolatedCommunities}
+              disabled={!graphLoaded || (!showIsolatedCommunities && hiddenIsolatedCommunityCount === 0)}
+              onChange={(event) => onShowIsolatedCommunitiesChange(event.target.checked)}
+            />
+            <span>
+              Show isolated communities
+              {hiddenIsolatedCommunityCount > 0 ? ` (${hiddenIsolatedCommunityCount})` : ""}
+            </span>
+          </label>
+        ) : null}
         <button className="secondary-button" type="button" onClick={onResetFilters} disabled={!graphLoaded}>
           Reset filters
         </button>

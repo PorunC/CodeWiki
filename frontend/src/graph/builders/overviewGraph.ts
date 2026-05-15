@@ -28,7 +28,30 @@ const COMMUNITY_NODE_WIDTH = 330;
 const COMMUNITY_NODE_HEIGHT = 174;
 const DEPENDENCY_NODE_ID = "dependency:external";
 const OTHER_COMMUNITIES_NODE_ID = "community:other";
+const UNCONNECTED_COMMUNITIES_NODE_ID = "community:unconnected-other";
 const OVERVIEW_SKIP_EDGE_TYPES = new Set(["contains", "defines"]);
+const ENTRYPOINT_FILE_NAMES = new Set([
+  "__main__.py",
+  "app.py",
+  "asgi.py",
+  "cli.py",
+  "index.js",
+  "index.jsx",
+  "index.ts",
+  "index.tsx",
+  "main.js",
+  "main.jsx",
+  "main.py",
+  "main.ts",
+  "main.tsx",
+  "manage.py",
+  "server.js",
+  "server.jsx",
+  "server.py",
+  "server.ts",
+  "server.tsx",
+  "wsgi.py"
+]);
 
 type CommunityCandidate = {
   id: string;
@@ -39,7 +62,16 @@ type CommunityCandidate = {
   primaryNodeId?: string;
   fileCount: number;
   symbolCount: number;
+  communityCount: number;
   edgeScore: number;
+  externalEdgeCount: number;
+  isIsolated: boolean;
+  isOverviewImportant: boolean;
+};
+
+export type OverviewCommunityOptions = {
+  densityMode?: GraphDensityMode;
+  showIsolatedCommunities?: boolean;
 };
 
 export async function buildOverviewGraph(
@@ -47,7 +79,7 @@ export async function buildOverviewGraph(
   filtered: FilteredGraph,
   containment: ContainmentIndex,
   selectedVisualId: string | null,
-  options: { densityMode?: GraphDensityMode } = {}
+  options: OverviewCommunityOptions = {}
 ): Promise<VisualGraph> {
   const communities = graph.communities ?? [];
   if (communities.length > 0) {
@@ -61,18 +93,28 @@ async function buildCommunityOverviewGraph(
   filtered: FilteredGraph,
   containment: ContainmentIndex,
   selectedVisualId: string | null,
-  options: { densityMode?: GraphDensityMode }
+  options: OverviewCommunityOptions
 ): Promise<VisualGraph> {
   const densityMode = options.densityMode ?? "readable";
+  const showIsolatedCommunities = options.showIsolatedCommunities ?? false;
   const ranked = rankCommunities(graph.communities ?? [], filtered, containment);
-  const visibleCommunities =
-    densityMode === "readable" ? ranked.slice(0, OVERVIEW_COMMUNITY_LIMIT) : ranked;
-  const hiddenCommunities =
-    densityMode === "readable" ? ranked.slice(OVERVIEW_COMMUNITY_LIMIT) : [];
+  const aggregatedIsolatedCommunities = showIsolatedCommunities
+    ? []
+    : ranked.filter((candidate) => candidate.isIsolated && !candidate.isOverviewImportant);
+  const aggregatedIds = new Set(aggregatedIsolatedCommunities.map((candidate) => candidate.id));
+  const availableCommunities = ranked.filter((candidate) => !aggregatedIds.has(candidate.id));
+  const { visibleCommunities, hiddenCommunities } = partitionVisibleCommunities(
+    availableCommunities,
+    densityMode,
+    showIsolatedCommunities
+  );
   const candidates =
     hiddenCommunities.length > 0
       ? [...visibleCommunities, collapsedCommunityCandidate(hiddenCommunities)]
       : visibleCommunities;
+  if (aggregatedIsolatedCommunities.length > 0) {
+    candidates.push(unconnectedCommunityCandidate(aggregatedIsolatedCommunities));
+  }
   const rawToVisualId = communityRawToVisualId(candidates);
   const hasDependencies = filtered.nodes.some((node) => node.type === "module");
   if (hasDependencies) {
@@ -117,10 +159,10 @@ async function buildCommunityOverviewGraph(
       data: {
         kind: "container",
         title: candidate.name,
-        subtitle: candidate.community ? "community" : "collapsed communities",
+        subtitle: candidateSubtitle(candidate),
         containerType: "community",
         pathLabel: candidate.pathLabel,
-        countLabel: `${candidate.fileCount}`,
+        countLabel: `${candidate.community ? candidate.fileCount : candidate.communityCount}`,
         statsLabel: `${stats.incoming} in / ${stats.outgoing} out`,
         accentColor: nodeTone("directory").border,
         primaryNodeId: candidate.primaryNodeId,
@@ -340,6 +382,16 @@ async function buildDirectoryOverviewGraph(
   return applyVisualState(nodes, edges, selectedVisualId, "overview");
 }
 
+export function countDefaultHiddenIsolatedCommunities(
+  communities: GraphCommunity[],
+  filtered: FilteredGraph,
+  containment: ContainmentIndex
+): number {
+  return rankCommunities(communities, filtered, containment).filter(
+    (candidate) => candidate.isIsolated && !candidate.isOverviewImportant
+  ).length;
+}
+
 function rankCommunities(
   communities: GraphCommunity[],
   filtered: FilteredGraph,
@@ -348,17 +400,7 @@ function rankCommunities(
   return communities
     .map((community) => communityCandidate(community, filtered, containment))
     .filter((candidate): candidate is CommunityCandidate => Boolean(candidate && candidate.rawNodeIds.length > 0))
-    .sort((left, right) => {
-      const scoreDelta = right.edgeScore - left.edgeScore;
-      if (scoreDelta !== 0) {
-        return scoreDelta;
-      }
-      const fileDelta = right.fileCount - left.fileCount;
-      if (fileDelta !== 0) {
-        return fileDelta;
-      }
-      return left.name.localeCompare(right.name);
-    });
+    .sort(compareCommunityCandidates);
 }
 
 function communityCandidate(
@@ -379,17 +421,26 @@ function communityCandidate(
       fileIds.add(fileId);
     }
   });
-  const edgeScore = filtered.edges.reduce((score, edge) => {
-    if (OVERVIEW_SKIP_EDGE_TYPES.has(edge.type)) {
-      return score;
-    }
-    const sourceInside = rawNodeSet.has(edge.source);
-    const targetInside = rawNodeSet.has(edge.target);
-    if (!sourceInside && !targetInside) {
-      return score;
-    }
-    return score + (sourceInside && targetInside ? 0.15 : 1);
-  }, 0);
+  const edgeStats = filtered.edges.reduce(
+    (stats, edge) => {
+      if (OVERVIEW_SKIP_EDGE_TYPES.has(edge.type)) {
+        return stats;
+      }
+      const sourceInside = rawNodeSet.has(edge.source);
+      const targetInside = rawNodeSet.has(edge.target);
+      if (!sourceInside && !targetInside) {
+        return stats;
+      }
+      if (sourceInside && targetInside) {
+        stats.edgeScore += 0.15;
+      } else {
+        stats.edgeScore += 1;
+        stats.externalEdgeCount += 1;
+      }
+      return stats;
+    },
+    { edgeScore: 0, externalEdgeCount: 0 }
+  );
 
   return {
     id: `community:${community.id}`,
@@ -400,7 +451,104 @@ function communityCandidate(
     primaryNodeId: primaryNodeId(rawNodeIds, containment),
     fileCount: fileIds.size,
     symbolCount: rawNodeIds.length - fileIds.size,
-    edgeScore
+    communityCount: 1,
+    edgeScore: edgeStats.edgeScore,
+    externalEdgeCount: edgeStats.externalEdgeCount,
+    isIsolated: edgeStats.externalEdgeCount === 0,
+    isOverviewImportant: hasOverviewImportantNode(rawNodeIds, containment)
+  };
+}
+
+function partitionVisibleCommunities(
+  candidates: CommunityCandidate[],
+  densityMode: GraphDensityMode,
+  showIsolatedCommunities: boolean
+): { visibleCommunities: CommunityCandidate[]; hiddenCommunities: CommunityCandidate[] } {
+  if (densityMode !== "readable") {
+    return { visibleCommunities: candidates, hiddenCommunities: [] };
+  }
+
+  const required = candidates.filter(
+    (candidate) => candidate.isIsolated && (showIsolatedCommunities || candidate.isOverviewImportant)
+  );
+  const requiredIds = new Set(required.map((candidate) => candidate.id));
+  const optional = candidates.filter((candidate) => !requiredIds.has(candidate.id));
+  const optionalLimit = Math.max(OVERVIEW_COMMUNITY_LIMIT - required.length, 0);
+
+  return {
+    visibleCommunities: [...required, ...optional.slice(0, optionalLimit)].sort(compareCommunityCandidates),
+    hiddenCommunities: optional.slice(optionalLimit)
+  };
+}
+
+function compareCommunityCandidates(left: CommunityCandidate, right: CommunityCandidate): number {
+  const scoreDelta = right.edgeScore - left.edgeScore;
+  if (scoreDelta !== 0) {
+    return scoreDelta;
+  }
+  const fileDelta = right.fileCount - left.fileCount;
+  if (fileDelta !== 0) {
+    return fileDelta;
+  }
+  return left.name.localeCompare(right.name);
+}
+
+function hasOverviewImportantNode(rawNodeIds: string[], containment: ContainmentIndex): boolean {
+  return rawNodeIds.some((nodeId) => {
+    const node = containment.nodeById.get(nodeId);
+    if (!node) {
+      return false;
+    }
+    if (node.type === "endpoint" || node.type === "config") {
+      return true;
+    }
+    const filePath = node.file_path ?? node.name;
+    return isReadmePath(filePath) || isEntrypointPath(filePath);
+  });
+}
+
+function isReadmePath(path: string | null | undefined): boolean {
+  const fileName = pathFileName(path);
+  return Boolean(fileName && /^readme(?:\.[a-z0-9]+)?$/i.test(fileName));
+}
+
+function isEntrypointPath(path: string | null | undefined): boolean {
+  const fileName = pathFileName(path);
+  return Boolean(fileName && ENTRYPOINT_FILE_NAMES.has(fileName.toLowerCase()));
+}
+
+function pathFileName(path: string | null | undefined): string {
+  return (path ?? "").replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? "";
+}
+
+function candidateSubtitle(candidate: CommunityCandidate): string {
+  if (candidate.community) {
+    return candidate.isIsolated ? "isolated community" : "community";
+  }
+  if (candidate.id === UNCONNECTED_COMMUNITIES_NODE_ID) {
+    return "isolated communities";
+  }
+  return "collapsed communities";
+}
+
+function unconnectedCommunityCandidate(candidates: CommunityCandidate[]): CommunityCandidate {
+  const rawNodeIds = candidates.flatMap((candidate) => candidate.rawNodeIds);
+  const fileCount = candidates.reduce((sum, candidate) => sum + candidate.fileCount, 0);
+  const symbolCount = candidates.reduce((sum, candidate) => sum + candidate.symbolCount, 0);
+  return {
+    id: UNCONNECTED_COMMUNITIES_NODE_ID,
+    community: null,
+    name: "Unconnected / Other",
+    pathLabel: `${candidates.length} isolated communities / ${fileCount} files`,
+    rawNodeIds,
+    primaryNodeId: undefined,
+    fileCount,
+    symbolCount,
+    communityCount: candidates.length,
+    edgeScore: 0,
+    externalEdgeCount: 0,
+    isIsolated: true,
+    isOverviewImportant: false
   };
 }
 
@@ -409,6 +557,7 @@ function collapsedCommunityCandidate(candidates: CommunityCandidate[]): Communit
   const fileCount = candidates.reduce((sum, candidate) => sum + candidate.fileCount, 0);
   const symbolCount = candidates.reduce((sum, candidate) => sum + candidate.symbolCount, 0);
   const edgeScore = candidates.reduce((sum, candidate) => sum + candidate.edgeScore, 0);
+  const externalEdgeCount = candidates.reduce((sum, candidate) => sum + candidate.externalEdgeCount, 0);
   return {
     id: OTHER_COMMUNITIES_NODE_ID,
     community: null,
@@ -418,7 +567,11 @@ function collapsedCommunityCandidate(candidates: CommunityCandidate[]): Communit
     primaryNodeId: undefined,
     fileCount,
     symbolCount,
-    edgeScore
+    communityCount: candidates.length,
+    edgeScore,
+    externalEdgeCount,
+    isIsolated: externalEdgeCount === 0,
+    isOverviewImportant: false
   };
 }
 

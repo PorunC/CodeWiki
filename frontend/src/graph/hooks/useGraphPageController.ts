@@ -7,6 +7,7 @@ import type { HiddenVisualNodeOption } from "../GraphFiltersPanel";
 import {
   collectTypes,
   collectEdgeTypes,
+  countDefaultHiddenIsolatedCommunities,
   defaultFullEdgeTypes,
   defaultReadableEdgeTypes,
   deriveContainment,
@@ -64,6 +65,7 @@ export function useGraphPageController({
   const [selectedNodeTypes, setSelectedNodeTypes] = useState<Set<string>>(new Set());
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(new Set());
   const [showInferredCalls, setShowInferredCalls] = useState(false);
+  const [showIsolatedCommunities, setShowIsolatedCommunities] = useState(false);
   const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
   const [highlightedRawNodeIds, setHighlightedRawNodeIds] = useState<Set<string>>(new Set());
   const [highlightLabel, setHighlightLabel] = useState("Ask-related");
@@ -150,6 +152,7 @@ export function useGraphPageController({
       setSelectedNodeTypes(defaultSelectedNodeTypes(repoGraph.nodes.map((node) => node.type)));
       setSelectedEdgeTypes(defaultReadableEdgeTypes(collectEdgeTypes(repoGraph.edges)));
       setShowInferredCalls(false);
+      setShowIsolatedCommunities(false);
       setDensityMode("readable");
       setSelectedNodeId(firstFile?.id ?? null);
       setSelectedVisualId(null);
@@ -187,6 +190,10 @@ export function useGraphPageController({
     () => filterRawGraph(graph, selectedNodeTypes, selectedEdgeTypes, showInferredCalls),
     [graph, selectedEdgeTypes, selectedNodeTypes, showInferredCalls]
   );
+  const hiddenIsolatedCommunityCount = useMemo(
+    () => countDefaultHiddenIsolatedCommunities(graph?.communities ?? [], filteredGraph, containment),
+    [containment, filteredGraph, graph?.communities]
+  );
 
   useEffect(() => {
     if (!graph || viewMode !== "file" || selectedFileId) {
@@ -222,7 +229,7 @@ export function useGraphPageController({
           : "stable";
   const requestedFlowKey = `${selectedRepoId}:${viewMode}:${viewLayoutKey}:${filterKey(
     selectedNodeTypes
-  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}:${densityMode}`;
+  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}:${showIsolatedCommunities}:${densityMode}`;
 
   const { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading, activeFlowKey } = useVisualGraph({
     graph,
@@ -236,6 +243,7 @@ export function useGraphPageController({
     selectedVisualId,
     hiddenVisualIds,
     highlightedRawNodeIds,
+    showIsolatedCommunities,
     flowKey: requestedFlowKey
   });
 
@@ -366,6 +374,7 @@ export function useGraphPageController({
     setSelectedNodeTypes(defaultSelectedNodeTypes(nodeTypes));
     setSelectedEdgeTypes(densityMode === "readable" ? defaultReadableEdgeTypes(edgeTypes) : defaultFullEdgeTypes(edgeTypes));
     setShowInferredCalls(densityMode === "full");
+    setShowIsolatedCommunities(false);
   }, [densityMode, edgeTypes, nodeTypes]);
 
   const toggleDensityMode = useCallback(() => {
@@ -393,13 +402,20 @@ export function useGraphPageController({
     setHighlightedRawNodeIds(new Set());
   }, []);
 
-  const openFileDetail = useCallback((fileId: string) => {
-    setSelectedVisualId(`file-detail:${fileId}`);
-    setSelectedNodeId(fileId);
-    setSelectedFileId(fileId);
-    setFocusNodeId(fileId);
-    setViewMode("file");
-  }, []);
+  const openFileDetail = useCallback(
+    (fileId: string) => {
+      const fileNode = graph?.nodes.find((node) => node.id === fileId) ?? null;
+      if (fileNode) {
+        setSelectedNodeTypes((current) => new Set([...current, fileNode.type]));
+      }
+      setSelectedVisualId(`file-detail:${fileId}`);
+      setSelectedNodeId(fileId);
+      setSelectedFileId(fileId);
+      setFocusNodeId(fileId);
+      setViewMode("file");
+    },
+    [graph?.nodes]
+  );
 
   const openContainerDrilldown = useCallback(
     (container: DrilldownContainerSelection) => {
@@ -649,6 +665,8 @@ export function useGraphPageController({
     selectedNodeTypes,
     selectedEdgeTypes,
     showInferredCalls,
+    showIsolatedCommunities,
+    hiddenIsolatedCommunityCount,
     highlightedRawNodeIds,
     highlightLabel,
     hiddenNodes,
@@ -668,6 +686,7 @@ export function useGraphPageController({
       toggleEdgeType,
       toggleDensityMode,
       setShowInferredCalls,
+      setShowIsolatedCommunities,
       resetFilters,
       showHiddenNode,
       showAllHiddenNodes,
