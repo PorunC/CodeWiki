@@ -44,7 +44,8 @@
 }
 
 .workspace.is-section-wiki .wiki-browser {
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  column-gap: 0;
+  grid-template-columns: var(--wiki-catalog-width, 300px) 8px minmax(0, 1fr);
 }
 
 .workspace.is-section-wiki .wiki-catalog {
@@ -53,6 +54,46 @@
   overflow: auto;
   position: sticky;
   top: 16px;
+}
+
+.wiki-browser.is-resizing-catalog {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.wiki-browser.is-resizing-catalog .wiki-article {
+  pointer-events: none;
+}
+
+.wiki-catalog-resizer {
+  background: rgba(212, 165, 116, 0.04);
+  cursor: col-resize;
+  min-height: 0;
+  position: relative;
+  touch-action: none;
+}
+
+.wiki-catalog-resizer::before {
+  background: rgba(212, 165, 116, 0.22);
+  border-radius: 999px;
+  content: "";
+  inset: 16px 3px;
+  opacity: 0;
+  position: absolute;
+  transition:
+    background 160ms ease,
+    opacity 160ms ease;
+}
+
+.wiki-catalog-resizer:hover::before,
+.wiki-catalog-resizer:focus-visible::before,
+.wiki-browser.is-resizing-catalog .wiki-catalog-resizer::before {
+  opacity: 1;
+}
+
+.wiki-catalog-resizer:focus-visible {
+  outline: 2px solid rgba(212, 165, 116, 0.42);
+  outline-offset: -2px;
 }
 
 .wiki-list {
@@ -82,4 +123,3 @@
   font-size: 12px;
   text-transform: uppercase;
 }
-

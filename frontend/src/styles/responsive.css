@@ -90,6 +90,10 @@
     grid-template-columns: 1fr;
   }
 
+  .wiki-catalog-resizer {
+    display: none;
+  }
+
   .workspace.is-section-wiki .wiki-catalog {
     position: static;
   }

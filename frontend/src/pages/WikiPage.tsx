@@ -1,5 +1,14 @@
 import { FileText, RefreshCw, RotateCw } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent
+} from "react";
 
 import { generateWikiPages, regenerateWikiPage } from "../api/wiki";
 import { useRepos } from "../hooks/useRepos";
@@ -7,6 +16,27 @@ import { WikiArticle } from "../wiki/components/WikiArticle";
 import { WikiCatalog } from "../wiki/components/WikiCatalog";
 import { useWikiData } from "../wiki/hooks/useWikiData";
 import { relatedPagesForPage } from "../wiki/relatedPages";
+
+const WIKI_CATALOG_WIDTH_KEY = "codewiki:wiki-catalog-width";
+const WIKI_CATALOG_DEFAULT_WIDTH = 300;
+const WIKI_CATALOG_MIN_WIDTH = 220;
+const WIKI_CATALOG_MAX_WIDTH = 560;
+const WIKI_ARTICLE_MIN_WIDTH = 420;
+const WIKI_CATALOG_RESPONSIVE_BREAKPOINT = 900;
+
+function initialCatalogWidth(): number {
+  if (typeof window === "undefined") {
+    return WIKI_CATALOG_DEFAULT_WIDTH;
+  }
+  const storedWidth = Number(window.localStorage.getItem(WIKI_CATALOG_WIDTH_KEY));
+  return Number.isFinite(storedWidth)
+    ? clamp(storedWidth, WIKI_CATALOG_MIN_WIDTH, WIKI_CATALOG_MAX_WIDTH)
+    : WIKI_CATALOG_DEFAULT_WIDTH;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
 
 export function WikiPage({
   selectedRepoId,
@@ -18,6 +48,10 @@ export function WikiPage({
   isActiveSection: boolean;
 }) {
   const { repos, selectedRepo, error: repoError } = useRepos({ selectedRepoId, onRepoChange });
+  const browserRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [catalogWidth, setCatalogWidth] = useState(initialCatalogWidth);
+  const [isResizingCatalog, setIsResizingCatalog] = useState(false);
   const [generationTask, setGenerationTask] = useState<"pages" | "page" | null>(null);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -39,6 +73,97 @@ export function WikiPage({
   const isGenerating = generationTask !== null;
   const generationDisabled = !selectedRepoId || loading || generationTask !== null;
   const currentPageDisabled = generationDisabled || !selectedSlug;
+
+  const clampCatalogWidth = useCallback((width: number) => {
+    const browserWidth = browserRef.current?.getBoundingClientRect().width ?? 0;
+    const browserMax =
+      browserWidth > 0
+        ? Math.max(WIKI_CATALOG_MIN_WIDTH, browserWidth - WIKI_ARTICLE_MIN_WIDTH - 8)
+        : WIKI_CATALOG_MAX_WIDTH;
+    return clamp(width, WIKI_CATALOG_MIN_WIDTH, Math.min(WIKI_CATALOG_MAX_WIDTH, browserMax));
+  }, []);
+
+  const handleCatalogResizeStart = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (window.innerWidth <= WIKI_CATALOG_RESPONSIVE_BREAKPOINT) {
+        return;
+      }
+      event.preventDefault();
+      dragStateRef.current = {
+        startX: event.clientX,
+        startWidth: catalogWidth
+      };
+      setIsResizingCatalog(true);
+    },
+    [catalogWidth]
+  );
+
+  const handleCatalogResizeKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const step = event.shiftKey ? 40 : 16;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setCatalogWidth((current) => clampCatalogWidth(current - step));
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setCatalogWidth((current) => clampCatalogWidth(current + step));
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        setCatalogWidth((current) => clampCatalogWidth(Math.min(current, WIKI_CATALOG_MIN_WIDTH)));
+      } else if (event.key === "End") {
+        event.preventDefault();
+        setCatalogWidth((current) => clampCatalogWidth(Math.max(current, WIKI_CATALOG_MAX_WIDTH)));
+      }
+    },
+    [clampCatalogWidth]
+  );
+
+  useEffect(() => {
+    if (!isResizingCatalog) {
+      return;
+    }
+
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const dragState = dragStateRef.current;
+      if (!dragState) {
+        return;
+      }
+      setCatalogWidth(clampCatalogWidth(dragState.startWidth + event.clientX - dragState.startX));
+    };
+    const handlePointerEnd = () => {
+      dragStateRef.current = null;
+      setIsResizingCatalog(false);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [clampCatalogWidth, isResizingCatalog]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= WIKI_CATALOG_RESPONSIVE_BREAKPOINT) {
+        return;
+      }
+      setCatalogWidth((current) => clampCatalogWidth(current));
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [clampCatalogWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(WIKI_CATALOG_WIDTH_KEY, String(Math.round(catalogWidth)));
+  }, [catalogWidth]);
 
   const handleGeneratePages = useCallback(async () => {
     if (!selectedRepoId || generationTask) {
@@ -177,7 +302,18 @@ export function WikiPage({
       ) : null}
 
       {wiki ? (
-        <div className={`wiki-browser${isGenerating ? " is-generating" : ""}`} aria-busy={isGenerating || undefined}>
+        <div
+          ref={browserRef}
+          className={[
+            "wiki-browser",
+            isGenerating ? "is-generating" : "",
+            isResizingCatalog ? "is-resizing-catalog" : ""
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          style={{ "--wiki-catalog-width": `${catalogWidth}px` } as CSSProperties}
+          aria-busy={isGenerating || undefined}
+        >
           <nav className="wiki-catalog" aria-label="Wiki catalog">
             <WikiCatalog
               items={wiki.items}
@@ -186,6 +322,19 @@ export function WikiPage({
               onSelect={setSelectedSlug}
             />
           </nav>
+          <div
+            className="wiki-catalog-resizer"
+            role="separator"
+            aria-label="Resize wiki catalog"
+            aria-orientation="vertical"
+            aria-valuemax={WIKI_CATALOG_MAX_WIDTH}
+            aria-valuemin={WIKI_CATALOG_MIN_WIDTH}
+            aria-valuenow={Math.round(catalogWidth)}
+            tabIndex={0}
+            title="Resize wiki catalog"
+            onKeyDown={handleCatalogResizeKeyDown}
+            onPointerDown={handleCatalogResizeStart}
+          />
 
           {selectedPage ? (
             <WikiArticle page={selectedPage} relatedPages={relatedPages} onSelectPage={setSelectedSlug} />
