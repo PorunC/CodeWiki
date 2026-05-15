@@ -1,40 +1,80 @@
 import ast as py_ast
-from pathlib import Path
+from dataclasses import replace
+
+import tree_sitter_python
 
 from backend.app.services.ast_parsers.base import AstSymbol
-from backend.app.services.ast_parsers.common import HTTP_METHODS, content_hash, relative_path
+from backend.app.services.ast_parsers.common import HTTP_METHODS
+from backend.app.services.ast_parsers.query import (
+    QueryLanguageSpec,
+    QueryParseContext,
+    TreeSitterQueryParser,
+    merge_enhanced_symbols,
+)
 
 
-class PythonAstParser:
-    language = "python"
+PYTHON_QUERY = """
+(import_statement
+  (dotted_name) @import.source)
 
-    def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
-        content = path.read_text(encoding="utf-8", errors="replace")
-        file_path = relative_path(path, repo_root)
-        file_hash = content_hash(content)
-        lines = content.splitlines()
-        tree = py_ast.parse(content, filename=str(path))
-        imports = _python_imports(tree)
+(import_from_statement
+  module_name: (dotted_name) @import.source)
 
-        symbols = [
-            AstSymbol(
-                id=f"file:{file_path}",
-                type="file",
-                name=path.name,
-                file_path=file_path,
-                language=self.language,
-                start_line=1,
-                end_line=max(len(lines), 1),
-                imports=imports,
-                exports=_python_exports(tree),
-                hash=file_hash,
+(class_definition
+  name: (identifier) @definition.name
+  superclasses: (argument_list
+    (identifier) @heritage.base)?) @definition.class
+
+(function_definition
+  name: (identifier) @definition.name) @definition.function
+
+(call
+  function: (identifier) @call.name)
+
+(call
+  function: (attribute
+    attribute: (identifier) @call.name))
+
+(identifier) @reference.name
+"""
+
+
+class PythonAstParser(TreeSitterQueryParser):
+    def __init__(self) -> None:
+        super().__init__(
+            QueryLanguageSpec(
+                language="python",
+                grammar=tree_sitter_python.language,
+                query=PYTHON_QUERY,
             )
-        ]
+        )
 
-        visitor = _PythonSymbolVisitor(file_path=file_path, file_hash=file_hash, lines=lines)
+    def augment_symbols(
+        self,
+        symbols: list[AstSymbol],
+        context: QueryParseContext,
+    ) -> list[AstSymbol]:
+        tree = py_ast.parse(context.content, filename=str(context.path))
+        file_symbol = replace(
+            symbols[0],
+            imports=_python_imports(tree),
+            exports=_python_exports(tree),
+            metadata={
+                **symbols[0].metadata,
+                "language_enhancer": "python",
+            },
+        )
+        visitor = _PythonSymbolVisitor(
+            file_path=context.file_path,
+            file_hash=context.file_hash,
+            lines=context.lines,
+        )
         visitor.visit(tree)
-        symbols.extend(visitor.symbols)
-        return symbols
+        return merge_enhanced_symbols(
+            symbols,
+            [file_symbol, *visitor.symbols],
+            enhancer="python",
+        )
 
 
 class _PythonSymbolVisitor(py_ast.NodeVisitor):

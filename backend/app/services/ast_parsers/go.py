@@ -1,71 +1,118 @@
-from pathlib import Path
+from dataclasses import replace
 
-from tree_sitter import Language, Parser
 import tree_sitter_go
 
 from backend.app.services.ast_parsers.base import AstSymbol
-from backend.app.services.ast_parsers.common import HTTP_METHODS, content_hash, relative_path
+from backend.app.services.ast_parsers.common import HTTP_METHODS
 from backend.app.services.ast_parsers.ecma.tree import (
     descendants_of_type,
     field_text,
     node_text,
     strip_quotes,
 )
+from backend.app.services.ast_parsers.query import (
+    QueryLanguageSpec,
+    QueryParseContext,
+    TreeSitterQueryParser,
+    merge_enhanced_symbols,
+)
 
 
 GO_TYPE_DECLARATIONS = {"type_alias", "type_spec"}
 
 
-class TreeSitterGoParser:
-    language = "go"
+GO_QUERY = """
+(import_spec
+  path: (_) @import.source)
 
+(type_spec
+  name: (type_identifier) @definition.name
+  type: (struct_type)) @definition.class
+
+(type_spec
+  name: (type_identifier) @definition.name
+  type: (interface_type)) @definition.interface
+
+(type_alias
+  name: (type_identifier) @definition.name) @definition.schema
+
+(function_declaration
+  name: (identifier) @definition.name) @definition.function
+
+(method_declaration
+  receiver: (parameter_list
+    (parameter_declaration
+      type: (type_identifier) @definition.parent))
+  name: (field_identifier) @definition.name) @definition.method
+
+(method_declaration
+  receiver: (parameter_list
+    (parameter_declaration
+      type: (pointer_type
+        (type_identifier) @definition.parent)))
+  name: (field_identifier) @definition.name) @definition.method
+
+(method_elem
+  name: (field_identifier) @definition.name) @definition.method
+
+(call_expression
+  function: (identifier) @call.name)
+
+(call_expression
+  function: (selector_expression
+    field: (field_identifier) @call.name))
+
+(type_identifier) @reference.name
+"""
+
+
+class TreeSitterGoParser(TreeSitterQueryParser):
     def __init__(self) -> None:
-        self.parser = Parser(Language(tree_sitter_go.language()))
-
-    def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
-        content = path.read_text(encoding="utf-8", errors="replace")
-        source = content.encode("utf-8")
-        tree = self.parser.parse(source)
-        root = tree.root_node
-        file_path = relative_path(path, repo_root)
-        file_hash = content_hash(content)
-        lines = content.splitlines()
-        package_name = go_package_name(root, source)
-
-        symbols = [
-            AstSymbol(
-                id=f"file:{file_path}",
-                type="file",
-                name=path.name,
-                file_path=file_path,
-                language=self.language,
-                start_line=1,
-                end_line=max(len(lines), 1),
-                imports=go_import_names(root, source),
-                hash=file_hash,
-                metadata={"package": package_name, "tree_sitter": True, "root_type": root.type},
+        super().__init__(
+            QueryLanguageSpec(
+                language="go",
+                grammar=tree_sitter_go.language,
+                query=GO_QUERY,
             )
-        ]
-        symbols.extend(
-            go_declaration_symbols(
-                root,
-                source=source,
-                file_path=file_path,
-                file_hash=file_hash,
-                package_name=package_name,
-            )
+        )
+
+    def augment_symbols(
+        self,
+        symbols: list[AstSymbol],
+        context: QueryParseContext,
+    ) -> list[AstSymbol]:
+        package_name = go_package_name(context.root, context.source)
+        enhanced_symbols = go_declaration_symbols(
+            context.root,
+            source=context.source,
+            file_path=context.file_path,
+            file_hash=context.file_hash,
+            package_name=package_name,
         )
         exports = sorted(
             {
                 symbol.name
-                for symbol in symbols
+                for symbol in enhanced_symbols
                 if symbol.type not in {"endpoint", "file"}
                 and symbol.parent_id is None
                 and is_exported(symbol.name)
             }
         )
-        symbols[0] = AstSymbol(**{**symbols[0].__dict__, "exports": exports})
-        return symbols
+        file_symbol = replace(
+            symbols[0],
+            imports=go_import_names(context.root, context.source),
+            exports=exports,
+            metadata={
+                **symbols[0].metadata,
+                "package": package_name,
+                "language_enhancer": "go",
+            },
+        )
+        return merge_enhanced_symbols(
+            symbols,
+            [file_symbol, *enhanced_symbols],
+            enhancer="go",
+        )
 
 
 def go_package_name(root, source: bytes) -> str:

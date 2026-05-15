@@ -252,6 +252,8 @@ def class_heritage(node, source: bytes) -> tuple[list[str], list[str]]:
             bases.extend(heritage_type_names(child, source))
         elif child.type == "implements_clause":
             implements.extend(heritage_type_names(child, source))
+        elif child.type in {"identifier", "type_identifier", "nested_type_identifier"}:
+            bases.append(node_text(child, source))
     return sorted(set(bases)), sorted(set(implements))
 
 

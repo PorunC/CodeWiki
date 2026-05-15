@@ -7,9 +7,13 @@ from backend.app.services.ast_parsers import (
     AstSymbol,
     LanguageParser,
     PythonAstParser,
+    TreeSitterCParser,
+    TreeSitterCppParser,
+    TreeSitterCSharpParser,
     TreeSitterGoParser,
     TreeSitterJavaParser,
     TreeSitterJavaScriptParser,
+    TreeSitterRustParser,
     TreeSitterTypeScriptParser,
 )
 from backend.app.services.repo_scanner import ScannedFile
@@ -49,9 +53,13 @@ __all__ = [
     "AstSymbol",
     "LanguageParser",
     "PythonAstParser",
+    "TreeSitterCParser",
+    "TreeSitterCppParser",
+    "TreeSitterCSharpParser",
     "TreeSitterGoParser",
     "TreeSitterJavaParser",
     "TreeSitterJavaScriptParser",
+    "TreeSitterRustParser",
     "TreeSitterTypeScriptParser",
     "parse_scanned_files",
 ]

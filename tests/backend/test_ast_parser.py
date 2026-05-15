@@ -25,11 +25,13 @@ def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> Non
         + "\n"
     )
 
-    symbols = AstParser().parse_file(source, repo_root=tmp_path)
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
     by_id = {symbol.id: symbol for symbol in symbols}
 
     assert "file:app.py" in by_id
     assert by_id["file:app.py"].imports == ["os", "pathlib.Path"]
+    assert by_id["file:app.py"].metadata["tree_sitter_query"] is True
+    assert by_id["file:app.py"].metadata["language_enhancer"] == "python"
     assert by_id["app.py::Service"].type == "class"
     assert by_id["app.py::Service.run"].type == "method"
     assert "Path" in by_id["app.py::Service.run"].calls
@@ -59,11 +61,12 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
         + "\n"
     )
 
-    symbols = AstParser().parse_file(source, repo_root=tmp_path)
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
     by_id = {symbol.id: symbol for symbol in symbols}
 
     assert by_id["file:app.ts"].imports == ["./parse", "node:fs/promises"]
     assert by_id["file:app.ts"].exports == ["Loadable", "Loader", "Status", "UserDto", "loadConfig", "parse"]
+    assert by_id["file:app.ts"].metadata["language_enhancer"] == "ecma"
     assert by_id["app.ts::UserDto"].type == "schema"
     assert by_id["app.ts::UserDto"].metadata["schema_kind"] == "interface"
     assert by_id["app.ts::Loadable"].type == "schema"
@@ -80,6 +83,41 @@ def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) ->
     member_endpoint = by_id["app.ts::endpoint:POST:/teams/:id:12"]
     assert member_endpoint.metadata["handler"] == "getTeam"
     assert member_endpoint.calls == ["getTeam"]
+
+
+def test_tree_sitter_javascript_parser_extracts_basic_symbols(tmp_path: Path) -> None:
+    source = tmp_path / "app.js"
+    source.write_text(
+        "\n".join(
+            [
+                "import express from 'express';",
+                "export class Loader extends Base {",
+                "  run() { return fetchUser(); }",
+                "}",
+                "export function loadUser() {",
+                "  return fetchUser();",
+                "}",
+                "const handler = () => loadUser();",
+                "router.get('/users/:id', handler);",
+            ]
+        )
+        + "\n"
+    )
+
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
+    by_id = {symbol.id: symbol for symbol in symbols}
+
+    assert by_id["file:app.js"].imports == ["express"]
+    assert by_id["file:app.js"].exports == ["Loader", "loadUser"]
+    assert by_id["file:app.js"].metadata["language_enhancer"] == "ecma"
+    assert by_id["app.js::Loader"].type == "class"
+    assert by_id["app.js::Loader"].bases == ["Base"]
+    assert by_id["app.js::Loader.run"].calls == ["fetchUser"]
+    assert by_id["app.js::loadUser"].calls == ["fetchUser"]
+    assert by_id["app.js::handler"].type == "function"
+    endpoint = by_id["app.js::endpoint:GET:/users/:id:9"]
+    assert endpoint.metadata["handler"] == "handler"
+    assert endpoint.calls == ["handler"]
 
 
 def test_tree_sitter_java_parser_extracts_symbols_imports_and_routes(tmp_path: Path) -> None:
@@ -128,6 +166,7 @@ def test_tree_sitter_java_parser_extracts_symbols_imports_and_routes(tmp_path: P
     ]
     assert by_id[file_id].exports == ["Handler", "UserController", "UserDto"]
     assert by_id[file_id].metadata["package"] == "com.example"
+    assert by_id[file_id].metadata["language_enhancer"] == "java"
     assert by_id[class_id].type == "class"
     assert by_id[class_id].bases == ["BaseController"]
     assert by_id[class_id].implements == ["Handler"]
@@ -183,6 +222,7 @@ def test_tree_sitter_go_parser_extracts_symbols_imports_methods_and_routes(tmp_p
     assert by_id["file:cmd/api/main.go"].imports == ["context", "example.com/project/pkg/service"]
     assert by_id["file:cmd/api/main.go"].exports == ["Handler", "NewServer", "Server", "User"]
     assert by_id["file:cmd/api/main.go"].metadata["package"] == "api"
+    assert by_id["file:cmd/api/main.go"].metadata["language_enhancer"] == "go"
     assert by_id["cmd/api/main.go::Server"].type == "class"
     assert by_id["cmd/api/main.go::Handler"].type == "interface"
     assert by_id["cmd/api/main.go::Handler.Handle"].type == "method"
@@ -198,12 +238,130 @@ def test_tree_sitter_go_parser_extracts_symbols_imports_methods_and_routes(tmp_p
     assert endpoint.calls == ["GetUser"]
 
 
+def test_query_parser_extracts_rust_symbols_imports_methods_and_calls(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "lib.rs"
+    source.parent.mkdir()
+    source.write_text(
+        "\n".join(
+            [
+                "use std::fmt;",
+                "pub struct User { id: String }",
+                "trait Loadable { fn load(&self) -> String; }",
+                "impl User {",
+                "  pub fn load(&self) -> String {",
+                "    helper();",
+                "    String::new()",
+                "  }",
+                "}",
+                "fn helper() {}",
+            ]
+        )
+        + "\n"
+    )
+
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
+    by_id = {symbol.id: symbol for symbol in symbols}
+
+    assert by_id["file:src/lib.rs"].imports == ["std::fmt"]
+    assert by_id["file:src/lib.rs"].exports == ["Loadable", "User", "helper"]
+    assert by_id["src/lib.rs::User"].type == "class"
+    assert by_id["src/lib.rs::Loadable"].type == "interface"
+    assert by_id["src/lib.rs::Loadable.load"].type == "method"
+    assert by_id["src/lib.rs::User.load"].parent_id == "src/lib.rs::User"
+    assert "helper" in by_id["src/lib.rs::User.load"].calls
+    assert by_id["src/lib.rs::helper"].type == "function"
+    assert "src/lib.rs::load" not in by_id
+
+
+def test_query_parser_extracts_c_symbols_imports_and_calls(tmp_path: Path) -> None:
+    source = tmp_path / "main.c"
+    source.write_text(
+        "\n".join(
+            [
+                "#include <stdio.h>",
+                "typedef struct User { int id; } User;",
+                "int helper(void) { return 1; }",
+                "int main(void) { return helper(); }",
+            ]
+        )
+        + "\n"
+    )
+
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
+    by_id = {symbol.id: symbol for symbol in symbols}
+
+    assert by_id["file:main.c"].imports == ["stdio.h"]
+    assert by_id["file:main.c"].exports == ["User", "helper", "main"]
+    assert by_id["main.c::User"].type == "class"
+    assert by_id["main.c::helper"].type == "function"
+    assert by_id["main.c::main"].calls == ["helper"]
+
+
+def test_query_parser_extracts_cpp_symbols_imports_methods_and_bases(tmp_path: Path) -> None:
+    source = tmp_path / "app.cpp"
+    source.write_text(
+        "\n".join(
+            [
+                "#include <vector>",
+                "class User : public Base { public: void load(); };",
+                "void User::load() { helper(); }",
+                "int helper() { return 1; }",
+            ]
+        )
+        + "\n"
+    )
+
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
+    by_id = {symbol.id: symbol for symbol in symbols}
+
+    assert by_id["file:app.cpp"].imports == ["vector"]
+    assert by_id["file:app.cpp"].exports == ["User", "helper"]
+    assert by_id["app.cpp::User"].type == "class"
+    assert by_id["app.cpp::User"].bases == ["Base"]
+    assert by_id["app.cpp::User.load"].type == "method"
+    assert by_id["app.cpp::User.load"].calls == ["helper"]
+    assert by_id["app.cpp::helper"].type == "function"
+
+
+def test_query_parser_extracts_csharp_symbols_imports_methods_and_calls(tmp_path: Path) -> None:
+    source = tmp_path / "User.cs"
+    source.write_text(
+        "\n".join(
+            [
+                "using System;",
+                "public interface ILoadable { void Load(); }",
+                "public class User : Base, ILoadable {",
+                "  public void Load() { Helper(); }",
+                "  private void Helper() {}",
+                "}",
+            ]
+        )
+        + "\n"
+    )
+
+    symbols = AstParser(cache_enabled=False).parse_file(source, repo_root=tmp_path)
+    by_id = {symbol.id: symbol for symbol in symbols}
+
+    assert by_id["file:User.cs"].imports == ["System"]
+    assert by_id["file:User.cs"].exports == ["ILoadable", "User"]
+    assert by_id["User.cs::ILoadable"].type == "interface"
+    assert by_id["User.cs::User"].type == "class"
+    assert by_id["User.cs::User"].bases == ["Base", "ILoadable"]
+    assert by_id["User.cs::User.Load"].type == "method"
+    assert by_id["User.cs::User.Load"].calls == ["Helper"]
+    assert by_id["User.cs::User.Helper"].type == "method"
+
+
 def test_registry_reports_supported_languages() -> None:
     parser = AstParser()
 
+    assert "c" in parser.registry.supported_languages()
+    assert "cpp" in parser.registry.supported_languages()
+    assert "csharp" in parser.registry.supported_languages()
     assert "go" in parser.registry.supported_languages()
     assert "java" in parser.registry.supported_languages()
     assert "python" in parser.registry.supported_languages()
+    assert "rust" in parser.registry.supported_languages()
     assert "typescript" in parser.registry.supported_languages()
 
 

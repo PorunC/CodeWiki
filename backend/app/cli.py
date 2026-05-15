@@ -1,5 +1,8 @@
 import asyncio
+import contextlib
+import io
 import json
+import logging
 import os
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -123,7 +126,8 @@ def analyze_repo(
                 selected_repo.id,
                 name_communities=community_summaries,
             )
-        )
+        ),
+        capture_stdout=as_json,
     )
     result = analysis.analysis
     payload = {
@@ -169,7 +173,8 @@ def update_repo(
                 refresh_chunks=refresh_chunks,
                 regenerate_wiki=regenerate_wiki,
             )
-        )
+        ),
+        capture_stdout=as_json,
     )
     payload = {
         "run_id": result.run_id,
@@ -211,7 +216,8 @@ def build_graphrag(ctx: click.Context, repo: str | None, embeddings: bool, as_js
                 selected_repo.id,
                 include_embeddings=embeddings,
             )
-        )
+        ),
+        capture_stdout=as_json,
     )
     payload = _jsonable(result)
     if as_json:
@@ -236,7 +242,8 @@ def generate_catalog(ctx: click.Context, repo: str | None, as_json: bool) -> Non
     store = _store(ctx)
     selected_repo = _run_click_errors(lambda: _resolve_repo(store, repo))
     catalog = _run_click_errors(
-        lambda: asyncio.run(_wiki_generator(store).generate_catalog(selected_repo.id))
+        lambda: asyncio.run(_wiki_generator(store).generate_catalog(selected_repo.id)),
+        capture_stdout=as_json,
     )
     payload = _jsonable(catalog)
     if as_json:
@@ -254,7 +261,8 @@ def generate_pages(ctx: click.Context, repo: str | None, as_json: bool) -> None:
     store = _store(ctx)
     selected_repo = _run_click_errors(lambda: _resolve_repo(store, repo))
     results = _run_click_errors(
-        lambda: asyncio.run(_wiki_generator(store).generate_all_pages(selected_repo.id))
+        lambda: asyncio.run(_wiki_generator(store).generate_all_pages(selected_repo.id)),
+        capture_stdout=as_json,
     )
     payload = [_page_result_payload(result) for result in results]
     if as_json:
@@ -281,7 +289,8 @@ def regenerate_page(
     store = _store(ctx)
     selected_repo = _run_click_errors(lambda: _resolve_repo(store, repo_option or repo))
     result = _run_click_errors(
-        lambda: asyncio.run(_wiki_generator(store).regenerate_page(selected_repo.id, slug))
+        lambda: asyncio.run(_wiki_generator(store).regenerate_page(selected_repo.id, slug)),
+        capture_stdout=as_json,
     )
     payload = _page_result_payload(result)
     if as_json:
@@ -321,7 +330,8 @@ def ask_repo(
                 LLMGateway(settings),
                 store=store,
             ).answer(selected_repo.id, AskRequest(question=question, max_hops=max_hops))
-        )
+        ),
+        capture_stdout=as_json,
     )
     payload = _jsonable(answer)
     if as_json:
@@ -460,9 +470,17 @@ def _echo_table(headers: list[str], rows: list[list[str]]) -> None:
         click.echo("  ".join(str(value).ljust(widths[index]) for index, value in enumerate(row)))
 
 
-def _run_click_errors(callback):
+def _run_click_errors(callback, *, capture_stdout: bool = False):
     try:
-        return callback()
+        if not capture_stdout:
+            return callback()
+        previous_logging_disable = logging.root.manager.disable
+        logging.disable(logging.CRITICAL)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return callback()
+        finally:
+            logging.disable(previous_logging_disable)
     except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 

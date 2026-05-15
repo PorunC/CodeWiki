@@ -1,12 +1,16 @@
+from dataclasses import replace
 import re
-from pathlib import Path
 
-from tree_sitter import Language, Parser
 import tree_sitter_java
 
 from backend.app.services.ast_parsers.base import AstSymbol
-from backend.app.services.ast_parsers.common import content_hash, relative_path
 from backend.app.services.ast_parsers.ecma.tree import descendants_of_type, field_text, node_text
+from backend.app.services.ast_parsers.query import (
+    QueryLanguageSpec,
+    QueryParseContext,
+    TreeSitterQueryParser,
+    merge_enhanced_symbols,
+)
 
 
 JAVA_TYPE_DECLARATIONS = {
@@ -31,56 +35,91 @@ JAVA_ROUTE_ANNOTATIONS = {
 JAVA_REQUEST_MAPPING_METHOD_RE = re.compile(r"RequestMethod\.(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)")
 
 
-class TreeSitterJavaParser:
-    language = "java"
+JAVA_QUERY = """
+(import_declaration
+  (scoped_identifier) @import.source)
 
+(class_declaration
+  name: (identifier) @definition.name) @definition.class
+
+(interface_declaration
+  name: (identifier) @definition.name) @definition.interface
+
+(record_declaration
+  name: (identifier) @definition.name) @definition.schema
+
+(enum_declaration
+  name: (identifier) @definition.name) @definition.schema
+
+(annotation_type_declaration
+  name: (identifier) @definition.name) @definition.schema
+
+(method_declaration
+  name: (identifier) @definition.name) @definition.method
+
+(constructor_declaration
+  name: (identifier) @definition.name) @definition.method
+
+(method_invocation
+  name: (identifier) @call.name)
+
+(object_creation_expression
+  type: (_) @call.name)
+
+(type_identifier) @reference.name
+
+(scoped_type_identifier) @reference.name
+"""
+
+
+class TreeSitterJavaParser(TreeSitterQueryParser):
     def __init__(self) -> None:
-        self.parser = Parser(Language(tree_sitter_java.language()))
-
-    def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
-        content = path.read_text(encoding="utf-8", errors="replace")
-        source = content.encode("utf-8")
-        tree = self.parser.parse(source)
-        root = tree.root_node
-        file_path = relative_path(path, repo_root)
-        file_hash = content_hash(content)
-        lines = content.splitlines()
-        package_name = java_package_name(root, source)
-        imports = java_import_names(root, source)
-
-        symbols = [
-            AstSymbol(
-                id=f"file:{file_path}",
-                type="file",
-                name=path.name,
-                file_path=file_path,
-                language=self.language,
-                start_line=1,
-                end_line=max(len(lines), 1),
-                imports=imports,
-                hash=file_hash,
-                metadata={"package": package_name, "tree_sitter": True, "root_type": root.type},
+        super().__init__(
+            QueryLanguageSpec(
+                language="java",
+                grammar=tree_sitter_java.language,
+                query=JAVA_QUERY,
             )
-        ]
+        )
+
+    def augment_symbols(
+        self,
+        symbols: list[AstSymbol],
+        context: QueryParseContext,
+    ) -> list[AstSymbol]:
+        package_name = java_package_name(context.root, context.source)
         exported_names: set[str] = set()
-        for declaration in root.named_children:
+        enhanced_symbols: list[AstSymbol] = []
+        for declaration in context.root.named_children:
             if declaration.type not in JAVA_TYPE_DECLARATIONS:
                 continue
             extracted = java_type_symbols(
                 declaration,
-                source=source,
-                file_path=file_path,
-                file_hash=file_hash,
+                source=context.source,
+                file_path=context.file_path,
+                file_hash=context.file_hash,
                 package_name=package_name,
                 parent_id=None,
             )
-            symbols.extend(extracted)
+            enhanced_symbols.extend(extracted)
             for symbol in extracted:
                 if symbol.parent_id is None and symbol.type != "method":
                     exported_names.add(symbol.name)
-
-        symbols[0] = AstSymbol(**{**symbols[0].__dict__, "exports": sorted(exported_names)})
-        return symbols
+        file_symbol = replace(
+            symbols[0],
+            imports=java_import_names(context.root, context.source),
+            exports=sorted(exported_names),
+            metadata={
+                **symbols[0].metadata,
+                "package": package_name,
+                "language_enhancer": "java",
+            },
+        )
+        return merge_enhanced_symbols(
+            symbols,
+            [file_symbol, *enhanced_symbols],
+            enhancer="java",
+        )
 
 
 def java_package_name(root, source: bytes) -> str:
