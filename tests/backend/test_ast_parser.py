@@ -264,6 +264,7 @@ def test_query_parser_extracts_rust_symbols_imports_methods_and_calls(tmp_path: 
 
     assert by_id["file:src/lib.rs"].imports == ["std::fmt"]
     assert by_id["file:src/lib.rs"].exports == ["Loadable", "User", "helper"]
+    assert by_id["file:src/lib.rs"].metadata["language_enhancer"] == "rust"
     assert by_id["src/lib.rs::User"].type == "class"
     assert by_id["src/lib.rs::Loadable"].type == "interface"
     assert by_id["src/lib.rs::Loadable.load"].type == "method"
@@ -292,6 +293,7 @@ def test_query_parser_extracts_c_symbols_imports_and_calls(tmp_path: Path) -> No
 
     assert by_id["file:main.c"].imports == ["stdio.h"]
     assert by_id["file:main.c"].exports == ["User", "helper", "main"]
+    assert by_id["file:main.c"].metadata["language_enhancer"] == "c"
     assert by_id["main.c::User"].type == "class"
     assert by_id["main.c::helper"].type == "function"
     assert by_id["main.c::main"].calls == ["helper"]
@@ -316,6 +318,7 @@ def test_query_parser_extracts_cpp_symbols_imports_methods_and_bases(tmp_path: P
 
     assert by_id["file:app.cpp"].imports == ["vector"]
     assert by_id["file:app.cpp"].exports == ["User", "helper"]
+    assert by_id["file:app.cpp"].metadata["language_enhancer"] == "cpp"
     assert by_id["app.cpp::User"].type == "class"
     assert by_id["app.cpp::User"].bases == ["Base"]
     assert by_id["app.cpp::User.load"].type == "method"
@@ -344,6 +347,7 @@ def test_query_parser_extracts_csharp_symbols_imports_methods_and_calls(tmp_path
 
     assert by_id["file:User.cs"].imports == ["System"]
     assert by_id["file:User.cs"].exports == ["ILoadable", "User"]
+    assert by_id["file:User.cs"].metadata["language_enhancer"] == "csharp"
     assert by_id["User.cs::ILoadable"].type == "interface"
     assert by_id["User.cs::User"].type == "class"
     assert by_id["User.cs::User"].bases == ["Base", "ILoadable"]
