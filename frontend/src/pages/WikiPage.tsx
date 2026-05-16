@@ -1,4 +1,4 @@
-import { FileText, RefreshCw, RotateCw } from "lucide-react";
+import { Archive, Download, FileCode2, FileText, RefreshCw, RotateCw } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -14,6 +14,10 @@ import { generateWikiPages, regenerateWikiPage } from "../api/wiki";
 import { useRepos } from "../hooks/useRepos";
 import { WikiArticle } from "../wiki/components/WikiArticle";
 import { WikiCatalog } from "../wiki/components/WikiCatalog";
+import {
+  downloadInteractiveWikiHtml,
+  downloadObsidianVault
+} from "../wiki/export";
 import { useWikiData } from "../wiki/hooks/useWikiData";
 import { relatedPagesForPage } from "../wiki/relatedPages";
 
@@ -65,12 +69,16 @@ export function WikiPage({
   const { repos, selectedRepo, error: repoError } = useRepos({ selectedRepoId, onRepoChange });
   const browserRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const [catalogWidth, setCatalogWidth] = useState(initialCatalogWidth);
   const [selectedLanguage, setSelectedLanguage] = useState<WikiLanguage>(initialWikiLanguage);
   const [isResizingCatalog, setIsResizingCatalog] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [generationTask, setGenerationTask] = useState<"pages" | "page" | null>(null);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const {
     wiki,
     selectedSlug,
@@ -89,6 +97,7 @@ export function WikiPage({
   const isGenerating = generationTask !== null;
   const generationDisabled = !selectedRepoId || loading || generationTask !== null;
   const currentPageDisabled = generationDisabled || !selectedSlug;
+  const exportDisabled = !wiki || wiki.pages.length === 0 || loading || generationTask !== null;
   const selectedLanguageLabel =
     WIKI_LANGUAGES.find((language) => language.code === selectedLanguage)?.label ?? "English";
 
@@ -193,7 +202,33 @@ export function WikiPage({
   useEffect(() => {
     setGenerationMessage(null);
     setGenerationError(null);
+    setExportMessage(null);
+    setExportError(null);
   }, [selectedLanguage]);
+
+  useEffect(() => {
+    if (!isExportMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Node && !exportMenuRef.current?.contains(event.target)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsExportMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isExportMenuOpen]);
 
   const handleGeneratePages = useCallback(async () => {
     if (!selectedRepoId || generationTask) {
@@ -236,6 +271,46 @@ export function WikiPage({
     }
   }, [generationTask, refresh, selectedLanguage, selectedRepoId, selectedSlug]);
 
+  const handleExportHtml = useCallback(() => {
+    if (!wiki || exportDisabled) {
+      return;
+    }
+    try {
+      downloadInteractiveWikiHtml({
+        wiki,
+        repoName: selectedRepo?.name,
+        languageCode: selectedLanguage,
+        languageLabel: selectedLanguageLabel
+      });
+      setExportError(null);
+      setExportMessage(`Downloaded ${selectedLanguageLabel} interactive HTML export.`);
+      setIsExportMenuOpen(false);
+    } catch (exportFailure) {
+      setExportError(exportFailure instanceof Error ? exportFailure.message : "HTML export failed");
+      setExportMessage(null);
+    }
+  }, [exportDisabled, selectedLanguage, selectedLanguageLabel, selectedRepo?.name, wiki]);
+
+  const handleExportObsidian = useCallback(() => {
+    if (!wiki || exportDisabled) {
+      return;
+    }
+    try {
+      downloadObsidianVault({
+        wiki,
+        repoName: selectedRepo?.name,
+        languageCode: selectedLanguage,
+        languageLabel: selectedLanguageLabel
+      });
+      setExportError(null);
+      setExportMessage(`Downloaded ${selectedLanguageLabel} Obsidian vault export.`);
+      setIsExportMenuOpen(false);
+    } catch (exportFailure) {
+      setExportError(exportFailure instanceof Error ? exportFailure.message : "Obsidian export failed");
+      setExportMessage(null);
+    }
+  }, [exportDisabled, selectedLanguage, selectedLanguageLabel, selectedRepo?.name, wiki]);
+
   return (
     <section id="wiki" className={`side-panel wiki-panel${isActiveSection ? " is-nav-target" : ""}`}>
       <header className="wiki-header">
@@ -268,6 +343,32 @@ export function WikiPage({
             <FileText className={generationTask === "pages" ? "wiki-spin-icon" : undefined} size={14} />
             {generationTask === "pages" ? "Generating" : "Generate pages"}
           </button>
+          <div className="wiki-export-control" ref={exportMenuRef}>
+            <button
+              className="secondary-button wiki-action-button"
+              type="button"
+              title="Export wiki"
+              aria-haspopup="menu"
+              aria-expanded={isExportMenuOpen}
+              disabled={exportDisabled}
+              onClick={() => setIsExportMenuOpen((current) => !current)}
+            >
+              <Download size={14} />
+              Export
+            </button>
+            {isExportMenuOpen ? (
+              <div className="wiki-export-menu" role="menu">
+                <button type="button" role="menuitem" onClick={handleExportHtml}>
+                  <FileCode2 size={14} />
+                  Interactive HTML
+                </button>
+                <button type="button" role="menuitem" onClick={handleExportObsidian}>
+                  <Archive size={14} />
+                  Obsidian vault
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button
             className="icon-button"
             type="button"
@@ -341,6 +442,8 @@ export function WikiPage({
         </div>
       ) : null}
       {generationError ? <div className="wiki-state is-error">{generationError}</div> : null}
+      {exportMessage ? <div className="wiki-state">{exportMessage}</div> : null}
+      {exportError ? <div className="wiki-state is-error">{exportError}</div> : null}
       {!loading && wiki && wiki.pages.length === 0 ? (
         <div className="wiki-state">No generated {selectedLanguageLabel} wiki pages yet.</div>
       ) : null}
