@@ -2,7 +2,7 @@ from dataclasses import replace
 
 from backend.app.services.ast_parsers.base import AstSymbol
 from backend.app.services.ast_parsers.common import HTTP_METHODS
-from backend.app.services.ast_parsers.query import QueryParseContext, merge_enhanced_symbols
+from backend.app.services.ast_parsers.capture_engine import CaptureParseContext, merge_enhanced_symbols
 from backend.app.services.ast_parsers.tree import (
     descendants_of_type,
     end_line,
@@ -17,7 +17,7 @@ GO_TYPE_DECLARATIONS = {"type_alias", "type_spec"}
 
 def augment_go_symbols(
     symbols: list[AstSymbol],
-    context: QueryParseContext,
+    context: CaptureParseContext,
 ) -> list[AstSymbol]:
     package_name = go_package_name(context.root, context.source)
     enhanced_symbols = go_declaration_symbols(

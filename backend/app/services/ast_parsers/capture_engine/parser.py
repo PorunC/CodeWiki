@@ -4,26 +4,26 @@ from tree_sitter import Language, Parser, Query
 
 from backend.app.services.ast_parsers.base import AstSymbol
 from backend.app.services.ast_parsers.common import content_hash, relative_path
-from backend.app.services.ast_parsers.query.captures import (
+from backend.app.services.ast_parsers.capture_engine.captures import (
     assign_calls,
     assign_containment_parents,
     merge_records,
-    records_from_query,
+    records_from_capture_query,
 )
-from backend.app.services.ast_parsers.query.models import DefinitionRecord, QueryLanguageSpec
-from backend.app.services.ast_parsers.query.models import QueryParseContext
-from backend.app.services.ast_parsers.query.normalization import signature_text
+from backend.app.services.ast_parsers.capture_engine.models import DefinitionRecord, CaptureLanguageSpec
+from backend.app.services.ast_parsers.capture_engine.models import CaptureParseContext
+from backend.app.services.ast_parsers.capture_engine.normalization import signature_text
 from backend.app.services.ast_parsers.tree import end_line, start_line
 
 
-class TreeSitterQueryParser:
+class TreeSitterCaptureParser:
     """Tree-sitter parser driven by unified semantic capture names."""
 
-    def __init__(self, spec: QueryLanguageSpec) -> None:
+    def __init__(self, spec: CaptureLanguageSpec) -> None:
         self.language = spec.language
         self._language = Language(spec.grammar())
         self._parser = Parser(self._language)
-        self._query = Query(self._language, spec.query)
+        self._capture_query = Query(self._language, spec.capture_query)
 
     def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
         content = path.read_text(encoding="utf-8", errors="replace")
@@ -33,7 +33,7 @@ class TreeSitterQueryParser:
         file_path = relative_path(path, repo_root)
         file_hash = content_hash(content)
         lines = content.splitlines()
-        context = QueryParseContext(
+        context = CaptureParseContext(
             path=path,
             repo_root=repo_root,
             file_path=file_path,
@@ -45,9 +45,9 @@ class TreeSitterQueryParser:
             language=self.language,
         )
 
-        records, imports = records_from_query(self._query, root, source)
+        records, imports = records_from_capture_query(self._capture_query, root, source)
         assign_containment_parents(records)
-        assign_calls(self._query, root, source, records)
+        assign_calls(self._capture_query, root, source, records)
         merged = merge_records(records)
         exports = sorted(record.name for record in merged if record.parent_name == "" or record.exported)
 
@@ -64,7 +64,7 @@ class TreeSitterQueryParser:
             hash=file_hash,
             metadata={
                 "tree_sitter": True,
-                "tree_sitter_query": True,
+                "tree_sitter_capture": True,
                 "root_type": root.type,
             },
         )
@@ -83,7 +83,7 @@ class TreeSitterQueryParser:
     def augment_symbols(
         self,
         symbols: list[AstSymbol],
-        context: QueryParseContext,
+        context: CaptureParseContext,
     ) -> list[AstSymbol]:
         return symbols
 
@@ -111,7 +111,7 @@ class TreeSitterQueryParser:
             hash=file_hash,
             metadata={
                 "exported": record.exported or not record.parent_name,
-                "tree_sitter_query": True,
+                "tree_sitter_capture": True,
                 "tree_sitter_type": record.node.type,
             },
         )

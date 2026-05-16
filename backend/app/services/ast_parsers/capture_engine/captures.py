@@ -2,12 +2,12 @@ from typing import Any
 
 from tree_sitter import Query, QueryCursor
 
-from backend.app.services.ast_parsers.query.models import DefinitionRecord
-from backend.app.services.ast_parsers.query.normalization import (
+from backend.app.services.ast_parsers.capture_engine.models import DefinitionRecord
+from backend.app.services.ast_parsers.capture_engine.normalization import (
     normalize_identifier,
     normalize_import,
 )
-from backend.app.services.ast_parsers.query.topology import (
+from backend.app.services.ast_parsers.capture_engine.topology import (
     innermost_owner,
     nearest_container,
     span,
@@ -18,14 +18,14 @@ DEFINITION_PREFIX = "definition."
 DEFINITION_META_CAPTURES = {"definition.name", "definition.parent", "definition.exported"}
 
 
-def records_from_query(
-    query: Query,
+def records_from_capture_query(
+    capture_query: Query,
     root,
     source: bytes,
 ) -> tuple[list[DefinitionRecord], list[str]]:
     records: list[DefinitionRecord] = []
     imports: set[str] = set()
-    cursor = QueryCursor(query)
+    cursor = QueryCursor(capture_query)
     for _, captures in cursor.matches(root):
         for import_node in captures.get("import.source", []):
             value = normalize_import(node_text(import_node, source))
@@ -78,14 +78,14 @@ def assign_containment_parents(records: list[DefinitionRecord]) -> None:
 
 
 def assign_calls(
-    query: Query,
+    capture_query: Query,
     root,
     source: bytes,
     records: list[DefinitionRecord],
 ) -> None:
     if not records:
         return
-    cursor = QueryCursor(query)
+    cursor = QueryCursor(capture_query)
     for _, captures in cursor.matches(root):
         for call_node in captures.get("call.name", []):
             call_name = normalize_identifier(node_text(call_node, source))

@@ -4,12 +4,12 @@ from backend.app.services.ast_parsers.base import AstSymbol
 from backend.app.services.ast_parsers.ecma.declarations import declaration_symbols
 from backend.app.services.ast_parsers.ecma.endpoints import endpoint_symbols
 from backend.app.services.ast_parsers.ecma.imports import import_names
-from backend.app.services.ast_parsers.query import QueryParseContext, merge_enhanced_symbols
+from backend.app.services.ast_parsers.capture_engine import CaptureParseContext, merge_enhanced_symbols
 
 
 def augment_ecma_symbols(
     symbols: list[AstSymbol],
-    context: QueryParseContext,
+    context: CaptureParseContext,
 ) -> list[AstSymbol]:
     exported_names: set[str] = set()
     declarations = declaration_symbols(

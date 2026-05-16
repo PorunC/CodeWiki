@@ -30,7 +30,7 @@ def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> Non
 
     assert "file:app.py" in by_id
     assert by_id["file:app.py"].imports == ["os", "pathlib.Path"]
-    assert by_id["file:app.py"].metadata["tree_sitter_query"] is True
+    assert by_id["file:app.py"].metadata["tree_sitter_capture"] is True
     assert by_id["file:app.py"].metadata["language_enhancer"] == "python"
     assert by_id["app.py::Service"].type == "class"
     assert by_id["app.py::Service.run"].type == "method"

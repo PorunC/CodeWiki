@@ -1,4 +1,4 @@
-PYTHON_QUERY = """
+PYTHON_CAPTURE_QUERY = """
 (import_statement
   (dotted_name) @import.source)
 

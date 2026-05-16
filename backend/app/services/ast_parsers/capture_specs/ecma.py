@@ -1,4 +1,4 @@
-ECMA_SHARED_QUERY = """
+ECMA_SHARED_CAPTURE_QUERY = """
 (import_statement
   source: (string) @import.source)
 
@@ -28,8 +28,8 @@ ECMA_SHARED_QUERY = """
 """
 
 
-JAVASCRIPT_QUERY = (
-    ECMA_SHARED_QUERY
+JAVASCRIPT_CAPTURE_QUERY = (
+    ECMA_SHARED_CAPTURE_QUERY
     + """
 (class_declaration
   name: (identifier) @definition.name
@@ -39,8 +39,8 @@ JAVASCRIPT_QUERY = (
 )
 
 
-TYPESCRIPT_QUERY = (
-    ECMA_SHARED_QUERY
+TYPESCRIPT_CAPTURE_QUERY = (
+    ECMA_SHARED_CAPTURE_QUERY
     + """
 (class_declaration
   name: (type_identifier) @definition.name

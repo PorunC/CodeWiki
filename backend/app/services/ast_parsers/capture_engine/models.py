@@ -4,14 +4,14 @@ from typing import Any, Callable
 
 
 @dataclass(frozen=True)
-class QueryLanguageSpec:
+class CaptureLanguageSpec:
     language: str
     grammar: Callable[[], Any]
-    query: str
+    capture_query: str
 
 
 @dataclass(frozen=True)
-class QueryParseContext:
+class CaptureParseContext:
     path: Path
     repo_root: Path | None
     file_path: str

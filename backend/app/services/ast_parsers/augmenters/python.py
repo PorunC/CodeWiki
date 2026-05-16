@@ -3,12 +3,12 @@ from dataclasses import replace
 
 from backend.app.services.ast_parsers.base import AstSymbol
 from backend.app.services.ast_parsers.common import HTTP_METHODS
-from backend.app.services.ast_parsers.query import QueryParseContext, merge_enhanced_symbols
+from backend.app.services.ast_parsers.capture_engine import CaptureParseContext, merge_enhanced_symbols
 
 
 def augment_python_symbols(
     symbols: list[AstSymbol],
-    context: QueryParseContext,
+    context: CaptureParseContext,
 ) -> list[AstSymbol]:
     tree = py_ast.parse(context.content, filename=str(context.path))
     file_symbol = replace(

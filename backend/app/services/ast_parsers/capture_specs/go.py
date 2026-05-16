@@ -1,4 +1,4 @@
-GO_QUERY = """
+GO_CAPTURE_QUERY = """
 (import_spec
   path: (_) @import.source)
 

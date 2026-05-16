@@ -18,15 +18,13 @@ class AstParserRegistry:
             TreeSitterJavaScriptParser,
             TreeSitterTypeScriptParser,
         )
+        from backend.app.services.ast_parsers.c import TreeSitterCParser
+        from backend.app.services.ast_parsers.cpp import TreeSitterCppParser
+        from backend.app.services.ast_parsers.csharp import TreeSitterCSharpParser
         from backend.app.services.ast_parsers.go import TreeSitterGoParser
         from backend.app.services.ast_parsers.java import TreeSitterJavaParser
-        from backend.app.services.ast_parsers.native import (
-            TreeSitterCParser,
-            TreeSitterCppParser,
-            TreeSitterCSharpParser,
-            TreeSitterRustParser,
-        )
         from backend.app.services.ast_parsers.python import PythonAstParser
+        from backend.app.services.ast_parsers.rust import TreeSitterRustParser
 
         registry = cls()
         registry.register(PythonAstParser())

@@ -1,4 +1,4 @@
-from backend.app.services.ast_parsers.query.models import DefinitionRecord
+from backend.app.services.ast_parsers.capture_engine.models import DefinitionRecord
 
 
 def nearest_container(

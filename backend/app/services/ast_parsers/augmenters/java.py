@@ -2,7 +2,7 @@ from dataclasses import replace
 import re
 
 from backend.app.services.ast_parsers.base import AstSymbol
-from backend.app.services.ast_parsers.query import QueryParseContext, merge_enhanced_symbols
+from backend.app.services.ast_parsers.capture_engine import CaptureParseContext, merge_enhanced_symbols
 from backend.app.services.ast_parsers.tree import (
     descendants_of_type,
     end_line,
@@ -35,7 +35,7 @@ JAVA_REQUEST_MAPPING_METHOD_RE = re.compile(r"RequestMethod\.(GET|POST|PUT|PATCH
 
 def augment_java_symbols(
     symbols: list[AstSymbol],
-    context: QueryParseContext,
+    context: CaptureParseContext,
 ) -> list[AstSymbol]:
     package_name = java_package_name(context.root, context.source)
     exported_names: set[str] = set()

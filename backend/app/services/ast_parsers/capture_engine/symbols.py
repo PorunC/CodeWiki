@@ -45,6 +45,6 @@ def _mark_enhanced(
         metadata.update(query_symbol.metadata)
     metadata.update(symbol.metadata)
     metadata["language_enhancer"] = enhancer
-    if query_symbol is not None or symbol.metadata.get("tree_sitter_query"):
-        metadata["tree_sitter_query"] = True
+    if query_symbol is not None or symbol.metadata.get("tree_sitter_capture"):
+        metadata["tree_sitter_capture"] = True
     return replace(symbol, metadata=metadata)

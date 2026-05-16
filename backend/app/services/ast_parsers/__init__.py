@@ -1,16 +1,17 @@
 from backend.app.services.ast_parsers.base import AstSymbol, LanguageParser
+from backend.app.services.ast_parsers.c import TreeSitterCParser
+from backend.app.services.ast_parsers.capture_engine import (
+    CaptureLanguageSpec,
+    TreeSitterCaptureParser,
+)
+from backend.app.services.ast_parsers.cpp import TreeSitterCppParser
+from backend.app.services.ast_parsers.csharp import TreeSitterCSharpParser
 from backend.app.services.ast_parsers.ecma import TreeSitterJavaScriptParser, TreeSitterTypeScriptParser
 from backend.app.services.ast_parsers.go import TreeSitterGoParser
 from backend.app.services.ast_parsers.java import TreeSitterJavaParser
-from backend.app.services.ast_parsers.native import (
-    TreeSitterCParser,
-    TreeSitterCppParser,
-    TreeSitterCSharpParser,
-    TreeSitterRustParser,
-)
 from backend.app.services.ast_parsers.python import PythonAstParser
-from backend.app.services.ast_parsers.query import QueryLanguageSpec, TreeSitterQueryParser
 from backend.app.services.ast_parsers.registry import AstParser, AstParserRegistry
+from backend.app.services.ast_parsers.rust import TreeSitterRustParser
 
 __all__ = [
     "AstParser",
@@ -18,14 +19,14 @@ __all__ = [
     "AstSymbol",
     "LanguageParser",
     "PythonAstParser",
-    "QueryLanguageSpec",
+    "CaptureLanguageSpec",
     "TreeSitterCParser",
     "TreeSitterCppParser",
     "TreeSitterCSharpParser",
     "TreeSitterGoParser",
     "TreeSitterJavaParser",
     "TreeSitterJavaScriptParser",
-    "TreeSitterQueryParser",
+    "TreeSitterCaptureParser",
     "TreeSitterRustParser",
     "TreeSitterTypeScriptParser",
 ]

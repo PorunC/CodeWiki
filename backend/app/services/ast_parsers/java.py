@@ -2,27 +2,27 @@ import tree_sitter_java
 
 from backend.app.services.ast_parsers.augmenters.java import augment_java_symbols
 from backend.app.services.ast_parsers.base import AstSymbol
-from backend.app.services.ast_parsers.queries.java import JAVA_QUERY
-from backend.app.services.ast_parsers.query import (
-    QueryLanguageSpec,
-    QueryParseContext,
-    TreeSitterQueryParser,
+from backend.app.services.ast_parsers.capture_specs.java import JAVA_CAPTURE_QUERY
+from backend.app.services.ast_parsers.capture_engine import (
+    CaptureLanguageSpec,
+    CaptureParseContext,
+    TreeSitterCaptureParser,
 )
 
 
-class TreeSitterJavaParser(TreeSitterQueryParser):
+class TreeSitterJavaParser(TreeSitterCaptureParser):
     def __init__(self) -> None:
         super().__init__(
-            QueryLanguageSpec(
+            CaptureLanguageSpec(
                 language="java",
                 grammar=tree_sitter_java.language,
-                query=JAVA_QUERY,
+                capture_query=JAVA_CAPTURE_QUERY,
             )
         )
 
     def augment_symbols(
         self,
         symbols: list[AstSymbol],
-        context: QueryParseContext,
+        context: CaptureParseContext,
     ) -> list[AstSymbol]:
         return augment_java_symbols(symbols, context)
