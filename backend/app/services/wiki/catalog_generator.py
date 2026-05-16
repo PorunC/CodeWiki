@@ -29,13 +29,18 @@ class WikiCatalogGenerator:
         self.store = store
         self.context_builder = context_builder
 
-    async def generate_catalog(self, repo_id: str) -> DocCatalogRecord:
+    async def generate_catalog(
+        self,
+        repo_id: str,
+        *,
+        language_code: str = "en",
+    ) -> DocCatalogRecord:
         repo = self.store.get_repo(repo_id)
         if repo is None:
             raise ValueError(f"Repository not found: {repo_id}")
 
         trace = await self.retriever.retrieve(repo_id, "repository overview", max_hops=2)
-        user_payload = self._catalog_payload(repo, trace)
+        user_payload = self._catalog_payload(repo, trace, language_code=language_code)
         prompt = _load_prompt("catalog.md")
         payload: dict[str, Any] | None = None
         validation_errors: list[str] = []
@@ -83,9 +88,14 @@ class WikiCatalogGenerator:
                 + "; ".join(validation_errors)
             )
         title, items = _normalize_catalog_payload(payload, repo.name)
-        return self.store.save_doc_catalog(repo_id, title=title, structure={"items": items})
+        return self.store.save_doc_catalog(
+            repo_id,
+            title=title,
+            structure={"items": items},
+            language_code=language_code,
+        )
 
-    def _catalog_payload(self, repo: Any, trace: Any) -> dict[str, Any]:
+    def _catalog_payload(self, repo: Any, trace: Any, *, language_code: str) -> dict[str, Any]:
         repo_context = self.context_builder.build(repo.path)
         return {
             "repo": {
@@ -95,6 +105,7 @@ class WikiCatalogGenerator:
                 "git_url": repo.git_url,
                 "commit_hash": repo.commit_hash,
             },
+            "language_code": language_code,
             "documentation_style": {
                 "name": "DeepWiki",
                 "shape": (

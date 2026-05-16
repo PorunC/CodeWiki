@@ -100,6 +100,7 @@ def doc_catalog_from_row(row: Mapping[str, Any]) -> DocCatalogRecord:
     return DocCatalogRecord(
         id=_get(row, "id"),
         repo_id=_get(row, "repo_id"),
+        language_code=_get(row, "language_code", "en"),
         title=_get(row, "title"),
         structure=_get(row, "structure", _get(row, "structure_json", {})),
         generated_at=_get(row, "generated_at"),
@@ -110,6 +111,7 @@ def doc_page_from_row(row: Mapping[str, Any]) -> DocPageRecord:
     return DocPageRecord(
         id=_get(row, "id"),
         repo_id=_get(row, "repo_id"),
+        language_code=_get(row, "language_code", "en"),
         slug=_get(row, "slug"),
         title=_get(row, "title"),
         parent_slug=_get(row, "parent_slug"),

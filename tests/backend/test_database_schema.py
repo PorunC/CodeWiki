@@ -49,9 +49,19 @@ def test_schema_contains_graphrag_wiki_and_llm_tables(tmp_path: Path) -> None:
             row["name"]
             for row in connection.execute("PRAGMA table_info(llm_run)").fetchall()
         }
+        catalog_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(doc_catalog)").fetchall()
+        }
+        page_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(doc_page)").fetchall()
+        }
     assert "embedding_json" not in embedding_columns
     assert {"vec_table", "vec_rowid"} <= embedding_columns
     assert {"response_content", "response_usage_json"} <= llm_run_columns
+    assert "language_code" in catalog_columns
+    assert "language_code" in page_columns
 
 
 def test_schema_migrates_existing_repo_git_metadata_columns(tmp_path: Path) -> None:
@@ -199,6 +209,7 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
     latest_catalog = store.get_latest_doc_catalog(repo.id)
     assert latest_catalog is not None
     assert latest_catalog.id == catalog.id
+    assert latest_catalog.language_code == "en"
     assert latest_catalog.structure["items"][0]["slug"] == "overview"
 
     page = DocPageRecord(
@@ -217,6 +228,7 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
     assert saved_page.updated_at is not None
     loaded_page = store.get_doc_page(repo.id, "overview")
     assert loaded_page is not None
+    assert loaded_page.language_code == "en"
     assert loaded_page.source_refs[0]["file_path"] == "main.py"
     assert store.list_doc_pages(repo.id)[0].slug == "overview"
 

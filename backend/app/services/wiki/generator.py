@@ -9,6 +9,7 @@ from backend.app.services.repo_context import RepositoryContextBuilder
 from backend.app.services.wiki.catalog import _catalog_items_for_generation, _slugify
 from backend.app.services.wiki.catalog_generator import WikiCatalogGenerator
 from backend.app.services.wiki.page_generator import PageGenerationResult, WikiPageGenerator
+from backend.app.services.wiki.translation import WikiTranslationResult, WikiTranslator
 
 PAGE_GENERATION_CONCURRENCY = 3
 
@@ -47,14 +48,25 @@ class WikiGenerator:
             self.llm,
             store=self.store,
         )
+        self.translator = WikiTranslator(self.llm, store=self.store)
 
-    async def generate_catalog(self, repo_id: str) -> DocCatalogRecord:
-        return await self.catalog_generator.generate_catalog(repo_id)
+    async def generate_catalog(
+        self,
+        repo_id: str,
+        *,
+        language_code: str = "en",
+    ) -> DocCatalogRecord:
+        return await self.catalog_generator.generate_catalog(repo_id, language_code=language_code)
 
-    async def generate_all_pages(self, repo_id: str) -> list[PageGenerationResult]:
-        catalog = self.store.get_latest_doc_catalog(repo_id)
+    async def generate_all_pages(
+        self,
+        repo_id: str,
+        *,
+        language_code: str = "en",
+    ) -> list[PageGenerationResult]:
+        catalog = self.store.get_latest_doc_catalog(repo_id, language_code=language_code)
         if catalog is None:
-            catalog = await self.generate_catalog(repo_id)
+            catalog = await self.generate_catalog(repo_id, language_code=language_code)
         nodes = _generation_nodes(catalog.structure.get("items", []))
         results_by_slug: dict[str, PageGenerationResult] = {}
         semaphore = asyncio.Semaphore(PAGE_GENERATION_CONCURRENCY)
@@ -64,6 +76,7 @@ class WikiGenerator:
                 results_by_slug[node.slug] = await self.generate_page(
                     repo_id,
                     node.item,
+                    language_code=language_code,
                     parent_slug=node.parent_slug,
                 )
 
@@ -78,6 +91,7 @@ class WikiGenerator:
             results_by_slug[node.slug] = await self.generate_page(
                 repo_id,
                 node.item,
+                language_code=language_code,
                 parent_slug=node.parent_slug,
                 child_pages=child_pages,
             )
@@ -90,6 +104,7 @@ class WikiGenerator:
         self.store.delete_doc_pages_not_in(
             repo_id,
             [result.page.slug for result in results],
+            language_code=language_code,
         )
         return results
 
@@ -98,25 +113,37 @@ class WikiGenerator:
         repo_id: str,
         item: dict[str, Any],
         *,
+        language_code: str = "en",
         parent_slug: str | None = None,
         child_pages: list[DocPageRecord] | None = None,
     ) -> PageGenerationResult:
         return await self.page_generator.generate_page(
             repo_id,
             item,
+            language_code=language_code,
             parent_slug=parent_slug,
             child_pages=child_pages,
         )
 
-    async def regenerate_page(self, repo_id: str, slug: str) -> PageGenerationResult:
-        catalog = self.store.get_latest_doc_catalog(repo_id)
+    async def regenerate_page(
+        self,
+        repo_id: str,
+        slug: str,
+        *,
+        language_code: str = "en",
+    ) -> PageGenerationResult:
+        catalog = self.store.get_latest_doc_catalog(repo_id, language_code=language_code)
         if catalog is None:
             raise ValueError("Generate a catalog before regenerating pages.")
         for item, parent_slug in _catalog_items_for_generation(catalog.structure.get("items", [])):
             if _slugify(str(item.get("slug") or item.get("path") or item.get("title") or "")) == slug:
                 child_pages = []
                 if _has_children(item):
-                    child_results = await self._generate_descendant_pages(repo_id, item)
+                    child_results = await self._generate_descendant_pages(
+                        repo_id,
+                        item,
+                        language_code=language_code,
+                    )
                     child_pages = _child_pages_for_item(
                         item,
                         {result.page.slug: result for result in child_results},
@@ -124,15 +151,31 @@ class WikiGenerator:
                 return await self.generate_page(
                     repo_id,
                     item,
+                    language_code=language_code,
                     parent_slug=parent_slug,
                     child_pages=child_pages,
                 )
         raise ValueError(f"Catalog page not found: {slug}")
 
+    async def translate_wiki(
+        self,
+        repo_id: str,
+        *,
+        target_language: str,
+        source_language: str = "en",
+    ) -> WikiTranslationResult:
+        return await self.translator.translate_wiki(
+            repo_id,
+            source_language=source_language,
+            target_language=target_language,
+        )
+
     async def _generate_descendant_pages(
         self,
         repo_id: str,
         item: dict[str, Any],
+        *,
+        language_code: str = "en",
     ) -> list[PageGenerationResult]:
         children = _item_children(item)
         nodes = _generation_nodes(children, parent_slug=_catalog_slug(item), depth=1)
@@ -145,6 +188,7 @@ class WikiGenerator:
                 results_by_slug[node.slug] = await self.generate_page(
                     repo_id,
                     node.item,
+                    language_code=language_code,
                     parent_slug=node.parent_slug,
                 )
 
@@ -156,6 +200,7 @@ class WikiGenerator:
             results_by_slug[node.slug] = await self.generate_page(
                 repo_id,
                 node.item,
+                language_code=language_code,
                 parent_slug=node.parent_slug,
                 child_pages=_child_pages_for_item(node.item, results_by_slug),
             )
@@ -166,7 +211,7 @@ class WikiGenerator:
         return results
 
 
-__all__ = ["PageGenerationResult", "WikiGenerator"]
+__all__ = ["PageGenerationResult", "WikiGenerator", "WikiTranslationResult"]
 
 
 def _generation_nodes(

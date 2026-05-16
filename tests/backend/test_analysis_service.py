@@ -128,9 +128,13 @@ async def test_analyze_with_community_summaries_skips_llm_when_unconfigured(
         repo.id,
         settings=Settings(
             llm_api_key=None,
-            llm_base_url=None,
-            litellm_proxy_base_url=None,
-            llm_default_model="provider/strong-coding-model",
+            llm_endpoint=None,
+            llm_provider=None,
+            llm_model="provider/strong-coding-model",
+            llm_community_api_key=None,
+            llm_community_endpoint=None,
+            llm_community_provider=None,
+            llm_community_model="provider/strong-coding-model",
         ),
     )
 

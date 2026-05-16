@@ -70,15 +70,17 @@ export type IncrementalUpdateResponse = {
 
 export type LlmModelsResponse = {
   mode: string;
-  base_url: string;
-  default_model: string;
-  small_model: string;
-  large_model: string;
-  catalog_model: string;
-  community_model: string;
-  page_model: string;
-  qa_model: string;
-  embedding_model: string;
+  default_profile: LlmModelProfile;
+  profiles: Record<string, LlmModelProfile>;
+};
+
+export type LlmModelProfile = {
+  model: string;
+  provider_type: string;
+  endpoint: string;
+  has_api_key: boolean;
+  stream: boolean;
+  max_tokens: number | null;
 };
 
 export type CodeNode = {
@@ -154,6 +156,7 @@ export type WikiCatalogItem = {
 export type WikiCatalog = {
   id: string;
   repo_id: string;
+  language_code: string;
   title: string;
   structure: {
     items: WikiCatalogItem[];
@@ -164,6 +167,7 @@ export type WikiCatalog = {
 export type WikiPageRecord = {
   id: string;
   repo_id: string;
+  language_code: string;
   slug: string;
   title: string;
   parent_slug: string | null;
@@ -190,4 +194,13 @@ export type GenerateWikiPagesResponse = {
   status: string;
   page_count: number;
   pages: WikiPageGenerationResult[];
+};
+
+export type TranslateWikiResponse = {
+  repo_id: string;
+  source_language: string;
+  target_language: string;
+  catalog: WikiCatalog;
+  page_count: number;
+  pages: WikiPageRecord[];
 };

@@ -1,5 +1,10 @@
 import { API_BASE, readJson } from "./http";
-import type { GenerateWikiPagesResponse, WikiPageGenerationResult, WikiResponse } from "./types";
+import type {
+  GenerateWikiPagesResponse,
+  TranslateWikiResponse,
+  WikiPageGenerationResult,
+  WikiResponse
+} from "./types";
 
 export async function getRepoWiki(repoId: string): Promise<WikiResponse> {
   const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki`);
@@ -21,4 +26,22 @@ export async function regenerateWikiPage(repoId: string, slug: string): Promise<
     }
   );
   return readJson(response, "Wiki page regeneration");
+}
+
+export async function translateWiki(
+  repoId: string,
+  targetLanguage: string,
+  sourceLanguage = "en"
+): Promise<TranslateWikiResponse> {
+  const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki/translate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      source_language: sourceLanguage,
+      target_language: targetLanguage
+    })
+  });
+  return readJson(response, "Wiki translation");
 }

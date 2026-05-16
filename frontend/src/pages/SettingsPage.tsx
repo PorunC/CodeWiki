@@ -94,8 +94,8 @@ export function SettingsPage({
           <strong>{models?.mode ?? "-"}</strong>
         </div>
         <div>
-          <span>Provider</span>
-          <strong>{providerLabel(models?.base_url)}</strong>
+          <span>Tasks</span>
+          <strong>{models ? Object.keys(models.profiles).length : "-"}</strong>
         </div>
       </div>
 
@@ -116,37 +116,15 @@ export function SettingsPage({
                 <dd>{models.mode}</dd>
               </div>
               <div>
-                <dt>Base URL</dt>
-                <dd className="ops-mono">{models.base_url || "default provider endpoint"}</dd>
+                <dt>Default</dt>
+                <dd className="ops-mono">{profileLabel(models.default_profile)}</dd>
               </div>
-              <div>
-                <dt>Small model</dt>
-                <dd className="ops-mono">{models.small_model}</dd>
-              </div>
-              <div>
-                <dt>Large model</dt>
-                <dd className="ops-mono">{models.large_model}</dd>
-              </div>
-              <div>
-                <dt>Catalog</dt>
-                <dd className="ops-mono">{models.catalog_model}</dd>
-              </div>
-              <div>
-                <dt>Community naming</dt>
-                <dd className="ops-mono">{models.community_model}</dd>
-              </div>
-              <div>
-                <dt>Wiki pages</dt>
-                <dd className="ops-mono">{models.page_model}</dd>
-              </div>
-              <div>
-                <dt>QA</dt>
-                <dd className="ops-mono">{models.qa_model}</dd>
-              </div>
-              <div>
-                <dt>Embedding model</dt>
-                <dd className="ops-mono">{models.embedding_model}</dd>
-              </div>
+              {Object.entries(models.profiles).map(([task, profile]) => (
+                <div key={task}>
+                  <dt>{taskLabel(task)}</dt>
+                  <dd className="ops-mono">{profileLabel(profile)}</dd>
+                </div>
+              ))}
             </dl>
           </section>
         </div>
@@ -164,4 +142,26 @@ function providerLabel(baseUrl?: string): string {
   } catch {
     return "custom";
   }
+}
+
+function profileLabel(profile: LlmModelsResponse["default_profile"]): string {
+  return [
+    `${profile.provider_type ? `${profile.provider_type}/` : ""}${profile.model}`,
+    profile.endpoint ? `@ ${providerLabel(profile.endpoint)}` : "",
+    profile.has_api_key ? "key set" : ""
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function taskLabel(task: string): string {
+  const labels: Record<string, string> = {
+    catalog: "Catalog",
+    community_summary: "Community naming",
+    page: "Wiki pages",
+    translation: "Translation",
+    qa: "QA",
+    embedding: "Embedding"
+  };
+  return labels[task] ?? task;
 }

@@ -10,11 +10,12 @@ from backend.app.models.base import Base, JSONText, RecordMixin
 
 class DocCatalogRecord(Base, RecordMixin):
     __tablename__ = "doc_catalog"
-    __table_args__ = (Index("idx_doc_catalog_repo", "repo_id", "generated_at"),)
-    __record_fields__ = ("id", "repo_id", "title", "structure", "generated_at")
+    __table_args__ = (Index("idx_doc_catalog_repo", "repo_id", "language_code", "generated_at"),)
+    __record_fields__ = ("id", "repo_id", "language_code", "title", "structure", "generated_at")
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     repo_id: Mapped[str] = mapped_column(Text, ForeignKey("repo.id", ondelete="CASCADE"), nullable=False)
+    language_code: Mapped[str] = mapped_column(Text, nullable=False, default="en", server_default="en")
     title: Mapped[str] = mapped_column(Text, nullable=False)
     structure: Mapped[dict[str, Any]] = mapped_column(
         "structure_json",
@@ -30,11 +31,12 @@ class DocPageRecord(Base, RecordMixin):
     __tablename__ = "doc_page"
     __table_args__ = (
         Index("idx_doc_page_repo", "repo_id"),
-        Index("idx_doc_page_slug", "repo_id", "slug", unique=True),
+        Index("idx_doc_page_slug_language", "repo_id", "language_code", "slug", unique=True),
     )
     __record_fields__ = (
         "id",
         "repo_id",
+        "language_code",
         "slug",
         "title",
         "parent_slug",
@@ -47,6 +49,7 @@ class DocPageRecord(Base, RecordMixin):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     repo_id: Mapped[str] = mapped_column(Text, ForeignKey("repo.id", ondelete="CASCADE"), nullable=False)
+    language_code: Mapped[str] = mapped_column(Text, nullable=False, default="en", server_default="en")
     slug: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     parent_slug: Mapped[str | None] = mapped_column(Text)

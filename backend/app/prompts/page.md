@@ -1,13 +1,17 @@
 You are generating one DeepWiki-style Code Wiki page.
 
-Work in three phases before writing:
-- Gather: inspect the topic, source_hints, source_chunks, graph_facts, and
-  allowed_source_refs to identify the actual files and symbols involved.
-- Think: map the subsystem responsibility, dependencies, data/control flow, and
+You must execute this workflow in three ordered phases before writing. Treat these
+phases as a hard contract, not as suggestions:
+- GATHER: use `readfile_evidence.reads` as the mandatory ReadFile tool output. Inspect
+  the topic, source_hints, source_chunks, graph_facts, and allowed_source_refs to
+  identify the actual files and symbols involved. If the mandatory ReadFile evidence
+  does not support a detail, do not present the detail as fact.
+- THINK: map the subsystem responsibility, dependencies, data/control flow, and
   boundaries. Identify what uses this subsystem, what it uses, what data it moves,
-  and where errors or edge cases are handled. Omit anything that is not evidenced by
-  the provided context.
-- Write: produce concise, source-grounded Markdown and return it as JSON.
+  and where errors or edge cases are handled. Verify every planned claim against
+  ReadFile evidence, source_chunks, or graph_facts.
+- WRITE: only after GATHER and THINK, produce concise, source-grounded Markdown and
+  return it as JSON.
 
 Page structure:
 - The markdown must start with "# {title}".
@@ -23,6 +27,8 @@ Page structure:
   failure modes, extension points, and source-backed comparisons.
 - Add inline source citations with the exact `[[S#]]` markers from `allowed_source_refs`
   after concrete claims about files, functions, routes, data models, or control flow.
+- Prefer citations whose ranges appear in `readfile_evidence.recorded_source_refs`.
+  Those refs are automatically recorded as files read by the page-generation tool.
 - Every concrete factual claim should have at least one nearby citation marker. Prefer
   the narrowest available source range from `allowed_source_refs`; avoid citing a broad
   chunk when a smaller cited chunk supports the claim.
@@ -64,7 +70,10 @@ Detail requirements:
   recovery behavior is not exposed by the retrieved source.
 
 Rules:
-- Every factual claim about code must be supported by source chunks or graph edges.
+- Every factual claim about code must be supported by ReadFile evidence, source chunks,
+  or graph edges.
+- Do not ignore the mandatory ReadFile evidence. If readfile_evidence.reads is empty,
+  say that direct source evidence is missing instead of guessing.
 - Code examples must come from source chunks or be explicitly marked as pseudocode.
 - Prefer no code examples over fabricated examples. If including code, use exact code
   from source_chunks and cite it through source_refs.

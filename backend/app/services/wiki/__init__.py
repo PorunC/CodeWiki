@@ -1,3 +1,4 @@
 from backend.app.services.wiki.generator import PageGenerationResult, WikiGenerator
+from backend.app.services.wiki.translation import WikiTranslationResult
 
-__all__ = ["PageGenerationResult", "WikiGenerator"]
+__all__ = ["PageGenerationResult", "WikiGenerator", "WikiTranslationResult"]

@@ -15,6 +15,7 @@ class WikiCatalogItem(BaseModel):
 class WikiPage(BaseModel):
     slug: str
     title: str
+    language_code: str = "en"
     markdown: str
     source_refs: list[SourceRef] = Field(default_factory=list)
     graph_refs: list[str] = Field(default_factory=list)

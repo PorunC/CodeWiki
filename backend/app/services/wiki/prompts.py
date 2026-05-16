@@ -15,7 +15,9 @@ def _page_messages(
         "will generate abstract diagrams from validated graph facts. source_refs must "
         "be selected from allowed_source_refs. Use [[S#]] citation markers only "
         "for source refs you return. Use catalog_context.related_pages only for "
-        "real related-page mentions; do not invent wiki pages or links."
+        "real related-page mentions; do not invent wiki pages or links. Follow the "
+        "mandatory GATHER, THINK, WRITE workflow, and ground GATHER in "
+        "readfile_evidence.reads."
     )
     if validation_errors:
         instruction = (

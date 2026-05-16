@@ -11,6 +11,7 @@ class LLMResult:
     content: str
     model: str
     usage: dict[str, Any]
+    provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ class LLMGateway:
 
         profile = self.router.profile_for(task_type)
         kwargs: dict[str, Any] = {
-            "model": _litellm_model(profile.model, self.settings.llm_base_url),
+            "model": _litellm_model(profile),
             "messages": messages,
             "temperature": profile.temperature,
             "timeout": self.settings.llm_timeout_seconds,
@@ -48,11 +49,10 @@ class LLMGateway:
             kwargs["max_tokens"] = profile.max_tokens
         if response_format:
             kwargs["response_format"] = {"type": response_format}
-        api_base = _api_base(self.settings)
-        if api_base:
-            kwargs["api_base"] = api_base
-        if self.settings.llm_api_key:
-            kwargs["api_key"] = self.settings.llm_api_key
+        if profile.endpoint:
+            kwargs["api_base"] = profile.endpoint
+        if profile.api_key:
+            kwargs["api_key"] = profile.api_key
 
         response = await acompletion(**kwargs)
         choice = response.choices[0]
@@ -64,24 +64,28 @@ class LLMGateway:
             usage = usage_obj
         else:
             usage = {}
-        return LLMResult(content=content, model=profile.model, usage=usage)
+        return LLMResult(
+            content=content,
+            model=profile.model,
+            usage=usage,
+            provider=profile.provider_type,
+        )
 
     async def stream(self, task_type: str, messages: list[dict[str, str]]) -> AsyncIterator[LLMDelta]:
         from litellm import acompletion
 
         profile = self.router.profile_for(task_type)
         kwargs: dict[str, Any] = {
-            "model": _litellm_model(profile.model, self.settings.llm_base_url),
+            "model": _litellm_model(profile),
             "messages": messages,
             "temperature": profile.temperature,
             "stream": True,
             "timeout": self.settings.llm_timeout_seconds,
         }
-        api_base = _api_base(self.settings)
-        if api_base:
-            kwargs["api_base"] = api_base
-        if self.settings.llm_api_key:
-            kwargs["api_key"] = self.settings.llm_api_key
+        if profile.endpoint:
+            kwargs["api_base"] = profile.endpoint
+        if profile.api_key:
+            kwargs["api_key"] = profile.api_key
         response = await acompletion(**kwargs)
         async for chunk in response:
             delta = chunk.choices[0].delta
@@ -94,14 +98,13 @@ class LLMGateway:
 
         profile = self.router.profile_for(task_type)
         kwargs: dict[str, Any] = {
-            "model": _litellm_model(profile.model, self.settings.llm_base_url),
+            "model": _litellm_model(profile),
             "input": texts,
         }
-        api_base = _api_base(self.settings)
-        if api_base:
-            kwargs["api_base"] = api_base
-        if self.settings.llm_api_key:
-            kwargs["api_key"] = self.settings.llm_api_key
+        if profile.endpoint:
+            kwargs["api_base"] = profile.endpoint
+        if profile.api_key:
+            kwargs["api_key"] = profile.api_key
         response = await aembedding(**kwargs)
         return [
             item["embedding"] if isinstance(item, dict) else item.embedding
@@ -109,15 +112,11 @@ class LLMGateway:
         ]
 
 
-def _api_base(settings: Settings) -> str | None:
-    if settings.llm_base_url:
-        return settings.llm_base_url
-    if settings.llm_mode == "proxy" and settings.litellm_proxy_base_url:
-        return settings.litellm_proxy_base_url
-    return None
-
-
-def _litellm_model(model: str, api_base: str | None) -> str:
-    if api_base and "/" not in model:
-        return f"openai/{model}"
-    return model
+def _litellm_model(profile) -> str:
+    if "/" in profile.model:
+        return profile.model
+    if profile.provider_type:
+        return f"{profile.provider_type}/{profile.model}"
+    if profile.endpoint:
+        return f"openai/{profile.model}"
+    return profile.model

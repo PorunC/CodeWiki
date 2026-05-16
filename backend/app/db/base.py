@@ -62,6 +62,27 @@ class BaseSQLiteStore:
                     "response_usage_json": "TEXT NOT NULL DEFAULT '{}'",
                 },
             )
+            self._ensure_columns(
+                connection,
+                "doc_catalog",
+                {
+                    "language_code": "TEXT NOT NULL DEFAULT 'en'",
+                },
+            )
+            self._ensure_columns(
+                connection,
+                "doc_page",
+                {
+                    "language_code": "TEXT NOT NULL DEFAULT 'en'",
+                },
+            )
+            connection.execute("DROP INDEX IF EXISTS idx_doc_page_slug")
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_page_slug_language
+                ON doc_page (repo_id, language_code, slug)
+                """
+            )
 
     def _create_engine(self) -> Engine:
         engine = create_engine(f"sqlite:///{self.database_path}", future=True)

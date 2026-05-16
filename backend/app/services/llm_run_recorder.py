@@ -42,6 +42,7 @@ async def complete_with_cache(
             content=cached_run.response_content,
             model=cached_run.model,
             usage=cached_run.response_usage,
+            provider=cached_run.provider,
         )
         run = store.record_llm_run(
             repo_id,
@@ -96,7 +97,7 @@ def record_llm_run(
     return store.record_llm_run(
         repo_id,
         task_type=task_type,
-        provider=model_provider(result.model),
+        provider=result.provider or model_provider(result.model),
         model=result.model,
         model_alias=model_alias or task_type,
         prompt_version=prompt_version,

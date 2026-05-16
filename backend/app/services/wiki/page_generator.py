@@ -7,6 +7,7 @@ from backend.app.services.graphrag import GraphRAGRetriever, RetrievalTrace
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_run_recorder import complete_with_cache
 from backend.app.services.repo_scanner import RepoDescriptor
+from backend.app.services.wiki.agent_tools import ReadFileEvidence, readfile_evidence_for_page
 from backend.app.services.wiki.catalog import (
     _catalog_context_for_page,
     _slugify,
@@ -29,6 +30,7 @@ from backend.app.services.wiki.sources import (
     _include_markdown_citation_refs,
     _replace_citation_markers,
     _source_refs_from_chunks,
+    _source_url,
     _source_url_base,
     _strip_unknown_citation_markers,
     _validate_citation_markers,
@@ -70,6 +72,7 @@ class WikiPageGenerator:
         repo_id: str,
         item: dict[str, Any],
         *,
+        language_code: str = "en",
         parent_slug: str | None = None,
         child_pages: list[DocPageRecord] | None = None,
     ) -> PageGenerationResult:
@@ -85,6 +88,11 @@ class WikiPageGenerator:
         trace = _trace_with_source_hint_chunks(trace, self.store, repo_id, source_hints)
         graph_refs = _graph_refs_from_trace(trace)
         allowed_source_refs = _source_refs_from_chunks(trace.source_chunks)
+        readfile_evidence = readfile_evidence_for_page(
+            repo_path=repo.path,
+            allowed_source_refs=allowed_source_refs,
+            source_hints=source_hints,
+        )
         child_page_summaries = _child_page_summaries(child_pages or [])
         user_payload = self._page_payload(
             repo,
@@ -94,8 +102,10 @@ class WikiPageGenerator:
             slug=slug,
             topic=topic,
             parent_slug=parent_slug,
+            language_code=language_code,
             source_hints=source_hints,
             allowed_source_refs=allowed_source_refs,
+            readfile_evidence=readfile_evidence,
             child_page_summaries=child_page_summaries,
         )
 
@@ -139,6 +149,7 @@ class WikiPageGenerator:
                 title=title,
                 trace=trace,
                 allowed_source_refs=allowed_source_refs,
+                read_source_refs=readfile_evidence.source_refs,
             )
             if not validation_errors:
                 break
@@ -165,6 +176,7 @@ class WikiPageGenerator:
         page = DocPageRecord(
             id=uuid.uuid4().hex,
             repo_id=repo_id,
+            language_code=language_code,
             slug=slug,
             title=str(payload.get("title") or title),
             parent_slug=parent_slug,
@@ -189,11 +201,13 @@ class WikiPageGenerator:
         slug: str,
         topic: str,
         parent_slug: str | None,
+        language_code: str,
         source_hints: list[str],
         allowed_source_refs: list[dict[str, object]],
+        readfile_evidence: ReadFileEvidence,
         child_page_summaries: list[dict[str, object]],
     ) -> dict[str, Any]:
-        catalog = self.store.get_latest_doc_catalog(repo.id)
+        catalog = self.store.get_latest_doc_catalog(repo.id, language_code=language_code)
         catalog_context = _catalog_context_for_page(
             catalog.structure.get("items", []) if catalog else [],
             slug=slug,
@@ -204,6 +218,7 @@ class WikiPageGenerator:
             "slug": slug,
             "path": item.get("path") or slug,
             "topic": topic,
+            "language_code": language_code,
             "source_hints": source_hints,
             "source_linking": {
                 "source_refs": "Use only file_path/start_line/end_line values from allowed_source_refs.",
@@ -230,7 +245,7 @@ class WikiPageGenerator:
             "documentation_style": {
                 "name": "DeepWiki",
                 "workflow": [
-                    "gather evidence from source_chunks and graph_facts",
+                    "GATHER with mandatory ReadFile evidence, source_chunks, and graph_facts",
                     "think through subsystem boundaries and verified relationships",
                     "write concise Markdown with section-level Sources lines",
                 ],
@@ -275,6 +290,16 @@ class WikiPageGenerator:
             "context_pack": trace.context_pack,
             "source_chunks": trace.source_chunks,
             "allowed_source_refs": allowed_source_refs,
+            "agent_tools": {
+                "available": [
+                    {
+                        "name": "ReadFile",
+                        "purpose": "Read exact repository source ranges before writing.",
+                    }
+                ],
+                "required_for_page_generation": ["ReadFile"],
+            },
+            "readfile_evidence": readfile_evidence.as_payload(),
             "graph_facts": {
                 "seed_nodes": trace.seed_nodes,
                 "expanded_nodes": trace.expanded_nodes,
@@ -323,6 +348,7 @@ class WikiPageGenerator:
         title: str,
         trace: RetrievalTrace,
         allowed_source_refs: list[dict[str, object]],
+        read_source_refs: list[dict[str, Any]],
     ) -> tuple[str, list[dict[str, Any]], list[str]]:
         markdown = _strip_llm_mermaid(str(payload.get("markdown") or ""))
         source_url_base = _source_url_base(repo.git_url, repo.commit_hash)
@@ -343,12 +369,51 @@ class WikiPageGenerator:
         if not source_refs:
             validation_errors = [*source_ref_errors, "At least one valid source_ref is required."]
         else:
+            source_refs = _merge_recorded_source_refs(
+                source_refs,
+                read_source_refs,
+                source_url_base=source_url_base,
+            )
             validation_errors = []
             markdown = _strip_unknown_citation_markers(markdown, source_refs)
 
         validation_errors.extend(_validate_page_markdown(markdown, title))
         validation_errors.extend(_validate_citation_markers(markdown, source_refs))
         return markdown, source_refs, validation_errors
+
+
+def _merge_recorded_source_refs(
+    source_refs: list[dict[str, Any]],
+    read_source_refs: list[dict[str, Any]],
+    *,
+    source_url_base: str | None,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+    for ref in [*source_refs, *read_source_refs]:
+        file_path = ref.get("file_path")
+        start_line = ref.get("start_line")
+        end_line = ref.get("end_line")
+        if not isinstance(file_path, str) or not isinstance(start_line, int) or not isinstance(end_line, int):
+            continue
+        key = (file_path, start_line, end_line)
+        if key in seen:
+            if ref.get("read_via"):
+                for existing_ref in merged:
+                    if (
+                        existing_ref.get("file_path"),
+                        existing_ref.get("start_line"),
+                        existing_ref.get("end_line"),
+                    ) == key:
+                        existing_ref.setdefault("read_via", ref["read_via"])
+                        break
+            continue
+        seen.add(key)
+        merged_ref = dict(ref)
+        if source_url_base and "source_url" not in merged_ref:
+            merged_ref["source_url"] = _source_url(source_url_base, file_path, start_line, end_line)
+        merged.append(merged_ref)
+    return merged
 
 
 def _page_json_repair_payload(

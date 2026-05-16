@@ -10,6 +10,7 @@ from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.graph import CodeGraph, GraphBuilder
 from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.model_router import ModelRouter
 from backend.app.services.repo_metadata import write_repo_metadata
 from backend.app.services.repo_scanner import RepoScanner
 
@@ -154,11 +155,12 @@ class AnalysisService:
 
 
 def _llm_configured(settings: Settings) -> bool:
+    profile = ModelRouter(settings).profile_for("community_summary")
     return bool(
-        settings.llm_api_key
-        or settings.llm_base_url
-        or (settings.llm_mode == "proxy" and settings.litellm_proxy_base_url)
-        or not settings.llm_default_model.startswith("provider/")
+        profile.api_key
+        or profile.endpoint
+        or profile.provider_type
+        or not profile.model.startswith("provider/")
     )
 
 

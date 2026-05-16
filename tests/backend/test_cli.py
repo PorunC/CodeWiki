@@ -128,9 +128,9 @@ def _configure_database(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setenv("CODEWIKI_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.delenv("CODEWIKI_LLM_API_KEY", raising=False)
-    monkeypatch.delenv("CODEWIKI_LLM_BASE_URL", raising=False)
-    monkeypatch.delenv("CODEWIKI_LITELLM_PROXY_BASE_URL", raising=False)
-    monkeypatch.setenv("CODEWIKI_LLM_DEFAULT_MODEL", "provider/strong-coding-model")
+    monkeypatch.delenv("CODEWIKI_LLM_ENDPOINT", raising=False)
+    monkeypatch.delenv("CODEWIKI_LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("CODEWIKI_LLM_MODEL", "provider/strong-coding-model")
     get_settings.cache_clear()
     get_store.cache_clear()
 

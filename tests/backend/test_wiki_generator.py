@@ -51,6 +51,7 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     page = results[0].page
     assert page.status == "generated"
     assert page.source_refs[0]["file_path"] == "api.py"
+    assert any(source_ref.get("read_via") == "ReadFile" for source_ref in page.source_refs)
     assert "fake --> invented" not in page.markdown
     assert "## Relevant source files\n- [api.py](source-link)" in page.markdown
     assert "Title: Request Handler graph overview" in page.markdown
@@ -274,6 +275,52 @@ async def test_wiki_generator_prunes_pages_removed_from_catalog(tmp_path: Path) 
     assert store.get_doc_page(repo.id, "old-page") is None
 
 
+@pytest.mark.asyncio
+async def test_wiki_generator_translates_catalog_and_pages(tmp_path: Path) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Request Handler",
+            "markdown": (
+                "# Request Handler\n\n"
+                "## Purpose and Scope\n\n"
+                "The handler delegates to answer(). [[S1]]"
+            ),
+            "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+        translation_payloads={
+            "catalog": {
+                "title": "Translated Wiki",
+                "items": [{"path": "request-handler", "title": "Translated Handler"}],
+            },
+            "page": {
+                "title": "Translated Handler",
+                "markdown": (
+                    "# Translated Handler\n\n"
+                    "## Purpose and Scope\n\n"
+                    "Translated handler text. [api.py:L3-L4](source-link)"
+                ),
+            },
+        },
+    )
+    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+
+    await generator.generate_catalog(repo.id)
+    await generator.generate_all_pages(repo.id)
+    result = await generator.translate_wiki(repo.id, source_language="en", target_language="zh")
+
+    assert result.catalog.language_code == "zh"
+    assert result.catalog.title == "Translated Wiki"
+    assert result.catalog.structure["items"][0]["slug"] == "request-handler"
+    assert result.catalog.structure["items"][0]["title"] == "Translated Handler"
+    assert result.pages[0].language_code == "zh"
+    assert result.pages[0].slug == "request-handler"
+    assert result.pages[0].source_refs[0]["file_path"] == "api.py"
+    assert store.get_latest_doc_catalog(repo.id, language_code="zh") == result.catalog
+    assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == result.pages[0]
+    assert [request["content_type"] for request in llm.translation_requests] == ["catalog", "page"]
+
+
 def test_source_refs_accept_citation_ids_and_replace_markers(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -383,12 +430,15 @@ class _FakeWikiLLM:
         page_payload: dict[str, object],
         catalog_payload: dict[str, object] | None = None,
         page_payloads_by_slug: dict[str, dict[str, object]] | None = None,
+        translation_payloads: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self.page_payload = page_payload
         self.catalog_payload = catalog_payload
         self.page_payloads_by_slug = page_payloads_by_slug or {}
+        self.translation_payloads = translation_payloads or {}
         self.page_requests: list[dict[str, object]] = []
         self.page_call_slugs: list[str] = []
+        self.translation_requests: list[dict[str, object]] = []
 
     async def complete(
         self,
@@ -417,12 +467,21 @@ class _FakeWikiLLM:
         elif task_type == "page":
             assert '"catalog_context"' in message_text
             assert '"detail_expectations"' in message_text
+            assert '"readfile_evidence"' in message_text
+            assert '"ReadFile"' in message_text
             assert "do not invent wiki pages or links" in message_text
             request_payload = _request_payload_from_message(messages[-1]["content"])
             self.page_requests.append(request_payload)
             slug = str(request_payload.get("slug") or "")
             self.page_call_slugs.append(slug)
             payload = self.page_payloads_by_slug.get(slug, self.page_payload)
+        elif task_type == "translation":
+            request_payload = _request_payload_from_message(messages[-1]["content"])
+            self.translation_requests.append(request_payload)
+            content_type = str(request_payload.get("content_type") or "")
+            payload = self.translation_payloads.get(content_type)
+            if payload is None:
+                raise AssertionError(f"Missing translation payload for: {content_type}")
         else:
             raise AssertionError(f"Unexpected task type: {task_type}")
         return LLMResult(content=json.dumps(payload), model="fake/wiki", usage={})
