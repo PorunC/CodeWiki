@@ -9,12 +9,15 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.wiki.diagrams import MermaidDiagram
 from backend.app.services.wiki.generator import WikiGenerator
 from backend.app.services.wiki.sources import (
+    _compose_page_markdown,
     _include_markdown_citation_refs,
     _replace_citation_markers,
     _source_url,
     _source_url_base,
+    _validate_diagram_placeholders,
     _validate_source_refs,
 )
 
@@ -53,24 +56,27 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     catalog = await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
 
-    assert catalog.structure["items"][0]["slug"] == "request-handler"
-    page = results[0].page
+    catalog_slugs = [item["slug"] for item in catalog.structure["items"]]
+    assert catalog_slugs[:4] == ["overview", "architecture", "reading-guide", "dependencies"]
+    assert "request-handler" in catalog_slugs
+    page = _page_by_slug(results, "request-handler")
     assert page.status == "generated"
     assert page.source_refs[0]["file_path"] == "api.py"
     assert any(source_ref.get("read_via") == "ReadFile" for source_ref in page.source_refs)
     assert "fake --> invented" not in page.markdown
     assert "## Relevant source files\n- [api.py](source-link)" in page.markdown
-    assert "Title: Request Handler graph overview" in page.markdown
-    assert "### Component map" in page.markdown
-    assert "### Interaction flow" in page.markdown
+    assert "## Graph" not in page.markdown
+    assert "### Request Handler component relationships" in page.markdown
+    assert "### Request Handler implementation flow" in page.markdown
+    assert "### Request Handler interaction sequence" in page.markdown
     assert "```mermaid" in page.markdown
     assert "-->|calls / imports|" in page.markdown
     assert 'C0["Api"]' in page.markdown
     assert 'C1["Service"]' in page.markdown
-    assert "handler (function)" not in page.markdown
-    assert "answer (function)" not in page.markdown
-    assert "Sources: [api.py:L3-L4](source-link)" in page.markdown
-    assert "[api.py:L3-L4](source-link)" in page.markdown
+    assert "handler (function)" in page.markdown
+    assert "answer (function)" in page.markdown
+    assert "Sources:" not in page.markdown
+    assert "  - S2 [L3-L4](source-link)" in page.markdown
     assert page.graph_refs
     assert "llm-invented-node" not in page.graph_refs
     assert any(":edge:" in graph_ref for graph_ref in page.graph_refs)
@@ -126,8 +132,17 @@ async def test_wiki_generator_marks_page_draft_when_server_mermaid_is_invalid(
         }
     )
     monkeypatch.setattr(
-        "backend.app.services.wiki.page_generator._mermaid_from_trace",
-        lambda *_args, **_kwargs: "## Graph\n\n```mermaid\nflowchart TD\n  A -->\n```",
+        "backend.app.services.wiki.page_generator._mermaid_diagrams_from_trace",
+        lambda *_args, **_kwargs: [
+            MermaidDiagram(
+                slot="broken",
+                kind="component",
+                title="Broken graph",
+                heading_hint="System Context",
+                reason="test invalid diagram",
+                lines=["flowchart TD", "  A -->"],
+            )
+        ],
     )
     generator = WikiGenerator(
         GraphRAGRetriever(store=store),
@@ -193,9 +208,11 @@ async def test_wiki_generator_generates_leaf_pages_for_category_catalog(
     await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
 
-    assert [result.page.slug for result in results] == ["core-runtime", "request-handler"]
-    assert results[0].page.parent_slug is None
-    assert results[1].page.parent_slug == "core-runtime"
+    slugs = [result.page.slug for result in results]
+    assert slugs[:4] == ["overview", "architecture", "reading-guide", "dependencies"]
+    assert slugs[-2:] == ["core-runtime", "request-handler"]
+    assert _page_by_slug(results, "core-runtime").parent_slug is None
+    assert _page_by_slug(results, "request-handler").parent_slug == "core-runtime"
 
 
 @pytest.mark.asyncio
@@ -260,8 +277,8 @@ async def test_wiki_generator_synthesizes_parent_from_generated_child_pages(
     await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
 
-    assert [result.page.slug for result in results] == ["core-runtime", "request-handler"]
-    assert llm.page_call_slugs == ["request-handler", "core-runtime"]
+    assert [result.page.slug for result in results][-2:] == ["core-runtime", "request-handler"]
+    assert llm.page_call_slugs.index("request-handler") < llm.page_call_slugs.index("core-runtime")
     parent_request = next(request for request in llm.page_requests if request["slug"] == "core-runtime")
     assert parent_request["parent_synthesis"]["has_child_pages"] is True
     assert parent_request["child_page_summaries"][0]["slug"] == "request-handler"
@@ -347,14 +364,17 @@ async def test_wiki_generator_translates_catalog_and_pages(tmp_path: Path) -> No
 
     assert result.catalog.language_code == "zh"
     assert result.catalog.title == "Translated Wiki"
-    assert result.catalog.structure["items"][0]["slug"] == "request-handler"
-    assert result.catalog.structure["items"][0]["title"] == "Translated Handler"
-    assert result.pages[0].language_code == "zh"
-    assert result.pages[0].slug == "request-handler"
-    assert result.pages[0].source_refs[0]["file_path"] == "api.py"
+    translated_catalog_item = next(
+        item for item in result.catalog.structure["items"] if item["slug"] == "request-handler"
+    )
+    assert translated_catalog_item["title"] == "Translated Handler"
+    translated_page = next(page for page in result.pages if page.slug == "request-handler")
+    assert translated_page.language_code == "zh"
+    assert translated_page.source_refs[0]["file_path"] == "api.py"
     assert store.get_latest_doc_catalog(repo.id, language_code="zh") == result.catalog
-    assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == result.pages[0]
-    assert [request["content_type"] for request in llm.translation_requests] == ["catalog", "page"]
+    assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == translated_page
+    assert llm.translation_requests[0]["content_type"] == "catalog"
+    assert [request["content_type"] for request in llm.translation_requests[1:]] == ["page"] * len(result.pages)
 
 
 @pytest.mark.asyncio
@@ -392,13 +412,144 @@ async def test_wiki_generator_generates_requested_non_base_language_via_translat
 
     results = await generator.generate_all_pages(repo.id, language_code="zh")
 
-    assert results[0].page.language_code == "zh"
-    assert results[0].page.title == "请求处理器"
+    translated_page = _page_by_slug(results, "request-handler")
+    assert translated_page.language_code == "zh"
+    assert translated_page.title == "请求处理器"
     assert store.get_latest_doc_catalog(repo.id, language_code="en") is not None
     assert store.get_latest_doc_catalog(repo.id, language_code="zh") is not None
     assert store.get_doc_page(repo.id, "request-handler", language_code="en") is not None
-    assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == results[0].page
-    assert [request["content_type"] for request in llm.translation_requests] == ["catalog", "page"]
+    assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == translated_page
+    assert llm.translation_requests[0]["content_type"] == "catalog"
+    assert [request["content_type"] for request in llm.translation_requests[1:]] == ["page"] * len(results)
+
+
+@pytest.mark.asyncio
+async def test_wiki_update_generates_only_missing_and_draft_pages(tmp_path: Path) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    store.save_doc_catalog(
+        repo.id,
+        title="Repo Wiki",
+        structure={
+            "items": [
+                {"title": "Stable", "slug": "stable", "topic": "handler answer", "children": []},
+                {"title": "Handler", "slug": "handler", "topic": "handler answer", "children": []},
+                {"title": "Missing", "slug": "missing", "topic": "handler answer", "children": []},
+            ]
+        },
+    )
+    store.upsert_doc_page(
+        DocPageRecord(
+            id="stable-page",
+            repo_id=repo.id,
+            slug="stable",
+            title="Stable",
+            parent_slug=None,
+            markdown="# Stable\n\n## Purpose and Scope\n\nAlready generated.",
+            source_refs=[{"file_path": "api.py", "start_line": 3, "end_line": 4}],
+            graph_refs=[],
+            status="generated",
+            updated_at=None,
+        )
+    )
+    store.upsert_doc_page(
+        DocPageRecord(
+            id="draft-page",
+            repo_id=repo.id,
+            slug="handler",
+            title="Handler",
+            parent_slug=None,
+            markdown="# Handler\n\nDraft.",
+            source_refs=[{"file_path": "api.py", "start_line": 3, "end_line": 4}],
+            graph_refs=[],
+            status="draft",
+            updated_at=None,
+        )
+    )
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Handler",
+            "markdown": "# Handler\n\n## Purpose and Scope\n\nThe handler delegates to answer(). [[S1]]",
+            "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+        }
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    update = await generator.update_pages(repo.id)
+
+    assert update.generated_slugs == ["handler", "missing"]
+    assert update.stale_slugs == ["handler"]
+    assert update.missing_slugs == ["missing"]
+    assert [page.slug for page in update.reused_pages] == ["stable"]
+    assert set(llm.page_call_slugs) == {"handler", "missing"}
+    assert store.get_doc_page(repo.id, "stable").markdown.startswith("# Stable")
+    assert store.get_doc_page(repo.id, "handler").status == "generated"
+    assert store.get_doc_page(repo.id, "missing").status == "generated"
+
+
+@pytest.mark.asyncio
+async def test_wiki_generator_repairs_translation_json_for_requested_language(
+    tmp_path: Path,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    valid_page_translation = {
+        "title": "请求处理器",
+        "markdown": "# 请求处理器\n\n## Purpose and Scope\n\n处理器会调用 answer().",
+    }
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Request Handler",
+            "markdown": (
+                "# Request Handler\n\n"
+                "## Purpose and Scope\n\n"
+                "The handler delegates to answer(). [[S1]]"
+            ),
+            "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+        translation_payloads={
+            "catalog": [
+                "I translated the catalog, but forgot JSON.",
+                {
+                    "title": "中文 Wiki",
+                    "items": [{"path": "request-handler", "title": "请求处理器"}],
+                },
+            ],
+            "page": [
+                "Plain Markdown is not accepted here.",
+                valid_page_translation,
+                valid_page_translation,
+                valid_page_translation,
+                valid_page_translation,
+                valid_page_translation,
+            ],
+        },
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    results = await generator.generate_all_pages(repo.id, language_code="zh")
+
+    translated_page = _page_by_slug(results, "request-handler")
+    assert translated_page.language_code == "zh"
+    assert translated_page.title == "请求处理器"
+    assert store.get_latest_doc_catalog(repo.id, language_code="en") is not None
+    assert store.get_doc_page(repo.id, "request-handler", language_code="en") is not None
+    assert len([request for request in llm.translation_requests if request["content_type"] == "catalog"]) == 2
+    assert len([request for request in llm.translation_requests if request["content_type"] == "page"]) == len(results) + 1
+    errored_translation_runs = [
+        run
+        for run in store.list_llm_runs(repo.id, task_type="translation")
+        if run.status == "error"
+    ]
+    assert len(errored_translation_runs) == 2
 
 
 @pytest.mark.asyncio
@@ -441,7 +592,8 @@ async def test_wiki_generator_auto_translates_configured_languages_after_base_ge
     translated_page = store.get_doc_page(repo.id, "request-handler", language_code="zh")
     assert translated_page is not None
     assert translated_page.title == "请求处理器"
-    assert [request["content_type"] for request in llm.translation_requests] == ["catalog", "page"]
+    assert llm.translation_requests[0]["content_type"] == "catalog"
+    assert all(request["content_type"] == "page" for request in llm.translation_requests[1:])
 
 
 def test_source_refs_accept_citation_ids_and_replace_markers(tmp_path: Path) -> None:
@@ -477,7 +629,50 @@ def test_source_refs_accept_citation_ids_and_replace_markers(tmp_path: Path) -> 
 
     assert errors == []
     assert refs[0]["citation_id"] == "S1"
-    assert "[api.py:L1-L2](source-link)" in markdown
+    assert '[S1](source-link "api.py:L1-L2")' in markdown
+
+
+def test_diagram_placeholders_insert_server_diagrams_in_body() -> None:
+    diagram = MermaidDiagram(
+        slot="data-flow",
+        kind="data_flow",
+        title="Handler data and call flow",
+        heading_hint="Control Flow",
+        reason="test diagram",
+        lines=["flowchart LR", "  A --> B"],
+    )
+    source_refs = [
+        {"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}
+    ]
+    markdown = (
+        "# Request Handler\n\n"
+        "## Purpose and Scope\n\n"
+        "The handler coordinates the flow. [[S1]]\n\n"
+        "## Control Flow\n\n"
+        "The following path is graph-backed.\n\n"
+        "[[DIAGRAM:data-flow]]\n\n"
+        "Sources: [api.py:L3-L4](source-link)\n\n"
+        "The flow ends after delegation."
+    )
+
+    rendered = _compose_page_markdown(markdown, [diagram], source_refs)
+
+    assert "[[DIAGRAM:" not in rendered
+    assert rendered.index("## Control Flow") < rendered.index("### Handler data and call flow")
+    assert rendered.index("### Handler data and call flow") < rendered.index("The flow ends")
+    assert "Sources:" not in rendered
+    assert "## Sources" in rendered
+    assert "- api.py" in rendered
+    assert "  - S1 [L3-L4](source-link)" in rendered
+
+
+def test_unknown_diagram_placeholders_are_validation_errors() -> None:
+    errors = _validate_diagram_placeholders(
+        "# Page\n\n## Purpose and Scope\n\n[[DIAGRAM:invented]]",
+        {"data-flow"},
+    )
+
+    assert errors == ["markdown contains unknown diagram placeholders: invented."]
 
 
 def test_source_refs_force_allowed_range_and_auto_include_markers(tmp_path: Path) -> None:
@@ -554,6 +749,17 @@ def _wiki_settings(**overrides: object) -> Settings:
     return Settings(_env_file=None, **(values | overrides))
 
 
+def _page_by_slug(results: list[object], slug: str) -> DocPageRecord:
+    for result in results:
+        page = getattr(result, "page", result)
+        if page.slug == slug:
+            return page
+    raise AssertionError(f"Missing page: {slug}")
+
+
+type _FakeTranslationPayload = dict[str, object] | str
+
+
 class _FakeWikiLLM:
     def __init__(
         self,
@@ -561,12 +767,17 @@ class _FakeWikiLLM:
         page_payload: dict[str, object],
         catalog_payload: dict[str, object] | None = None,
         page_payloads_by_slug: dict[str, dict[str, object]] | None = None,
-        translation_payloads: dict[str, dict[str, object]] | None = None,
+        translation_payloads: (
+            dict[str, _FakeTranslationPayload | list[_FakeTranslationPayload]] | None
+        ) = None,
     ) -> None:
         self.page_payload = page_payload
         self.catalog_payload = catalog_payload
         self.page_payloads_by_slug = page_payloads_by_slug or {}
-        self.translation_payloads = translation_payloads or {}
+        self.translation_payloads = {
+            key: list(value) if isinstance(value, list) else value
+            for key, value in (translation_payloads or {}).items()
+        }
         self.page_requests: list[dict[str, object]] = []
         self.page_call_slugs: list[str] = []
         self.translation_requests: list[dict[str, object]] = []
@@ -598,6 +809,9 @@ class _FakeWikiLLM:
         elif task_type == "page":
             assert '"catalog_context"' in message_text
             assert '"detail_expectations"' in message_text
+            assert '"diagram_slots"' in message_text
+            assert '"page_depth_profile"' in message_text
+            assert '"evidence_inventory"' in message_text
             assert '"readfile_evidence"' in message_text
             assert '"ReadFile"' in message_text
             assert "do not invent wiki pages or links" in message_text
@@ -605,7 +819,7 @@ class _FakeWikiLLM:
             self.page_requests.append(request_payload)
             slug = str(request_payload.get("slug") or "")
             self.page_call_slugs.append(slug)
-            payload = self.page_payloads_by_slug.get(slug, self.page_payload)
+            payload = self.page_payloads_by_slug.get(slug, self._page_payload_for_request(request_payload))
         elif task_type == "translation":
             request_payload = _request_payload_from_message(messages[-1]["content"])
             self.translation_requests.append(request_payload)
@@ -613,9 +827,32 @@ class _FakeWikiLLM:
             payload = self.translation_payloads.get(content_type)
             if payload is None:
                 raise AssertionError(f"Missing translation payload for: {content_type}")
+            if isinstance(payload, list):
+                if not payload:
+                    raise AssertionError(f"Missing translation payload for: {content_type}")
+                payload = payload.pop(0)
         else:
             raise AssertionError(f"Unexpected task type: {task_type}")
-        return LLMResult(content=json.dumps(payload), model="fake/wiki", usage={})
+        content = payload if isinstance(payload, str) else json.dumps(payload)
+        return LLMResult(content=content, model="fake/wiki", usage={})
+
+    def _page_payload_for_request(self, request_payload: dict[str, object]) -> dict[str, object]:
+        title = str(request_payload.get("title") or self.page_payload.get("title") or "Page")
+        payload_title = str(self.page_payload.get("title") or "")
+        if title == payload_title:
+            return self.page_payload
+        source_refs = self.page_payload.get("source_refs") or [
+            {"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}
+        ]
+        return {
+            "title": title,
+            "markdown": (
+                f"# {title}\n\n"
+                "## Purpose and Scope\n\n"
+                f"{title} summarizes repository evidence for this page. [[S1]]"
+            ),
+            "source_refs": source_refs,
+        }
 
 
 def _request_payload_from_message(message_text: str) -> dict[str, object]:

@@ -2,6 +2,7 @@ import { API_BASE, readJson } from "./http";
 import type {
   GenerateWikiPagesResponse,
   TranslateWikiResponse,
+  UpdateWikiPagesResponse,
   WikiPageGenerationResult,
   WikiResponse
 } from "./types";
@@ -22,6 +23,25 @@ export async function generateWikiPages(
     }
   );
   return readJson(response, "Wiki page generation");
+}
+
+export async function updateWikiPages(
+  repoId: string,
+  language = "en"
+): Promise<UpdateWikiPagesResponse> {
+  const response = await fetch(
+    `${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki/pages/update${languageQuery(language)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        refresh_chunks: true
+      })
+    }
+  );
+  return readJson(response, "Wiki incremental update");
 }
 
 export async function regenerateWikiPage(

@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-MAX_READFILE_REFS = 10
-MAX_READFILE_CHARS = 24000
+MAX_READFILE_REFS = 14
+MAX_READFILE_CHARS = 32000
 
 
 @dataclass(frozen=True)

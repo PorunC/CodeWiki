@@ -4,7 +4,7 @@ export { getRepoGraph } from "./graph";
 export { createRepo, deleteRepo, getHealth, getRepos } from "./repos";
 export { analyzeRepo, updateRepo } from "./runs";
 export { getLlmModels } from "./settings";
-export { getRepoWiki } from "./wiki";
+export { getRepoWiki, updateWikiPages } from "./wiki";
 export type {
   AnalysisRunResponse,
   AskResponse,
@@ -18,6 +18,7 @@ export type {
   RepoFileTreeNode,
   RepoSummary,
   SourceRef,
+  UpdateWikiPagesResponse,
   WikiCatalog,
   WikiCatalogItem,
   WikiPageRecord,

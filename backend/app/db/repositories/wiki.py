@@ -145,6 +145,7 @@ class WikiRepositoryMixin:
         file_path_set = set(file_paths)
         graph_ref_set = set(graph_refs)
         stale_slugs: list[str] = []
+        seen_stale_slugs: set[str] = set()
 
         for page in self.list_doc_pages(repo_id, language_code=None):
             references_file = any(
@@ -155,7 +156,9 @@ class WikiRepositoryMixin:
             if not references_file and not references_graph:
                 continue
 
-            stale_slugs.append(page.slug)
+            if page.slug not in seen_stale_slugs:
+                seen_stale_slugs.add(page.slug)
+                stale_slugs.append(page.slug)
             if page.status == "draft":
                 continue
             self.upsert_doc_page(

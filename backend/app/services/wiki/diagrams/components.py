@@ -95,6 +95,9 @@ def _aggregate_component_edges(
         aggregate.counts[edge_type] = aggregate.counts.get(edge_type, 0) + 1
         aggregate.confidence_total += _edge_confidence(edge)
         aggregate.evidence_count += 1
+        edge_id = str(edge.get("id") or "")
+        if edge_id:
+            aggregate.edge_ids.append(edge_id)
 
     selected = _select_component_edges(list(aggregates.values()))
     selected_group_keys = {edge.source_key for edge in selected} | {edge.target_key for edge in selected}

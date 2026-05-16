@@ -10,8 +10,8 @@ phases as a hard contract, not as suggestions:
   boundaries. Identify what uses this subsystem, what it uses, what data it moves,
   and where errors or edge cases are handled. Verify every planned claim against
   ReadFile evidence, source_chunks, or graph_facts.
-- WRITE: only after GATHER and THINK, produce concise, source-grounded Markdown and
-  return it as JSON.
+- WRITE: only after GATHER and THINK, produce detailed, source-grounded Markdown and
+  return it as JSON. Favor depth over breadth, but do not add unsupported details.
 
 Page structure:
 - The markdown must start with "# {title}".
@@ -19,9 +19,10 @@ Page structure:
   paragraphs describing what this page covers and what it intentionally excludes.
 - In "Purpose and Scope", include one direct sentence that states the subsystem's
   primary responsibility.
-- Write like DeepWiki: concise, source-grounded, and oriented around how the subsystem
-  fits into the larger repository. Prefer short paragraphs, compact tables, and
-  explicit relationships between files, APIs, data structures, and workflows.
+- Write like DeepWiki: source-grounded, implementation-aware, and oriented around how
+  the subsystem fits into the larger repository. Prefer short paragraphs, compact
+  tables, and explicit relationships between files, APIs, data structures, workflows,
+  validation paths, and failure/recovery behavior.
 - Use tables as a primary presentation format for dense technical information:
   component responsibilities, routes, data shapes, configuration keys, workflows,
   failure modes, extension points, and source-backed comparisons.
@@ -32,13 +33,21 @@ Page structure:
 - Every concrete factual claim should have at least one nearby citation marker. Prefer
   the narrowest available source range from `allowed_source_refs`; avoid citing a broad
   chunk when a smaller cited chunk supports the claim.
-- If a section makes several related claims, finish the section with a compact
-  `Sources: [[S1]] [[S2]]` line, using only refs returned in `source_refs`.
+- Use compact inline `[[S#]]` markers. Do not repeat long file/range labels in prose,
+  and do not add section-level `Sources:` lines; the server renders grouped source
+  ranges once at the end of the page.
 - Then choose the most relevant sections from: "System Context", "Core Components",
   "Control Flow", "Data Model", "API Surface", "Configuration", "Frontend Flow",
   "Extension Points", "Failure Handling", "Testing", and "Operational Notes".
 - Use compact tables when they make ownership, files, symbols, routes, or data shapes
   easier to scan.
+- For implementation pages, include at least two evidence-backed detail blocks when
+  evidence permits: a component/symbol responsibility table, an end-to-end workflow
+  table, an API/data contract table, a validation/failure-mode table, or an extension
+  point/configuration table.
+- For parent/category pages, synthesize how child pages relate and where shared
+  control flow, data contracts, or dependencies cross child boundaries. Do not simply
+  list child pages.
 - Name concrete files, functions, classes, endpoints, models, and relationships from
   the provided context. Avoid generic tutorial prose.
 - When catalog_context contains related pages, mention only directly related pages by
@@ -47,9 +56,14 @@ Page structure:
   sections; the server and frontend inject those from validated source references,
   catalog context, and graph edges.
 - The server chooses Mermaid diagrams from graph facts only. It may use component
-  maps, left-to-right data flow, top-down control flow, sequence diagrams, and class
-  diagrams. Write the prose so those diagrams are introduced naturally, but do not
-  emit Mermaid code.
+  maps, concrete symbol-level implementation flows, left-to-right data flow, top-down
+  control flow, sequence diagrams, public surface maps, and class diagrams. Write the
+  prose so those diagrams are introduced naturally, but do not emit Mermaid code.
+- If `diagram_slots` contains a diagram that clarifies a section, place the exact
+  `[[DIAGRAM:<slot>]]` placeholder on its own line inside that section, near the
+  paragraph or table that introduces the relationship. Use only slots listed in
+  `diagram_slots`; do not invent diagram placeholders. If none fits naturally, omit
+  placeholders and the server will place diagrams near matching headings.
 - Do not include an "On this page" section; the frontend derives it from headings.
 
 Detail requirements:
@@ -59,6 +73,10 @@ Detail requirements:
   configuration keys when they are present in source_chunks or graph_facts.
 - Explain important failure modes, validation behavior, retries, draft/error states,
   or fallback paths when the source evidence includes them.
+- Explain important invariants and state transitions when they are visible, including
+  what is read, written, cached, translated, rendered, retried, or pruned.
+- When graph_facts include concrete calls, routes, imports, or inheritance, narrate
+  the key path in prose before or after the matching diagram placeholder.
 - For API or frontend pages, include route/component/action tables when supported by
   the retrieved context.
 - For service or pipeline pages, include a component/responsibility/evidence table.

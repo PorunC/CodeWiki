@@ -10,6 +10,7 @@ async def regenerate_stale_wiki_pages(
     repo_id: str,
     stale_pages: list[str],
 ) -> dict[str, object]:
+    stale_pages = _ordered_unique(stale_pages)
     if not stale_pages:
         return {"requested": True, "pages": [], "errors": []}
 
@@ -43,5 +44,16 @@ def skipped_wiki_regeneration(stale_pages: list[str]) -> dict[str, object]:
         "requested": False,
         "pages": [],
         "errors": [],
-        "skipped_pages": stale_pages,
+        "skipped_pages": _ordered_unique(stale_pages),
     }
+
+
+def _ordered_unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique

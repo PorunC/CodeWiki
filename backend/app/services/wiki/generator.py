@@ -25,6 +25,19 @@ class _GenerationNode:
     has_children: bool
 
 
+@dataclass(frozen=True)
+class WikiUpdateResult:
+    repo_id: str
+    language_code: str
+    results: list[PageGenerationResult]
+    reused_pages: list[DocPageRecord]
+    stale_slugs: list[str]
+    missing_slugs: list[str]
+    metadata_changed_slugs: list[str]
+    generated_slugs: list[str]
+    deleted_page_count: int
+
+
 class WikiGenerator:
     def __init__(
         self,
@@ -96,6 +109,25 @@ class WikiGenerator:
         results = await self._generate_all_pages_for_language(repo_id, language_code=base_language)
         await self._translate_configured_languages(repo_id)
         return results
+
+    async def update_pages(
+        self,
+        repo_id: str,
+        *,
+        language_code: str = "en",
+    ) -> WikiUpdateResult:
+        language_code = _normalize_language(language_code)
+        base_language = self._base_language()
+        if language_code != base_language:
+            return await self._update_translated_pages(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+            )
+
+        update = await self._update_pages_for_language(repo_id, language_code=base_language)
+        await self._translate_configured_languages_for_slugs(repo_id, update.generated_slugs)
+        return update
 
     async def _generate_all_pages_for_language(
         self,
@@ -193,6 +225,151 @@ class WikiGenerator:
         await self._translate_configured_languages(repo_id)
         return result
 
+    async def _update_pages_for_language(
+        self,
+        repo_id: str,
+        *,
+        language_code: str,
+    ) -> WikiUpdateResult:
+        catalog = self.store.get_latest_doc_catalog(repo_id, language_code=language_code)
+        if catalog is None:
+            catalog = await self.generate_catalog(repo_id, language_code=language_code)
+
+        nodes = _generation_nodes(catalog.structure.get("items", []))
+        existing_by_slug = {
+            page.slug: page
+            for page in self.store.list_doc_pages(repo_id, language_code=language_code)
+        }
+        page_records_by_slug = dict(existing_by_slug)
+        dirty_slugs, stale_slugs, missing_slugs, metadata_changed_slugs = _dirty_wiki_page_slugs(
+            nodes,
+            existing_by_slug,
+        )
+        results_by_slug: dict[str, PageGenerationResult] = {}
+        semaphore = asyncio.Semaphore(PAGE_GENERATION_CONCURRENCY)
+
+        async def generate_leaf(node: _GenerationNode) -> None:
+            async with semaphore:
+                result = await self.generate_page(
+                    repo_id,
+                    node.item,
+                    language_code=language_code,
+                    parent_slug=node.parent_slug,
+                )
+                results_by_slug[node.slug] = result
+                page_records_by_slug[node.slug] = result.page
+
+        await asyncio.gather(
+            *(
+                generate_leaf(node)
+                for node in nodes
+                if node.slug in dirty_slugs and not node.has_children
+            )
+        )
+
+        parent_nodes = sorted(
+            (
+                node
+                for node in nodes
+                if node.slug in dirty_slugs and node.has_children
+            ),
+            key=lambda node: (-node.depth, node.order),
+        )
+        for node in parent_nodes:
+            result = await self.generate_page(
+                repo_id,
+                node.item,
+                language_code=language_code,
+                parent_slug=node.parent_slug,
+                child_pages=_child_page_records_for_item(node.item, page_records_by_slug),
+            )
+            results_by_slug[node.slug] = result
+            page_records_by_slug[node.slug] = result.page
+
+        catalog_slugs = [node.slug for node in nodes]
+        deleted_page_count = self.store.delete_doc_pages_not_in(
+            repo_id,
+            catalog_slugs,
+            language_code=language_code,
+        )
+        generated_slugs = [node.slug for node in nodes if node.slug in results_by_slug]
+        reused_pages = [
+            existing_by_slug[node.slug]
+            for node in nodes
+            if node.slug not in dirty_slugs and node.slug in existing_by_slug
+        ]
+        return WikiUpdateResult(
+            repo_id=repo_id,
+            language_code=language_code,
+            results=[results_by_slug[slug] for slug in generated_slugs],
+            reused_pages=reused_pages,
+            stale_slugs=stale_slugs,
+            missing_slugs=missing_slugs,
+            metadata_changed_slugs=metadata_changed_slugs,
+            generated_slugs=generated_slugs,
+            deleted_page_count=deleted_page_count,
+        )
+
+    async def _update_translated_pages(
+        self,
+        repo_id: str,
+        *,
+        source_language: str,
+        target_language: str,
+    ) -> WikiUpdateResult:
+        base_update = await self._update_pages_for_language(repo_id, language_code=source_language)
+        await self.translator.ensure_translated_catalog(
+            repo_id,
+            source_language=source_language,
+            target_language=target_language,
+        )
+        source_pages = self.store.list_doc_pages(repo_id, language_code=source_language)
+        source_slugs = [page.slug for page in source_pages]
+        existing_target_by_slug = {
+            page.slug: page
+            for page in self.store.list_doc_pages(repo_id, language_code=target_language)
+        }
+        target_dirty_slugs = _translated_dirty_slugs(
+            source_slugs=source_slugs,
+            existing_target_by_slug=existing_target_by_slug,
+            base_generated_slugs=base_update.generated_slugs,
+        )
+        translated_pages = await self.translator.translate_page_slugs(
+            repo_id,
+            source_language=source_language,
+            target_language=target_language,
+            slugs=target_dirty_slugs,
+        )
+        deleted_page_count = self.store.delete_doc_pages_not_in(
+            repo_id,
+            source_slugs,
+            language_code=target_language,
+        )
+        results = [
+            PageGenerationResult(page=page, validation_errors=[])
+            for page in translated_pages
+        ]
+        reused_pages = [
+            existing_target_by_slug[slug]
+            for slug in source_slugs
+            if slug not in set(target_dirty_slugs) and slug in existing_target_by_slug
+        ]
+        return WikiUpdateResult(
+            repo_id=repo_id,
+            language_code=target_language,
+            results=results,
+            reused_pages=reused_pages,
+            stale_slugs=[
+                slug
+                for slug, page in existing_target_by_slug.items()
+                if slug in source_slugs and page.status != "generated"
+            ],
+            missing_slugs=[slug for slug in source_slugs if slug not in existing_target_by_slug],
+            metadata_changed_slugs=[],
+            generated_slugs=[page.slug for page in translated_pages],
+            deleted_page_count=deleted_page_count,
+        )
+
     async def _regenerate_page_for_language(
         self,
         repo_id: str,
@@ -264,6 +441,29 @@ class WikiGenerator:
                 target_language=language_code,
             )
 
+    async def _translate_configured_languages_for_slugs(
+        self,
+        repo_id: str,
+        slugs: list[str],
+    ) -> None:
+        if not slugs:
+            return
+        base_language = self._base_language()
+        for language_code in self._translation_languages():
+            if language_code == base_language:
+                continue
+            await self.translator.ensure_translated_catalog(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+            )
+            await self.translator.translate_page_slugs(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+                slugs=slugs,
+            )
+
     def _base_language(self) -> str:
         return _normalize_language(self.settings.wiki_base_language)
 
@@ -317,7 +517,7 @@ class WikiGenerator:
         return results
 
 
-__all__ = ["PageGenerationResult", "WikiGenerator", "WikiTranslationResult"]
+__all__ = ["PageGenerationResult", "WikiGenerator", "WikiTranslationResult", "WikiUpdateResult"]
 
 
 def _generation_nodes(
@@ -363,6 +563,83 @@ def _child_pages_for_item(
         if result is not None:
             pages.append(result.page)
     return pages
+
+
+def _child_page_records_for_item(
+    item: dict[str, Any],
+    pages_by_slug: dict[str, DocPageRecord],
+) -> list[DocPageRecord]:
+    pages: list[DocPageRecord] = []
+    for child in _item_children(item):
+        page = pages_by_slug.get(_catalog_slug(child))
+        if page is not None:
+            pages.append(page)
+    return pages
+
+
+def _dirty_wiki_page_slugs(
+    nodes: list[_GenerationNode],
+    existing_by_slug: dict[str, DocPageRecord],
+) -> tuple[set[str], list[str], list[str], list[str]]:
+    dirty_slugs: set[str] = set()
+    stale_slugs: list[str] = []
+    missing_slugs: list[str] = []
+    metadata_changed_slugs: list[str] = []
+    parent_by_slug = {node.slug: node.parent_slug for node in nodes}
+
+    for node in nodes:
+        existing = existing_by_slug.get(node.slug)
+        if existing is None:
+            missing_slugs.append(node.slug)
+            dirty_slugs.add(node.slug)
+            continue
+        if existing.status != "generated":
+            stale_slugs.append(node.slug)
+            dirty_slugs.add(node.slug)
+            continue
+        expected_title = str(node.item.get("title") or "")
+        if existing.parent_slug != node.parent_slug or (expected_title and existing.title != expected_title):
+            metadata_changed_slugs.append(node.slug)
+            dirty_slugs.add(node.slug)
+
+    for slug in [*missing_slugs, *stale_slugs, *metadata_changed_slugs]:
+        parent_slug = parent_by_slug.get(slug)
+        while parent_slug:
+            dirty_slugs.add(parent_slug)
+            parent_slug = parent_by_slug.get(parent_slug)
+
+    return (
+        dirty_slugs,
+        _ordered_unique(stale_slugs),
+        _ordered_unique(missing_slugs),
+        _ordered_unique(metadata_changed_slugs),
+    )
+
+
+def _translated_dirty_slugs(
+    *,
+    source_slugs: list[str],
+    existing_target_by_slug: dict[str, DocPageRecord],
+    base_generated_slugs: list[str],
+) -> list[str]:
+    dirty_slugs: list[str] = []
+    base_generated = set(base_generated_slugs)
+    for slug in source_slugs:
+        target_page = existing_target_by_slug.get(slug)
+        if target_page is None or target_page.status != "generated" or slug in base_generated:
+            dirty_slugs.append(slug)
+    return _ordered_unique(dirty_slugs)
+
+
+def _ordered_unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique
 
 
 def _has_children(item: dict[str, Any]) -> bool:

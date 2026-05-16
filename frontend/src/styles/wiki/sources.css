@@ -1,38 +1,108 @@
 .wiki-source-list {
   border-top: 1px solid var(--color-border-subtle);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
+  display: grid;
+  gap: 10px;
   padding-top: 14px;
 }
 
-.wiki-source-list h3 {
+.wiki-source-list summary {
   align-items: center;
   color: var(--color-text-secondary);
   display: flex;
-  flex: 0 0 100%;
+  cursor: pointer;
   font-size: 12px;
   gap: 7px;
   margin: 0;
   text-transform: uppercase;
 }
 
-.wiki-source-list button {
+.wiki-source-list summary:hover,
+.wiki-source-list summary:focus-visible {
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.wiki-source-list summary strong {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  margin-left: auto;
+  text-transform: none;
+}
+
+.wiki-source-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.wiki-source-group {
+  background: rgba(255, 255, 255, 0.018);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+}
+
+.wiki-source-group h4 {
+  align-items: center;
+  color: var(--color-text-secondary);
+  display: flex;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.wiki-source-group h4 span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-source-group h4 strong {
+  background: rgba(74, 124, 155, 0.1);
+  border: 1px solid rgba(74, 124, 155, 0.24);
+  border-radius: 999px;
+  color: #9cc2db;
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.wiki-source-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wiki-source-ranges button {
+  align-items: center;
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.24);
   border-radius: 999px;
   color: #9cc2db;
   cursor: pointer;
+  display: inline-flex;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
   font-weight: 800;
+  gap: 5px;
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 5px 8px;
 }
 
-.wiki-source-list button:hover,
-.wiki-source-list button:focus-visible {
+.wiki-source-ranges button span {
+  color: var(--color-accent-strong);
+}
+
+.wiki-source-ranges button:hover,
+.wiki-source-ranges button:focus-visible {
   background: rgba(74, 124, 155, 0.18);
   border-color: rgba(74, 124, 155, 0.38);
   color: #c4ddf0;

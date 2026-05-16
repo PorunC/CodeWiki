@@ -11,6 +11,7 @@ from backend.app.services.wiki.sources.citations import (
 from backend.app.services.wiki.sources.rendering import (
     _compose_page_markdown,
     _draft_markdown,
+    _validate_diagram_placeholders,
 )
 from backend.app.services.wiki.sources.urls import (
     _source_file_href,
@@ -34,6 +35,7 @@ __all__ = [
     "_source_url",
     "_source_url_base",
     "_strip_unknown_citation_markers",
+    "_validate_diagram_placeholders",
     "_validate_citation_markers",
     "_validate_source_refs",
 ]

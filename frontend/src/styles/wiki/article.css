@@ -1,3 +1,14 @@
+.wiki-reader {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.wiki-reader.has-outline {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
+}
+
 .wiki-article {
   background: rgba(16, 17, 17, 0.76);
   border: 1px solid var(--color-border-subtle);
@@ -43,6 +54,7 @@
   color: var(--color-text-primary);
   letter-spacing: 0;
   margin: 1.25em 0 0.55em;
+  scroll-margin-top: 18px;
 }
 
 .wiki-markdown h1 {
@@ -230,3 +242,56 @@
   font-size: 11px;
 }
 
+.wiki-page-outline {
+  background: rgba(12, 13, 13, 0.72);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+  padding: 12px;
+  position: sticky;
+  top: 16px;
+}
+
+.wiki-page-outline > strong {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wiki-page-outline-nav {
+  display: grid;
+  gap: 2px;
+}
+
+.wiki-page-outline-nav button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  min-height: 30px;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.wiki-page-outline-nav button:hover,
+.wiki-page-outline-nav button:focus-visible,
+.wiki-page-outline-nav button.is-active {
+  background: rgba(212, 165, 116, 0.08);
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.wiki-page-outline-nav button.is-active {
+  border-color: var(--color-border-medium);
+  color: var(--color-accent-strong);
+}

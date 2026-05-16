@@ -54,9 +54,9 @@ class WikiCatalogGenerator:
                 task_type="catalog",
                 messages=_catalog_messages(prompt, attempt_payload, validation_errors),
                 input_payload=attempt_payload,
-                cache_key=f"catalog:{trace.trace_id}:attempt:{attempt + 1}",
+                cache_key=f"catalog:v3:{trace.trace_id}:attempt:{attempt + 1}",
                 model_alias="catalog",
-                prompt_version="catalog:deepwiki:v2",
+                prompt_version="catalog:deepwiki:v3",
                 response_format="json_object",
             )
             result = completion.result
@@ -120,8 +120,10 @@ class WikiCatalogGenerator:
                 ],
                 "preferred_top_level_flow": [
                     "Overview",
+                    "Architecture",
+                    "Reading Guide",
+                    "Dependencies",
                     "Getting Started or User Guide",
-                    "System Architecture",
                     "Core Workflows",
                     "API Reference",
                     "Developer Guide",
@@ -135,6 +137,12 @@ class WikiCatalogGenerator:
                 ],
             },
             "catalog_design_requirements": {
+                "required_special_pages": [
+                    "Overview",
+                    "Architecture",
+                    "Reading Guide",
+                    "Dependencies",
+                ],
                 "coverage": [
                     "runtime entry points and bootstrapping",
                     "public API or UI surfaces",
@@ -166,18 +174,37 @@ class WikiCatalogGenerator:
                         "kind": "page",
                         "topic": "repository overview",
                         "source_hints": ["README.md"],
-                        "children": [
-                            {
-                                "title": "Architecture",
-                                "slug": "architecture",
-                                "path": "architecture",
-                                "order": 1,
-                                "kind": "page",
-                                "topic": "repository architecture and core components",
-                                "source_hints": [],
-                                "children": [],
-                            }
-                        ],
+                        "children": [],
+                    },
+                    {
+                        "title": "Architecture",
+                        "slug": "architecture",
+                        "path": "architecture",
+                        "order": 1,
+                        "kind": "page",
+                        "topic": "repository architecture, runtime layers, and core components",
+                        "source_hints": [],
+                        "children": [],
+                    },
+                    {
+                        "title": "Reading Guide",
+                        "slug": "reading-guide",
+                        "path": "reading-guide",
+                        "order": 2,
+                        "kind": "page",
+                        "topic": "recommended reading order for repository comprehension",
+                        "source_hints": ["README.md"],
+                        "children": [],
+                    },
+                    {
+                        "title": "Dependencies",
+                        "slug": "dependencies",
+                        "path": "dependencies",
+                        "order": 3,
+                        "kind": "page",
+                        "topic": "internal and external dependency relationships",
+                        "source_hints": [],
+                        "children": [],
                     }
                 ],
             },

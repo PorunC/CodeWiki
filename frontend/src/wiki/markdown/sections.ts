@@ -1,6 +1,10 @@
 import type { SourceRef } from "../../api/types";
 import type { RelevantSourceFile } from "../types";
 
+const SOURCES_HEADING_RE = /^#{2,6}\s+(?:Sources|来源|资料来源|引用来源|源文件来源)\s*$/i;
+const RELEVANT_SOURCE_FILES_HEADING_RE =
+  /^##\s+(?:Relevant source files|相关源文件|相关源码文件|相关源代码文件|关联源文件)\s*$/i;
+
 export function stripMarkdownSourcesSection(markdown: string): string {
   const lines = markdown.split(/\r?\n/);
   let inFence = false;
@@ -11,7 +15,7 @@ export function stripMarkdownSourcesSection(markdown: string): string {
       inFence = !inFence;
       return;
     }
-    if (!inFence && /^#{2,6}\s+Sources\s*$/i.test(line.trim())) {
+    if (!inFence && SOURCES_HEADING_RE.test(line.trim())) {
       sourcesHeadingIndex = index;
     }
   });
@@ -29,7 +33,9 @@ export function extractRelevantSourceFilesSection(markdown: string): {
   relevantFiles: RelevantSourceFile[];
 } {
   const lines = markdown.split(/\r?\n/);
-  const relevantStart = lines.findIndex((line) => /^##\s+Relevant source files\s*$/i.test(line.trim()));
+  const relevantStart = lines.findIndex((line) =>
+    RELEVANT_SOURCE_FILES_HEADING_RE.test(line.trim())
+  );
   const titleMarkdown = lines[0]?.startsWith("# ") ? lines[0] : "";
 
   if (relevantStart < 0) {

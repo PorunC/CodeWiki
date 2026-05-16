@@ -21,14 +21,14 @@ Organization goals:
   orientation, users need a "User Guide" or "How to Use" section, contributors need
   "Architecture" and "Developer Guide" sections, and operators need "Configuration",
   "Deployment", or "Operations" only when those concerns are evidenced.
-- Prefer a DeepWiki-like progression when evidence supports it: Overview, Getting
-  Started/User Guide, System Architecture, Core Workflows, API Reference, Developer
-  Guide, and Operations.
+- Prefer a DeepWiki-like progression when evidence supports it: Overview, Architecture,
+  Reading Guide, Dependencies, Getting Started/User Guide, Core Workflows, API
+  Reference, Developer Guide, and Operations.
 - Include at least one "how to use" section and one "how it works" section when the
   repository has both API or UI surfaces and internal implementation layers.
-- Start with a top-level "Overview" page, then group pages by real systems, layers,
-  workflows, data models, APIs, services, and frontend surfaces that appear in the
-  provided graph.
+- Start with top-level "Overview", "Architecture", "Reading Guide", and
+  "Dependencies" pages, then group pages by real systems, layers, workflows, data
+  models, APIs, services, and frontend surfaces that appear in the provided graph.
 - Prefer 5-9 top-level pages. Use children only when a subsystem has enough retrieved
   evidence to justify a drill-down page.
 - Use `kind: "category"` for parent section pages that should receive lightweight

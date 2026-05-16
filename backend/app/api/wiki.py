@@ -4,8 +4,10 @@ from pydantic import BaseModel
 from backend.app.config import get_settings
 from backend.app.database import DocCatalogRecord, DocPageRecord, get_store
 from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.incremental import IncrementalUpdater
+from backend.app.services.incremental.models import IncrementalUpdateResult
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.wiki import PageGenerationResult, WikiGenerator
+from backend.app.services.wiki import PageGenerationResult, WikiGenerator, WikiUpdateResult
 
 router = APIRouter()
 
@@ -13,6 +15,10 @@ router = APIRouter()
 class TranslateWikiRequest(BaseModel):
     target_language: str
     source_language: str = "en"
+
+
+class UpdateWikiPagesRequest(BaseModel):
+    refresh_chunks: bool = True
 
 
 @router.post("/{repo_id}/wiki/catalog")
@@ -36,6 +42,27 @@ async def generate_pages(repo_id: str, language: str = "en") -> dict[str, object
         "page_count": len(results),
         "pages": [_page_result_payload(result) for result in results],
     }
+
+
+@router.post("/{repo_id}/wiki/pages/update")
+async def update_pages(
+    repo_id: str,
+    language: str = "en",
+    payload: UpdateWikiPagesRequest | None = None,
+) -> dict[str, object]:
+    store = get_store()
+    if store.get_repo(repo_id) is None:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+    request = payload or UpdateWikiPagesRequest()
+    try:
+        incremental_update = IncrementalUpdater(store=store).update(
+            repo_id,
+            refresh_chunks=request.refresh_chunks,
+        )
+        wiki_update = await _generator().update_pages(repo_id, language_code=language)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+    return _wiki_update_payload(repo_id, wiki_update, incremental_update)
 
 
 @router.post("/{repo_id}/wiki/pages/{slug}/regenerate")
@@ -132,6 +159,39 @@ def _page_result_payload(result: PageGenerationResult) -> dict[str, object]:
     payload = _page_payload(result.page)
     payload["validation_errors"] = result.validation_errors
     return payload
+
+
+def _wiki_update_payload(
+    repo_id: str,
+    update: WikiUpdateResult,
+    incremental_update: IncrementalUpdateResult,
+) -> dict[str, object]:
+    generated_count = len(update.results)
+    return {
+        "repo_id": repo_id,
+        "language_code": update.language_code,
+        "status": "updated" if generated_count or update.deleted_page_count else "up_to_date",
+        "page_count": generated_count + len(update.reused_pages),
+        "generated_count": generated_count,
+        "reused_count": len(update.reused_pages),
+        "stale_pages": update.stale_slugs,
+        "missing_pages": update.missing_slugs,
+        "metadata_changed_pages": update.metadata_changed_slugs,
+        "generated_pages": update.generated_slugs,
+        "deleted_page_count": update.deleted_page_count,
+        "pages": [_page_result_payload(result) for result in update.results],
+        "incremental_update": {
+            "run_id": incremental_update.run_id,
+            "status": incremental_update.status,
+            "affected_files": incremental_update.plan.affected_files,
+            "changed_files": incremental_update.plan.changed_files,
+            "new_files": incremental_update.plan.new_files,
+            "deleted_files": incremental_update.plan.deleted_files,
+            "stale_pages": incremental_update.stale_pages,
+            "chunk_count": incremental_update.chunk_count,
+            "errors": incremental_update.errors,
+        },
+    }
 
 
 def _http_error(exc: ValueError) -> HTTPException:

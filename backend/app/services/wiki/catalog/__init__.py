@@ -8,7 +8,51 @@ from backend.app.services.wiki.catalog.source_hints import (
     _trace_with_source_hint_chunks,
 )
 
-MAX_CATALOG_ITEMS = 14
+MAX_CATALOG_ITEMS = 18
+MAX_LLM_CATALOG_ITEMS = 14
+
+SPECIAL_CATALOG_PAGES: tuple[dict[str, Any], ...] = (
+    {
+        "title": "Overview",
+        "slug": "overview",
+        "path": "overview",
+        "order": 0,
+        "kind": "page",
+        "topic": "repository overview, entry points, README, and main developer orientation",
+        "source_hints": ["README.md"],
+        "children": [],
+    },
+    {
+        "title": "Architecture",
+        "slug": "architecture",
+        "path": "architecture",
+        "order": 1,
+        "kind": "page",
+        "topic": "repository architecture, runtime layers, core components, and cross-module flows",
+        "source_hints": [],
+        "children": [],
+    },
+    {
+        "title": "Reading Guide",
+        "slug": "reading-guide",
+        "path": "reading-guide",
+        "order": 2,
+        "kind": "page",
+        "topic": "recommended reading order for understanding the repository from entry points to internals",
+        "source_hints": ["README.md"],
+        "children": [],
+    },
+    {
+        "title": "Dependencies",
+        "slug": "dependencies",
+        "path": "dependencies",
+        "order": 3,
+        "kind": "page",
+        "topic": "internal dependencies, external packages, imports, configuration, and integration boundaries",
+        "source_hints": [],
+        "children": [],
+    },
+)
 
 
 def _normalize_catalog_payload(payload: dict[str, Any], repo_name: str) -> tuple[str, list[dict[str, Any]]]:
@@ -22,24 +66,15 @@ def _normalize_catalog_payload(payload: dict[str, Any], repo_name: str) -> tuple
         item
         for item in (
             _normalize_catalog_item(raw_item, used_slugs)
-            for raw_item in raw_items[:MAX_CATALOG_ITEMS]
+            for raw_item in raw_items[:MAX_LLM_CATALOG_ITEMS]
         )
         if item is not None
     ]
     if not items:
-        items = [
-            {
-                "title": "Overview",
-                "slug": "overview",
-                "path": "overview",
-                "order": 0,
-                "kind": "page",
-                "topic": "repository overview",
-                "children": [],
-            }
-        ]
+        items = []
+    items = _ensure_special_catalog_pages(items)
     items = _sort_catalog_items(items)
-    return title, items
+    return title, items[:MAX_CATALOG_ITEMS]
 
 
 def _validate_catalog_payload(payload: dict[str, Any]) -> None:
@@ -89,6 +124,38 @@ def _sort_catalog_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if isinstance(children, list):
             item["children"] = _sort_catalog_items(children)
     return sorted(items, key=lambda item: (int(item.get("order") or 0), str(item.get("title") or "")))
+
+
+def _ensure_special_catalog_pages(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    existing_slugs = {_catalog_slug(item) for item in _flatten_catalog_item_dicts(items)}
+    next_items = list(items)
+    for special in SPECIAL_CATALOG_PAGES:
+        if str(special["slug"]) in existing_slugs:
+            continue
+        next_items.append({**special, "children": []})
+        existing_slugs.add(str(special["slug"]))
+    for item in next_items:
+        item["order"] = _special_order(str(item.get("slug") or ""), int(item.get("order") or 0))
+    return next_items
+
+
+def _flatten_catalog_item_dicts(items: list[Any]) -> list[dict[str, Any]]:
+    flat: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        flat.append(item)
+        children = item.get("children") or []
+        if isinstance(children, list):
+            flat.extend(_flatten_catalog_item_dicts(children))
+    return flat
+
+
+def _special_order(slug: str, current_order: int) -> int:
+    for special in SPECIAL_CATALOG_PAGES:
+        if str(special["slug"]) == slug:
+            return int(special["order"])
+    return current_order + len(SPECIAL_CATALOG_PAGES)
 
 
 def _catalog_context_for_page(
@@ -238,12 +305,14 @@ def _unique_slug(slug: str, used_slugs: set[str]) -> str:
 
 __all__ = [
     "MAX_CATALOG_ITEMS",
+    "SPECIAL_CATALOG_PAGES",
     "_catalog_context_for_page",
     "_catalog_item_summaries",
     "_catalog_items_for_generation",
     "_catalog_slug",
     "_dedupe_source_chunks",
     "_flatten_catalog_items",
+    "_ensure_special_catalog_pages",
     "_matches_source_hint",
     "_normalize_catalog_payload",
     "_related_catalog_pages",

@@ -208,7 +208,9 @@ def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) 
         ref = refs_by_citation_id.get(citation_id)
         if ref is None:
             return match.group(0)
-        return f"[{_source_ref_label(ref)}]({_source_ref_href(ref)})"
+        label = str(ref.get("citation_id") or _source_ref_label(ref))
+        title = _source_ref_label(ref).replace('"', "'")
+        return f'[{label}]({_source_ref_href(ref)} "{title}")'
 
     return CITATION_MARKER_RE.sub(replace_marker, markdown)
 

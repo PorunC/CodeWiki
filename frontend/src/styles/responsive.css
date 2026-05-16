@@ -40,6 +40,20 @@
   .workspace:not(.is-section-graph) .assistant-rail {
     display: block;
   }
+
+  .wiki-reader.has-outline {
+    grid-template-columns: 1fr;
+  }
+
+  .wiki-page-outline {
+    max-height: none;
+    order: -1;
+    position: static;
+  }
+
+  .wiki-page-outline-nav {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
 }
 
 @media (max-width: 900px) {

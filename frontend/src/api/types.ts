@@ -196,6 +196,32 @@ export type GenerateWikiPagesResponse = {
   pages: WikiPageGenerationResult[];
 };
 
+export type UpdateWikiPagesResponse = {
+  repo_id: string;
+  language_code: string;
+  status: string;
+  page_count: number;
+  generated_count: number;
+  reused_count: number;
+  stale_pages: string[];
+  missing_pages: string[];
+  metadata_changed_pages: string[];
+  generated_pages: string[];
+  deleted_page_count: number;
+  pages: WikiPageGenerationResult[];
+  incremental_update: {
+    run_id: string;
+    status: string;
+    affected_files: string[];
+    changed_files: string[];
+    new_files: string[];
+    deleted_files: string[];
+    stale_pages: string[];
+    chunk_count: number;
+    errors: Array<Record<string, string>>;
+  };
+};
+
 export type TranslateWikiResponse = {
   repo_id: string;
   source_language: string;

@@ -10,7 +10,7 @@ import {
   type PointerEvent
 } from "react";
 
-import { generateWikiPages, regenerateWikiPage } from "../api/wiki";
+import { generateWikiPages, regenerateWikiPage, updateWikiPages } from "../api/wiki";
 import { useRepos } from "../hooks/useRepos";
 import { WikiArticle } from "../wiki/components/WikiArticle";
 import { WikiCatalog } from "../wiki/components/WikiCatalog";
@@ -28,6 +28,8 @@ const WIKI_CATALOG_MIN_WIDTH = 220;
 const WIKI_CATALOG_MAX_WIDTH = 560;
 const WIKI_ARTICLE_MIN_WIDTH = 420;
 const WIKI_CATALOG_RESPONSIVE_BREAKPOINT = 900;
+const WIKI_OUTLINE_RESPONSIVE_BREAKPOINT = 1200;
+const WIKI_OUTLINE_RESERVED_WIDTH = 236;
 const WIKI_LANGUAGES = [
   { code: "en", label: "English" },
   { code: "zh", label: "中文" }
@@ -68,13 +70,14 @@ export function WikiPage({
 }) {
   const { repos, selectedRepo, error: repoError } = useRepos({ selectedRepoId, onRepoChange });
   const browserRef = useRef<HTMLDivElement | null>(null);
+  const articleRef = useRef<HTMLElement | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const [catalogWidth, setCatalogWidth] = useState(initialCatalogWidth);
   const [selectedLanguage, setSelectedLanguage] = useState<WikiLanguage>(initialWikiLanguage);
   const [isResizingCatalog, setIsResizingCatalog] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
-  const [generationTask, setGenerationTask] = useState<"pages" | "page" | null>(null);
+  const [generationTask, setGenerationTask] = useState<"pages" | "update" | "page" | null>(null);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
@@ -101,11 +104,29 @@ export function WikiPage({
   const selectedLanguageLabel =
     WIKI_LANGUAGES.find((language) => language.code === selectedLanguage)?.label ?? "English";
 
+  const scrollArticleToTop = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      articleRef.current?.scrollIntoView({ block: "start" });
+    });
+  }, []);
+
+  const handleSelectWikiPage = useCallback(
+    (slug: string) => {
+      setSelectedSlug(slug);
+      scrollArticleToTop();
+    },
+    [scrollArticleToTop, setSelectedSlug]
+  );
+
   const clampCatalogWidth = useCallback((width: number) => {
     const browserWidth = browserRef.current?.getBoundingClientRect().width ?? 0;
+    const outlineReserve =
+      window.innerWidth > WIKI_OUTLINE_RESPONSIVE_BREAKPOINT
+        ? WIKI_OUTLINE_RESERVED_WIDTH
+        : 0;
     const browserMax =
       browserWidth > 0
-        ? Math.max(WIKI_CATALOG_MIN_WIDTH, browserWidth - WIKI_ARTICLE_MIN_WIDTH - 8)
+        ? Math.max(WIKI_CATALOG_MIN_WIDTH, browserWidth - WIKI_ARTICLE_MIN_WIDTH - outlineReserve - 8)
         : WIKI_CATALOG_MAX_WIDTH;
     return clamp(width, WIKI_CATALOG_MIN_WIDTH, Math.min(WIKI_CATALOG_MAX_WIDTH, browserMax));
   }, []);
@@ -251,6 +272,36 @@ export function WikiPage({
     }
   }, [generationTask, refresh, selectedLanguage, selectedLanguageLabel, selectedRepoId]);
 
+  const handleUpdateWiki = useCallback(async () => {
+    if (!selectedRepoId || generationTask) {
+      return;
+    }
+    setGenerationTask("update");
+    setGenerationError(null);
+    setGenerationMessage(`Updating ${selectedLanguageLabel} wiki incrementally...`);
+    try {
+      const result = await updateWikiPages(selectedRepoId, selectedLanguage);
+      const affectedFiles = result.incremental_update.affected_files.length;
+      const updatedText =
+        result.generated_count > 0
+          ? `Updated ${result.generated_count} ${selectedLanguageLabel} wiki pages`
+          : `No ${selectedLanguageLabel} wiki pages needed regeneration`;
+      const fileText =
+        affectedFiles > 0
+          ? ` from ${affectedFiles} changed files.`
+          : ". Source graph was already current.";
+      const deletedText =
+        result.deleted_page_count > 0 ? ` Removed ${result.deleted_page_count} obsolete pages.` : "";
+      setGenerationMessage(`${updatedText}${fileText}${deletedText}`);
+      refresh();
+    } catch (apiError) {
+      setGenerationError(apiError instanceof Error ? apiError.message : "Wiki incremental update failed");
+      setGenerationMessage(null);
+    } finally {
+      setGenerationTask(null);
+    }
+  }, [generationTask, refresh, selectedLanguage, selectedLanguageLabel, selectedRepoId]);
+
   const handleRegeneratePage = useCallback(async () => {
     if (!selectedRepoId || !selectedSlug || generationTask) {
       return;
@@ -319,20 +370,6 @@ export function WikiPage({
           <h2>{wiki?.catalog?.title ?? "Documentation"}</h2>
         </div>
         <div className="wiki-header-actions">
-          <div className="wiki-language-toggle" role="group" aria-label="Wiki language">
-            {WIKI_LANGUAGES.map((language) => (
-              <button
-                key={language.code}
-                className={`wiki-language-button${selectedLanguage === language.code ? " is-active" : ""}`}
-                type="button"
-                aria-pressed={selectedLanguage === language.code}
-                disabled={generationTask !== null}
-                onClick={() => setSelectedLanguage(language.code)}
-              >
-                {language.label}
-              </button>
-            ))}
-          </div>
           <button
             className="secondary-button wiki-action-button"
             type="button"
@@ -342,6 +379,16 @@ export function WikiPage({
           >
             <FileText className={generationTask === "pages" ? "wiki-spin-icon" : undefined} size={14} />
             {generationTask === "pages" ? "Generating" : "Generate pages"}
+          </button>
+          <button
+            className="secondary-button wiki-action-button"
+            type="button"
+            title="Incrementally update wiki from repository changes"
+            disabled={generationDisabled}
+            onClick={handleUpdateWiki}
+          >
+            <RefreshCw className={generationTask === "update" ? "wiki-spin-icon" : undefined} size={14} />
+            {generationTask === "update" ? "Updating" : "Update wiki"}
           </button>
           <div className="wiki-export-control" ref={exportMenuRef}>
             <button
@@ -462,11 +509,27 @@ export function WikiPage({
           aria-busy={isGenerating || undefined}
         >
           <nav className="wiki-catalog" aria-label="Wiki catalog">
+            <div className="wiki-catalog-language">
+              <div className="wiki-language-toggle" role="group" aria-label="Wiki language">
+                {WIKI_LANGUAGES.map((language) => (
+                  <button
+                    key={language.code}
+                    className={`wiki-language-button${selectedLanguage === language.code ? " is-active" : ""}`}
+                    type="button"
+                    aria-pressed={selectedLanguage === language.code}
+                    disabled={generationTask !== null}
+                    onClick={() => setSelectedLanguage(language.code)}
+                  >
+                    {language.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <WikiCatalog
               items={wiki.items}
               pageBySlug={pageBySlug}
               selectedSlug={selectedSlug}
-              onSelect={setSelectedSlug}
+              onSelect={handleSelectWikiPage}
             />
           </nav>
           <div
@@ -484,7 +547,12 @@ export function WikiPage({
           />
 
           {selectedPage ? (
-            <WikiArticle page={selectedPage} relatedPages={relatedPages} onSelectPage={setSelectedSlug} />
+            <WikiArticle
+              articleRef={articleRef}
+              page={selectedPage}
+              relatedPages={relatedPages}
+              onSelectPage={handleSelectWikiPage}
+            />
           ) : null}
         </div>
       ) : null}
