@@ -4,9 +4,10 @@ from backend.app.services.ast_parser import AstSymbol
 from backend.app.services.graph.call_resolver import (
     build_call_index,
     file_exports,
-    resolve_call,
+    resolve_call_with_imports,
     resolve_type_reference,
 )
+from backend.app.services.graph.confidence import STRUCTURAL_EDGE_REASONS
 from backend.app.services.graph.config_detector import (
     ConfigDetection,
     detect_config_file,
@@ -17,7 +18,11 @@ from backend.app.services.graph.ids import (
     file_node_id,
     symbol_node_id as make_symbol_node_id,
 )
-from backend.app.services.graph.import_resolver import add_import_edges, resolve_import_target
+from backend.app.services.graph.import_resolver import (
+    add_import_edges,
+    resolve_import_file,
+    resolve_import_target,
+)
 from backend.app.services.graph.models import CodeGraph, CodeGraphEdge, CodeGraphNode
 from backend.app.services.graph.node_factory import (
     ensure_directory_nodes,
@@ -53,14 +58,17 @@ class GraphBuilder:
             confidence: float = 1.0,
             weight: float = 1.0,
             is_inferred: bool = False,
+            reason: str | None = None,
             metadata: dict[str, object] | None = None,
         ) -> None:
             graph_edge_id = edge_id(repo_id, source_id, target_id, edge_type)
+            default_reason = reason or STRUCTURAL_EDGE_REASONS.get(edge_type, edge_type)
             edge_metadata = with_edge_provenance(
                 metadata or {},
                 edge_type=edge_type,
                 confidence=confidence,
                 is_inferred=is_inferred,
+                reason=default_reason,
             )
             edge_index[graph_edge_id] = CodeGraphEdge(
                 id=graph_edge_id,
@@ -121,6 +129,14 @@ class GraphBuilder:
             add_node(symbol_node(repo_id, symbol, node_id))
 
         call_index = build_call_index(symbols, symbol_nodes)
+        import_scopes = import_scopes_for_files(
+            {
+                symbol.file_path: symbol.imports
+                for symbol in symbols
+                if symbol.type == "file" and symbol.imports
+            },
+            file_nodes=file_nodes,
+        )
         for symbol in symbols:
             if symbol.type == "file":
                 current_file_id = file_nodes.get(symbol.file_path)
@@ -147,6 +163,7 @@ class GraphBuilder:
                         "uses_config",
                         confidence=0.78,
                         is_inferred=True,
+                        reason="config-import",
                         metadata={"imports": symbol.imports},
                     )
                 continue
@@ -169,59 +186,68 @@ class GraphBuilder:
                     add_edge(current_file_node_id, symbol_node_id, "exports")
 
             for base in symbol.bases:
-                target_id, inherited_external = resolve_type_reference(
+                resolved = resolve_type_reference(
                     base,
+                    file_path=symbol.file_path,
                     symbols=symbols,
                     symbol_nodes=symbol_nodes,
                     repo_id=repo_id,
                     add_node=add_node,
+                    import_scopes=import_scopes,
                 )
-                if target_id:
+                if resolved:
                     add_edge(
                         symbol_node_id,
-                        target_id,
+                        resolved.target_id,
                         "inherits",
-                        confidence=1.0 if not inherited_external else 0.65,
-                        is_inferred=inherited_external,
-                        metadata={"base": base},
+                        confidence=resolved.confidence,
+                        is_inferred=resolved.is_inferred,
+                        reason=resolved.reason,
+                        metadata={"base": base, "resolution_tier": resolved.tier},
                     )
 
             for interface in symbol.implements:
-                target_id, implemented_external = resolve_type_reference(
+                resolved = resolve_type_reference(
                     interface,
+                    file_path=symbol.file_path,
                     symbols=symbols,
                     symbol_nodes=symbol_nodes,
                     repo_id=repo_id,
                     add_node=add_node,
+                    import_scopes=import_scopes,
                 )
-                if target_id:
+                if resolved:
                     add_edge(
                         symbol_node_id,
-                        target_id,
+                        resolved.target_id,
                         "implements",
-                        confidence=1.0 if not implemented_external else 0.65,
-                        is_inferred=implemented_external,
-                        metadata={"interface": interface},
+                        confidence=resolved.confidence,
+                        is_inferred=resolved.is_inferred,
+                        reason=resolved.reason,
+                        metadata={"interface": interface, "resolution_tier": resolved.tier},
                     )
 
             if symbol.type == "endpoint":
                 for handler in symbol.calls:
-                    target_id, confidence = resolve_call(
+                    resolved = resolve_call_with_imports(
                         call=handler,
                         file_path=symbol.file_path,
                         call_index=call_index,
+                        import_scopes=import_scopes,
                     )
-                    if target_id:
+                    if resolved:
                         add_edge(
                             symbol_node_id,
-                            target_id,
+                            resolved.target_id,
                             "routes_to",
-                            confidence=confidence,
+                            confidence=resolved.confidence,
                             is_inferred=True,
+                            reason=resolved.reason,
                             metadata={
                                 "handler": handler,
                                 "route_method": symbol.metadata.get("route_method"),
                                 "route_path": symbol.metadata.get("route_path"),
+                                "resolution_tier": resolved.tier,
                             },
                         )
 
@@ -230,37 +256,41 @@ class GraphBuilder:
             if not source_id:
                 continue
             for call in symbol.calls:
-                target_id, confidence = resolve_call(
+                resolved = resolve_call_with_imports(
                     call=call,
                     file_path=symbol.file_path,
                     call_index=call_index,
+                    import_scopes=import_scopes,
                 )
-                if target_id and target_id != source_id:
+                if resolved and resolved.target_id != source_id:
                     add_edge(
                         source_id,
-                        target_id,
+                        resolved.target_id,
                         "calls",
-                        confidence=confidence,
+                        confidence=resolved.confidence,
                         is_inferred=True,
-                        metadata={"call": call},
+                        reason=resolved.reason,
+                        metadata={"call": call, "resolution_tier": resolved.tier},
                     )
 
             for reference in symbol.references:
                 if should_skip_reference(symbol, reference):
                     continue
-                target_id, confidence = resolve_call(
+                resolved = resolve_call_with_imports(
                     call=reference,
                     file_path=symbol.file_path,
                     call_index=call_index,
+                    import_scopes=import_scopes,
                 )
-                if target_id and target_id != source_id:
+                if resolved and resolved.target_id != source_id:
                     add_edge(
                         source_id,
-                        target_id,
+                        resolved.target_id,
                         "references",
-                        confidence=min(confidence, 0.72),
+                        confidence=resolved.confidence,
                         is_inferred=True,
-                        metadata={"reference": reference},
+                        reason=resolved.reason,
+                        metadata={"reference": reference, "resolution_tier": resolved.tier},
                     )
 
             for config_target_id in config_targets_for_references(
@@ -274,6 +304,7 @@ class GraphBuilder:
                     "uses_config",
                     confidence=0.58,
                     is_inferred=True,
+                    reason="config-reference",
                     metadata={"references": sorted(set([*symbol.calls, *symbol.references]))},
                 )
 
@@ -302,6 +333,24 @@ def should_skip_reference(symbol: AstSymbol, reference: str) -> bool:
         "undefined",
     }
     return reference in ignored or (not reference[:1].isupper() and is_config_reference(reference))
+
+
+def import_scopes_for_files(
+    file_imports: dict[str, list[str]],
+    *,
+    file_nodes: dict[str, str],
+) -> dict[str, set[str]]:
+    scopes: dict[str, set[str]] = {}
+    for file_path, imports in file_imports.items():
+        for import_name in imports:
+            target_file = resolve_import_file(
+                import_name,
+                from_file_path=file_path,
+                file_nodes=file_nodes,
+            )
+            if target_file:
+                scopes.setdefault(file_path, set()).add(target_file)
+    return scopes
 
 
 def config_targets_for_import(

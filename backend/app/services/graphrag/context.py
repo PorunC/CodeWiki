@@ -94,7 +94,8 @@ def context_pack(
     for edge in related_edges[:40]:
         parts.append(
             f"- {edge['source']} -[{edge['type']}]-> {edge['target']}"
-            f" (confidence={edge['confidence']}, level={edge.get('confidence_level')})"
+            f" (confidence={edge['confidence']}, level={edge.get('confidence_level')},"
+            f" reason={edge.get('reason')})"
         )
     text = "\n".join(parts).strip()
     return {
@@ -146,6 +147,7 @@ def edge_payload(edge: CodeGraphEdge) -> dict[str, object]:
         "type": edge.type,
         "confidence": edge.confidence,
         "confidence_level": edge.metadata.get("confidence_level"),
+        "reason": edge.metadata.get("reason"),
         "weight": edge.weight,
         "is_inferred": edge.is_inferred,
         "provenance": edge_provenance(edge.metadata),

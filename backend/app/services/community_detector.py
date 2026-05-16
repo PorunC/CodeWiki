@@ -1,4 +1,6 @@
 import re
+import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha1, sha256
 
@@ -118,20 +120,28 @@ def _partition(graph: nx.Graph) -> tuple[list[set[str]], str]:
 
 
 def _graspologic_leiden_communities(graph: nx.Graph) -> list[set[str]] | None:
-    try:
-        from graspologic.partition import leiden
-    except ImportError:
-        return None
+    with _suppress_graspologic_dependency_warnings():
+        try:
+            from graspologic.partition import leiden
+        except ImportError:
+            return None
+
+    isolated_node_ids = {str(node_id) for node_id in nx.isolates(graph)}
+    partition_graph = graph.copy()
+    partition_graph.remove_nodes_from(isolated_node_ids)
+    if partition_graph.number_of_nodes() == 0:
+        return [{node_id} for node_id in sorted(isolated_node_ids)]
 
     try:
-        try:
-            partition = leiden(
-                graph,
-                weight_attribute="weight",
-                random_seed=42,
-            )
-        except TypeError:
-            partition = leiden(graph, weight_attribute="weight")
+        with _suppress_graspologic_dependency_warnings():
+            try:
+                partition = leiden(
+                    partition_graph,
+                    weight_attribute="weight",
+                    random_seed=42,
+                )
+            except TypeError:
+                partition = leiden(partition_graph, weight_attribute="weight")
     except Exception as exc:
         raise RuntimeError("graspologic Leiden community detection failed") from exc
 
@@ -143,11 +153,28 @@ def _graspologic_leiden_communities(graph: nx.Graph) -> list[set[str]] | None:
         by_cluster.setdefault(cluster_id, set()).add(str(node_id))
 
     assigned_node_ids = set().union(*by_cluster.values()) if by_cluster else set()
-    missing_node_ids = {str(node_id) for node_id in graph.nodes} - assigned_node_ids
+    missing_node_ids = {str(node_id) for node_id in partition_graph.nodes} - assigned_node_ids
+    missing_node_ids.update(isolated_node_ids)
     for node_id in missing_node_ids:
         by_cluster[f"singleton:{node_id}"] = {node_id}
 
     return [community for community in by_cluster.values() if community]
+
+
+@contextmanager
+def _suppress_graspologic_dependency_warnings():
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Please import `random` from the `scipy\.sparse` namespace.*",
+            category=DeprecationWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The keyword argument 'nopython=False' was supplied.*",
+            category=Warning,
+        )
+        yield
 
 
 def _rank_communities(

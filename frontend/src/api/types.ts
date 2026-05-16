@@ -102,6 +102,7 @@ export type CodeEdge = {
   type: string;
   confidence: number;
   confidence_level?: string | null;
+  reason?: string | null;
   is_inferred: boolean;
   provenance: Record<string, unknown>;
   metadata: Record<string, unknown>;

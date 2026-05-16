@@ -65,6 +65,11 @@ async def get_graph(repo_id: str) -> GraphResponse:
                     if isinstance(edge.metadata.get("confidence_level"), str)
                     else None
                 ),
+                reason=(
+                    str(edge.metadata["reason"])
+                    if isinstance(edge.metadata.get("reason"), str)
+                    else None
+                ),
                 is_inferred=edge.is_inferred,
                 provenance=edge_provenance(edge.metadata),
                 metadata=edge.metadata,

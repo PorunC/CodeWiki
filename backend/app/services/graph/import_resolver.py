@@ -2,6 +2,7 @@ import posixpath
 from collections.abc import Callable
 from pathlib import PurePosixPath
 
+from backend.app.services.graph.confidence import CONFIDENCE_TIERS, TIER_REASONS
 from backend.app.services.graph.ids import module_node_id
 from backend.app.services.graph.models import CodeGraphNode
 from backend.app.services.graph.node_factory import module_node
@@ -13,9 +14,25 @@ def resolve_import_target(
     from_file_path: str,
     file_nodes: dict[str, str],
 ) -> str | None:
+    target_file = resolve_import_file(
+        import_name,
+        from_file_path=from_file_path,
+        file_nodes=file_nodes,
+    )
+    if target_file:
+        return file_nodes[target_file]
+    return None
+
+
+def resolve_import_file(
+    import_name: str,
+    *,
+    from_file_path: str,
+    file_nodes: dict[str, str],
+) -> str | None:
     for candidate in import_candidates(import_name, from_file_path=from_file_path):
         if candidate in file_nodes:
-            return file_nodes[candidate]
+            return candidate
     return None
 
 
@@ -88,7 +105,13 @@ def add_import_edges(
                 file_node_id,
                 local_target_id,
                 "imports",
-                metadata={"import": import_name, "resolved": True},
+                confidence=CONFIDENCE_TIERS["import_scoped"],
+                reason=TIER_REASONS["import_scoped"],
+                metadata={
+                    "import": import_name,
+                    "resolved": True,
+                    "resolution_tier": "import_scoped",
+                },
             )
             continue
         add_node(module_node(repo_id, import_name))
@@ -96,5 +119,12 @@ def add_import_edges(
             file_node_id,
             module_node_id(repo_id, import_name),
             "imports",
-            metadata={"import": import_name, "resolved": False},
+            confidence=CONFIDENCE_TIERS["global"],
+            is_inferred=True,
+            reason=TIER_REASONS["global"],
+            metadata={
+                "import": import_name,
+                "resolved": False,
+                "resolution_tier": "global",
+            },
         )

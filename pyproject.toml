@@ -60,3 +60,6 @@ target-version = "py312"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+filterwarnings = [
+  "ignore:coroutine 'Logging\\.async_success_handler' was never awaited:RuntimeWarning",
+]

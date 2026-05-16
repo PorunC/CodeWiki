@@ -22,6 +22,7 @@ class CodeEdge(BaseModel):
     type: str
     confidence: float = 1.0
     confidence_level: str | None = None
+    reason: str | None = None
     is_inferred: bool = False
     provenance: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)

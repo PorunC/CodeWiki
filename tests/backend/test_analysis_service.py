@@ -52,6 +52,7 @@ def test_analyze_persists_first_code_graph(tmp_path: Path) -> None:
     assert any(edge.type == "calls" for edge in edges)
     assert all("provenance" in edge.metadata for edge in edges)
     assert all("confidence_level" in edge.metadata for edge in edges)
+    assert all("reason" in edge.metadata for edge in edges)
 
 
 def test_deterministic_community_names_use_file_evidence_for_init_and_dotfiles() -> None:
@@ -210,6 +211,77 @@ def test_analyze_resolves_local_python_imports(tmp_path: Path) -> None:
         edge for edge in edges if edge.type == "imports" and edge.metadata.get("resolved") is True
     ]
     assert any(edge.source_id.endswith(":file:api.py") and edge.target_id.endswith(":file:service.py") for edge in local_import_edges)
+
+
+def test_analyze_records_confidence_tiers_and_edge_reasons(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "service.py").write_text("def run():\n    return 1\n")
+    (repo_dir / "api.py").write_text(
+        "\n".join(
+            [
+                "from service import run",
+                "",
+                "def local_helper():",
+                "    return 2",
+                "",
+                "def handler():",
+                "    local_helper()",
+                "    return run()",
+            ]
+        )
+        + "\n"
+    )
+    (repo_dir / "loose.py").write_text("def loose():\n    return run()\n")
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+
+    AnalysisService(store=store).analyze(repo.id)
+    nodes, edges = store.get_graph(repo.id)
+    node_by_name = {node.name: node for node in nodes}
+
+    import_edge = next(
+        edge
+        for edge in edges
+        if edge.type == "imports" and edge.source_id.endswith(":file:api.py")
+    )
+    assert import_edge.confidence == 0.90
+    assert import_edge.metadata["reason"] == "import-resolved"
+    assert import_edge.metadata["resolution_tier"] == "import_scoped"
+
+    imported_call = next(
+        edge
+        for edge in edges
+        if edge.type == "calls"
+        and edge.source_id == node_by_name["handler"].id
+        and edge.target_id == node_by_name["run"].id
+    )
+    assert imported_call.confidence == 0.90
+    assert imported_call.metadata["reason"] == "import-resolved"
+    assert imported_call.metadata["resolution_tier"] == "import_scoped"
+
+    same_file_call = next(
+        edge
+        for edge in edges
+        if edge.type == "calls"
+        and edge.source_id == node_by_name["handler"].id
+        and edge.target_id == node_by_name["local_helper"].id
+    )
+    assert same_file_call.confidence == 0.95
+    assert same_file_call.metadata["reason"] == "local-call"
+    assert same_file_call.metadata["resolution_tier"] == "same_file"
+
+    global_call = next(
+        edge
+        for edge in edges
+        if edge.type == "calls"
+        and edge.source_id == node_by_name["loose"].id
+        and edge.target_id == node_by_name["run"].id
+    )
+    assert global_call.confidence == 0.50
+    assert global_call.metadata["reason"] == "global"
+    assert global_call.metadata["resolution_tier"] == "global"
 
 
 def test_analyze_infers_references_and_config_usage(tmp_path: Path) -> None:

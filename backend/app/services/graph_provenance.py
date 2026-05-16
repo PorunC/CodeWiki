@@ -41,8 +41,10 @@ def with_edge_provenance(
     edge_type: str,
     confidence: float,
     is_inferred: bool,
+    reason: str,
 ) -> dict[str, Any]:
     normalized = dict(metadata or {})
+    normalized.setdefault("reason", reason)
     level = confidence_level(confidence, is_inferred=is_inferred)
     normalized.setdefault("confidence_level", level)
     normalized.setdefault(
@@ -114,6 +116,8 @@ def _edge_evidence(edge_type: str, metadata: dict[str, Any]) -> list[str]:
         "route_method",
         "route_path",
         "resolved",
+        "resolution_tier",
+        "reason",
     ):
         value = metadata.get(key)
         if value is not None:
