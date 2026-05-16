@@ -97,6 +97,7 @@ def _generator() -> WikiGenerator:
         GraphRAGRetriever(store=store, settings=settings),
         LLMGateway(settings),
         store=store,
+        settings=settings,
     )
 
 

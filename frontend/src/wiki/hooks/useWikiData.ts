@@ -4,7 +4,7 @@ import type { WikiResponse } from "../../api/types";
 import { getRepoWiki } from "../../api/wiki";
 import { firstPageSlugFromItems } from "../catalog";
 
-export function useWikiData(selectedRepoId: string) {
+export function useWikiData(selectedRepoId: string, language: string) {
   const [wiki, setWiki] = useState<WikiResponse | null>(null);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -21,7 +21,7 @@ export function useWikiData(selectedRepoId: string) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getRepoWiki(selectedRepoId)
+    getRepoWiki(selectedRepoId, language)
       .then((response) => {
         if (cancelled) {
           return;
@@ -51,7 +51,7 @@ export function useWikiData(selectedRepoId: string) {
     return () => {
       cancelled = true;
     };
-  }, [refreshNonce, selectedRepoId]);
+  }, [language, refreshNonce, selectedRepoId]);
 
   const pageBySlug = useMemo(
     () => new Map((wiki?.pages ?? []).map((page) => [page.slug, page])),

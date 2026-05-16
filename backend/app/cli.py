@@ -354,6 +354,7 @@ def _wiki_generator(store: SQLiteStore) -> WikiGenerator:
         GraphRAGRetriever(store=store, settings=settings),
         LLMGateway(settings),
         store=store,
+        settings=settings,
     )
 
 

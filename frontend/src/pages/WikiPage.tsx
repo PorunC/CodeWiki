@@ -18,11 +18,18 @@ import { useWikiData } from "../wiki/hooks/useWikiData";
 import { relatedPagesForPage } from "../wiki/relatedPages";
 
 const WIKI_CATALOG_WIDTH_KEY = "codewiki:wiki-catalog-width";
+const WIKI_LANGUAGE_KEY = "codewiki:wiki-language";
 const WIKI_CATALOG_DEFAULT_WIDTH = 300;
 const WIKI_CATALOG_MIN_WIDTH = 220;
 const WIKI_CATALOG_MAX_WIDTH = 560;
 const WIKI_ARTICLE_MIN_WIDTH = 420;
 const WIKI_CATALOG_RESPONSIVE_BREAKPOINT = 900;
+const WIKI_LANGUAGES = [
+  { code: "en", label: "English" },
+  { code: "zh", label: "中文" }
+] as const;
+
+type WikiLanguage = (typeof WIKI_LANGUAGES)[number]["code"];
 
 function initialCatalogWidth(): number {
   if (typeof window === "undefined") {
@@ -32,6 +39,14 @@ function initialCatalogWidth(): number {
   return Number.isFinite(storedWidth)
     ? clamp(storedWidth, WIKI_CATALOG_MIN_WIDTH, WIKI_CATALOG_MAX_WIDTH)
     : WIKI_CATALOG_DEFAULT_WIDTH;
+}
+
+function initialWikiLanguage(): WikiLanguage {
+  if (typeof window === "undefined") {
+    return "en";
+  }
+  const storedLanguage = window.localStorage.getItem(WIKI_LANGUAGE_KEY);
+  return storedLanguage === "zh" ? "zh" : "en";
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -51,6 +66,7 @@ export function WikiPage({
   const browserRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [catalogWidth, setCatalogWidth] = useState(initialCatalogWidth);
+  const [selectedLanguage, setSelectedLanguage] = useState<WikiLanguage>(initialWikiLanguage);
   const [isResizingCatalog, setIsResizingCatalog] = useState(false);
   const [generationTask, setGenerationTask] = useState<"pages" | "page" | null>(null);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
@@ -64,7 +80,7 @@ export function WikiPage({
     error,
     refresh,
     setSelectedSlug
-  } = useWikiData(selectedRepoId);
+  } = useWikiData(selectedRepoId, selectedLanguage);
   const relatedPages = useMemo(
     () => (wiki && selectedPage ? relatedPagesForPage(wiki.items, pageBySlug, selectedPage.slug) : []),
     [pageBySlug, selectedPage, wiki]
@@ -73,6 +89,8 @@ export function WikiPage({
   const isGenerating = generationTask !== null;
   const generationDisabled = !selectedRepoId || loading || generationTask !== null;
   const currentPageDisabled = generationDisabled || !selectedSlug;
+  const selectedLanguageLabel =
+    WIKI_LANGUAGES.find((language) => language.code === selectedLanguage)?.label ?? "English";
 
   const clampCatalogWidth = useCallback((width: number) => {
     const browserWidth = browserRef.current?.getBoundingClientRect().width ?? 0;
@@ -165,18 +183,30 @@ export function WikiPage({
     window.localStorage.setItem(WIKI_CATALOG_WIDTH_KEY, String(Math.round(catalogWidth)));
   }, [catalogWidth]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(WIKI_LANGUAGE_KEY, selectedLanguage);
+  }, [selectedLanguage]);
+
+  useEffect(() => {
+    setGenerationMessage(null);
+    setGenerationError(null);
+  }, [selectedLanguage]);
+
   const handleGeneratePages = useCallback(async () => {
     if (!selectedRepoId || generationTask) {
       return;
     }
     setGenerationTask("pages");
     setGenerationError(null);
-    setGenerationMessage("Generating wiki pages...");
+    setGenerationMessage(`Generating ${selectedLanguageLabel} wiki pages...`);
     try {
-      const result = await generateWikiPages(selectedRepoId);
+      const result = await generateWikiPages(selectedRepoId, selectedLanguage);
       const invalidCount = result.pages.filter((page) => page.validation_errors.length > 0).length;
       const suffix = invalidCount ? ` ${invalidCount} pages need review.` : "";
-      setGenerationMessage(`Generated ${result.page_count} wiki pages.${suffix}`);
+      setGenerationMessage(`Generated ${result.page_count} ${selectedLanguageLabel} wiki pages.${suffix}`);
       refresh();
     } catch (apiError) {
       setGenerationError(apiError instanceof Error ? apiError.message : "Wiki page generation failed");
@@ -184,7 +214,7 @@ export function WikiPage({
     } finally {
       setGenerationTask(null);
     }
-  }, [generationTask, refresh, selectedRepoId]);
+  }, [generationTask, refresh, selectedLanguage, selectedLanguageLabel, selectedRepoId]);
 
   const handleRegeneratePage = useCallback(async () => {
     if (!selectedRepoId || !selectedSlug || generationTask) {
@@ -194,7 +224,7 @@ export function WikiPage({
     setGenerationError(null);
     setGenerationMessage(`Regenerating ${selectedSlug}...`);
     try {
-      const result = await regenerateWikiPage(selectedRepoId, selectedSlug);
+      const result = await regenerateWikiPage(selectedRepoId, selectedSlug, selectedLanguage);
       const suffix = result.validation_errors.length ? " Validation needs review." : "";
       setGenerationMessage(`Regenerated ${result.title}.${suffix}`);
       refresh();
@@ -204,7 +234,7 @@ export function WikiPage({
     } finally {
       setGenerationTask(null);
     }
-  }, [generationTask, refresh, selectedRepoId, selectedSlug]);
+  }, [generationTask, refresh, selectedLanguage, selectedRepoId, selectedSlug]);
 
   return (
     <section id="wiki" className={`side-panel wiki-panel${isActiveSection ? " is-nav-target" : ""}`}>
@@ -214,6 +244,20 @@ export function WikiPage({
           <h2>{wiki?.catalog?.title ?? "Documentation"}</h2>
         </div>
         <div className="wiki-header-actions">
+          <div className="wiki-language-toggle" role="group" aria-label="Wiki language">
+            {WIKI_LANGUAGES.map((language) => (
+              <button
+                key={language.code}
+                className={`wiki-language-button${selectedLanguage === language.code ? " is-active" : ""}`}
+                type="button"
+                aria-pressed={selectedLanguage === language.code}
+                disabled={generationTask !== null}
+                onClick={() => setSelectedLanguage(language.code)}
+              >
+                {language.label}
+              </button>
+            ))}
+          </div>
           <button
             className="secondary-button wiki-action-button"
             type="button"
@@ -298,7 +342,7 @@ export function WikiPage({
       ) : null}
       {generationError ? <div className="wiki-state is-error">{generationError}</div> : null}
       {!loading && wiki && wiki.pages.length === 0 ? (
-        <div className="wiki-state">No generated wiki pages yet.</div>
+        <div className="wiki-state">No generated {selectedLanguageLabel} wiki pages yet.</div>
       ) : null}
 
       {wiki ? (

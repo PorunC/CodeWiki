@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.app.config import Settings
 from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.llm_gateway import LLMResult
@@ -42,7 +43,12 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
             "graph_refs": ["llm-invented-node", "llm-invented-edge"],
         }
     )
-    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
 
     catalog = await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
@@ -87,7 +93,12 @@ async def test_wiki_generator_marks_page_draft_when_source_refs_are_invalid(
             "source_refs": [{"file_path": "missing.py", "start_line": 1, "end_line": 1}],
         }
     )
-    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
 
     result = await generator.generate_page(
         repo.id,
@@ -118,7 +129,12 @@ async def test_wiki_generator_marks_page_draft_when_server_mermaid_is_invalid(
         "backend.app.services.wiki.page_generator._mermaid_from_trace",
         lambda *_args, **_kwargs: "## Graph\n\n```mermaid\nflowchart TD\n  A -->\n```",
     )
-    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
 
     result = await generator.generate_page(
         repo.id,
@@ -167,7 +183,12 @@ async def test_wiki_generator_generates_leaf_pages_for_category_catalog(
             "source_refs": [{"file_path": "api.py", "start_line": 3, "end_line": 4}],
         },
     )
-    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
 
     await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
@@ -229,7 +250,12 @@ async def test_wiki_generator_synthesizes_parent_from_generated_child_pages(
             }
         },
     )
-    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
 
     await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
@@ -267,7 +293,12 @@ async def test_wiki_generator_prunes_pages_removed_from_catalog(tmp_path: Path) 
             "source_refs": [{"file_path": "api.py", "start_line": 3, "end_line": 4}],
         },
     )
-    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
 
     await generator.generate_catalog(repo.id)
     await generator.generate_all_pages(repo.id)
@@ -303,7 +334,12 @@ async def test_wiki_generator_translates_catalog_and_pages(tmp_path: Path) -> No
             },
         },
     )
-    generator = WikiGenerator(GraphRAGRetriever(store=store), llm, store=store)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
 
     await generator.generate_catalog(repo.id)
     await generator.generate_all_pages(repo.id)
@@ -318,6 +354,93 @@ async def test_wiki_generator_translates_catalog_and_pages(tmp_path: Path) -> No
     assert result.pages[0].source_refs[0]["file_path"] == "api.py"
     assert store.get_latest_doc_catalog(repo.id, language_code="zh") == result.catalog
     assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == result.pages[0]
+    assert [request["content_type"] for request in llm.translation_requests] == ["catalog", "page"]
+
+
+@pytest.mark.asyncio
+async def test_wiki_generator_generates_requested_non_base_language_via_translation(
+    tmp_path: Path,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Request Handler",
+            "markdown": (
+                "# Request Handler\n\n"
+                "## Purpose and Scope\n\n"
+                "The handler delegates to answer(). [[S1]]"
+            ),
+            "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+        translation_payloads={
+            "catalog": {
+                "title": "中文 Wiki",
+                "items": [{"path": "request-handler", "title": "请求处理器"}],
+            },
+            "page": {
+                "title": "请求处理器",
+                "markdown": "# 请求处理器\n\n## Purpose and Scope\n\n处理器会调用 answer().",
+            },
+        },
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    results = await generator.generate_all_pages(repo.id, language_code="zh")
+
+    assert results[0].page.language_code == "zh"
+    assert results[0].page.title == "请求处理器"
+    assert store.get_latest_doc_catalog(repo.id, language_code="en") is not None
+    assert store.get_latest_doc_catalog(repo.id, language_code="zh") is not None
+    assert store.get_doc_page(repo.id, "request-handler", language_code="en") is not None
+    assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == results[0].page
+    assert [request["content_type"] for request in llm.translation_requests] == ["catalog", "page"]
+
+
+@pytest.mark.asyncio
+async def test_wiki_generator_auto_translates_configured_languages_after_base_generation(
+    tmp_path: Path,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Request Handler",
+            "markdown": (
+                "# Request Handler\n\n"
+                "## Purpose and Scope\n\n"
+                "The handler delegates to answer(). [[S1]]"
+            ),
+            "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+        translation_payloads={
+            "catalog": {
+                "title": "中文 Wiki",
+                "items": [{"path": "request-handler", "title": "请求处理器"}],
+            },
+            "page": {
+                "title": "请求处理器",
+                "markdown": "# 请求处理器\n\n## Purpose and Scope\n\n处理器会调用 answer().",
+            },
+        },
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(wiki_translation_languages="zh"),
+    )
+
+    await generator.generate_catalog(repo.id)
+    await generator.generate_all_pages(repo.id)
+
+    assert store.get_latest_doc_catalog(repo.id, language_code="zh") is not None
+    translated_page = store.get_doc_page(repo.id, "request-handler", language_code="zh")
+    assert translated_page is not None
+    assert translated_page.title == "请求处理器"
     assert [request["content_type"] for request in llm.translation_requests] == ["catalog", "page"]
 
 
@@ -421,6 +544,14 @@ def _analyzed_repo(tmp_path: Path):
     repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
     AnalysisService(store=store).analyze(repo.id)
     return store, repo
+
+
+def _wiki_settings(**overrides: object) -> Settings:
+    values = {
+        "wiki_base_language": "en",
+        "wiki_translation_languages": None,
+    }
+    return Settings(_env_file=None, **(values | overrides))
 
 
 class _FakeWikiLLM:

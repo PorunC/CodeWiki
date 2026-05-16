@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from backend.app.config import Settings
 from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore, get_store
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
@@ -32,10 +33,12 @@ class WikiGenerator:
         *,
         store: SQLiteStore | None = None,
         context_builder: RepositoryContextBuilder | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
         self.store = store or get_store()
+        self.settings = settings or Settings(_env_file=None)
         self.context_builder = context_builder or RepositoryContextBuilder()
         self.catalog_generator = WikiCatalogGenerator(
             self.retriever,
@@ -56,13 +59,49 @@ class WikiGenerator:
         *,
         language_code: str = "en",
     ) -> DocCatalogRecord:
-        return await self.catalog_generator.generate_catalog(repo_id, language_code=language_code)
+        language_code = _normalize_language(language_code)
+        base_language = self._base_language()
+        if language_code == base_language:
+            return await self.catalog_generator.generate_catalog(repo_id, language_code=language_code)
+
+        await self._ensure_base_catalog(repo_id)
+        return (
+            await self.translate_wiki(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+            )
+        ).catalog
 
     async def generate_all_pages(
         self,
         repo_id: str,
         *,
         language_code: str = "en",
+    ) -> list[PageGenerationResult]:
+        language_code = _normalize_language(language_code)
+        base_language = self._base_language()
+        if language_code != base_language:
+            await self._ensure_base_pages(repo_id)
+            translated = await self.translate_wiki(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+            )
+            return [
+                PageGenerationResult(page=page, validation_errors=[])
+                for page in translated.pages
+            ]
+
+        results = await self._generate_all_pages_for_language(repo_id, language_code=base_language)
+        await self._translate_configured_languages(repo_id)
+        return results
+
+    async def _generate_all_pages_for_language(
+        self,
+        repo_id: str,
+        *,
+        language_code: str,
     ) -> list[PageGenerationResult]:
         catalog = self.store.get_latest_doc_catalog(repo_id, language_code=language_code)
         if catalog is None:
@@ -132,6 +171,35 @@ class WikiGenerator:
         *,
         language_code: str = "en",
     ) -> PageGenerationResult:
+        language_code = _normalize_language(language_code)
+        base_language = self._base_language()
+        if language_code != base_language:
+            await self._regenerate_page_for_language(repo_id, slug, language_code=base_language)
+            translated = await self.translate_wiki(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+            )
+            page = next((page for page in translated.pages if page.slug == slug), None)
+            if page is None:
+                raise ValueError(f"Translated catalog page not found: {slug}")
+            return PageGenerationResult(page=page, validation_errors=[])
+
+        result = await self._regenerate_page_for_language(
+            repo_id,
+            slug,
+            language_code=base_language,
+        )
+        await self._translate_configured_languages(repo_id)
+        return result
+
+    async def _regenerate_page_for_language(
+        self,
+        repo_id: str,
+        slug: str,
+        *,
+        language_code: str,
+    ) -> PageGenerationResult:
         catalog = self.store.get_latest_doc_catalog(repo_id, language_code=language_code)
         if catalog is None:
             raise ValueError("Generate a catalog before regenerating pages.")
@@ -169,6 +237,44 @@ class WikiGenerator:
             source_language=source_language,
             target_language=target_language,
         )
+
+    async def _ensure_base_catalog(self, repo_id: str) -> DocCatalogRecord:
+        base_language = self._base_language()
+        catalog = self.store.get_latest_doc_catalog(repo_id, language_code=base_language)
+        if catalog is not None:
+            return catalog
+        return await self.catalog_generator.generate_catalog(repo_id, language_code=base_language)
+
+    async def _ensure_base_pages(self, repo_id: str) -> list[PageGenerationResult]:
+        base_language = self._base_language()
+        await self._ensure_base_catalog(repo_id)
+        pages = self.store.list_doc_pages(repo_id, language_code=base_language)
+        if pages:
+            return [PageGenerationResult(page=page, validation_errors=[]) for page in pages]
+        return await self._generate_all_pages_for_language(repo_id, language_code=base_language)
+
+    async def _translate_configured_languages(self, repo_id: str) -> None:
+        base_language = self._base_language()
+        for language_code in self._translation_languages():
+            if language_code == base_language:
+                continue
+            await self.translate_wiki(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+            )
+
+    def _base_language(self) -> str:
+        return _normalize_language(self.settings.wiki_base_language)
+
+    def _translation_languages(self) -> list[str]:
+        raw_languages = self.settings.wiki_translation_languages or ""
+        languages: list[str] = []
+        for raw_language in raw_languages.split(","):
+            language_code = _normalize_language(raw_language)
+            if raw_language.strip() and language_code not in languages:
+                languages.append(language_code)
+        return languages
 
     async def _generate_descendant_pages(
         self,
@@ -272,3 +378,7 @@ def _item_children(item: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _catalog_slug(item: dict[str, Any]) -> str:
     return _slugify(str(item.get("slug") or item.get("path") or item.get("title") or ""))
+
+
+def _normalize_language(language_code: str | None) -> str:
+    return (language_code or "en").strip().lower() or "en"

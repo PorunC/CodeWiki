@@ -6,21 +6,31 @@ import type {
   WikiResponse
 } from "./types";
 
-export async function getRepoWiki(repoId: string): Promise<WikiResponse> {
-  const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki`);
+export async function getRepoWiki(repoId: string, language = "en"): Promise<WikiResponse> {
+  const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki${languageQuery(language)}`);
   return readJson(response, "Repository wiki");
 }
 
-export async function generateWikiPages(repoId: string): Promise<GenerateWikiPagesResponse> {
-  const response = await fetch(`${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki/pages/generate`, {
-    method: "POST"
-  });
+export async function generateWikiPages(
+  repoId: string,
+  language = "en"
+): Promise<GenerateWikiPagesResponse> {
+  const response = await fetch(
+    `${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki/pages/generate${languageQuery(language)}`,
+    {
+      method: "POST"
+    }
+  );
   return readJson(response, "Wiki page generation");
 }
 
-export async function regenerateWikiPage(repoId: string, slug: string): Promise<WikiPageGenerationResult> {
+export async function regenerateWikiPage(
+  repoId: string,
+  slug: string,
+  language = "en"
+): Promise<WikiPageGenerationResult> {
   const response = await fetch(
-    `${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki/pages/${encodeURIComponent(slug)}/regenerate`,
+    `${API_BASE}/repos/${encodeURIComponent(repoId)}/wiki/pages/${encodeURIComponent(slug)}/regenerate${languageQuery(language)}`,
     {
       method: "POST"
     }
@@ -44,4 +54,8 @@ export async function translateWiki(
     })
   });
   return readJson(response, "Wiki translation");
+}
+
+function languageQuery(language: string): string {
+  return `?${new URLSearchParams({ language }).toString()}`;
 }

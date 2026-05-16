@@ -18,6 +18,7 @@ async def regenerate_stale_wiki_pages(
         GraphRAGRetriever(store=store, settings=settings),
         LLMGateway(settings),
         store=store,
+        settings=settings,
     )
     pages: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
