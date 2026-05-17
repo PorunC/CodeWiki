@@ -9,6 +9,7 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.wiki.catalog import _normalize_catalog_payload
 from backend.app.services.wiki.diagrams import MermaidDiagram
 from backend.app.services.wiki.generator import WikiGenerator
 from backend.app.services.wiki.sources import (
@@ -675,6 +676,43 @@ def test_unknown_diagram_placeholders_are_validation_errors() -> None:
     assert errors == ["markdown contains unknown diagram placeholders: invented."]
 
 
+def test_catalog_normalization_preserves_deeper_drilldown_children() -> None:
+    payload = {
+        "title": "Detailed Wiki",
+        "items": [
+            {
+                "title": "Backend Services",
+                "slug": "backend-services",
+                "kind": "category",
+                "children": [
+                    {
+                        "title": f"Service Area {index}",
+                        "slug": f"service-area-{index}",
+                        "kind": "category",
+                        "children": [
+                            {
+                                "title": f"Workflow Detail {index}",
+                                "slug": f"workflow-detail-{index}",
+                                "kind": "page",
+                                "topic": f"workflow detail {index}",
+                                "source_hints": [f"backend/app/services/area_{index}.py"],
+                                "children": [],
+                            }
+                        ],
+                    }
+                    for index in range(10)
+                ],
+            }
+        ],
+    }
+
+    _title, items = _normalize_catalog_payload(payload, "repo")
+
+    backend = next(item for item in items if item["slug"] == "backend-services")
+    assert len(backend["children"]) == 10
+    assert backend["children"][0]["children"][0]["slug"] == "workflow-detail-0"
+
+
 def test_source_refs_force_allowed_range_and_auto_include_markers(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -794,6 +832,8 @@ class _FakeWikiLLM:
         message_text = "\n".join(message["content"] for message in messages)
         if task_type == "catalog":
             assert "catalog_design_requirements" in message_text
+            assert "granularity_contract" in message_text
+            assert "module_candidates" in message_text
             assert "leaf pages for implementation detail" in message_text
             payload = self.catalog_payload or {
                 "title": "Repo Wiki",

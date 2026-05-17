@@ -8,8 +8,10 @@ from backend.app.services.wiki.catalog.source_hints import (
     _trace_with_source_hint_chunks,
 )
 
-MAX_CATALOG_ITEMS = 18
-MAX_LLM_CATALOG_ITEMS = 14
+MAX_CATALOG_ITEMS = 24
+MAX_LLM_CATALOG_ITEMS = 24
+MAX_CATALOG_CHILDREN = 14
+MAX_CATALOG_DEPTH = 4
 
 SPECIAL_CATALOG_PAGES: tuple[dict[str, Any], ...] = (
     {
@@ -65,7 +67,7 @@ def _normalize_catalog_payload(payload: dict[str, Any], repo_name: str) -> tuple
     items = [
         item
         for item in (
-            _normalize_catalog_item(raw_item, used_slugs)
+            _normalize_catalog_item(raw_item, used_slugs, depth=0)
             for raw_item in raw_items[:MAX_LLM_CATALOG_ITEMS]
         )
         if item is not None
@@ -84,7 +86,12 @@ def _validate_catalog_payload(payload: dict[str, Any]) -> None:
         raise ValueError("Catalog response must contain an items array.")
 
 
-def _normalize_catalog_item(raw_item: Any, used_slugs: set[str]) -> dict[str, Any] | None:
+def _normalize_catalog_item(
+    raw_item: Any,
+    used_slugs: set[str],
+    *,
+    depth: int,
+) -> dict[str, Any] | None:
     if not isinstance(raw_item, dict):
         return None
     title = str(raw_item.get("title") or "").strip()
@@ -100,10 +107,13 @@ def _normalize_catalog_item(raw_item: Any, used_slugs: set[str]) -> dict[str, An
     source_hints = raw_item.get("source_hints") if isinstance(raw_item.get("source_hints"), list) else []
     raw_children = raw_item.get("children") or []
     children = []
-    if isinstance(raw_children, list):
+    if isinstance(raw_children, list) and depth < MAX_CATALOG_DEPTH - 1:
         children = [
             child
-            for child in (_normalize_catalog_item(child, used_slugs) for child in raw_children[:8])
+            for child in (
+                _normalize_catalog_item(child, used_slugs, depth=depth + 1)
+                for child in raw_children[:MAX_CATALOG_CHILDREN]
+            )
             if child is not None
         ]
     return {
@@ -305,6 +315,8 @@ def _unique_slug(slug: str, used_slugs: set[str]) -> str:
 
 __all__ = [
     "MAX_CATALOG_ITEMS",
+    "MAX_CATALOG_CHILDREN",
+    "MAX_CATALOG_DEPTH",
     "SPECIAL_CATALOG_PAGES",
     "_catalog_context_for_page",
     "_catalog_item_summaries",

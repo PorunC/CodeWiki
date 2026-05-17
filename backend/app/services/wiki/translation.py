@@ -9,7 +9,7 @@ from backend.app.services.wiki.catalog import _validate_catalog_payload
 from backend.app.services.wiki.prompts import _json_object, _load_prompt
 
 TRANSLATION_ATTEMPTS = 3
-TRANSLATION_PROMPT_VERSION = "translation:wiki:v2"
+TRANSLATION_PROMPT_VERSION = "translation:wiki:v3"
 
 
 @dataclass(frozen=True)
@@ -135,8 +135,10 @@ class WikiTranslator:
             "target_language": target_language,
             "title": catalog.title,
             "items": title_entries,
+            "style_guide": _translation_style_guide(target_language),
             "rules": [
                 "Translate only human-facing title text.",
+                "For Chinese targets, use concise natural Simplified Chinese documentation titles.",
                 "Do not translate slugs, paths, topics, source_hints, or code identifiers.",
                 "Return JSON with title and items containing path and title.",
             ],
@@ -144,7 +146,7 @@ class WikiTranslator:
         response = await self._complete_translation_json(
             catalog.repo_id,
             payload,
-            cache_key_base=f"translation:v2:catalog:{catalog.id}:{source_language}:{target_language}",
+            cache_key_base=f"translation:v3:catalog:{catalog.id}:{source_language}:{target_language}",
             content_type="catalog",
         )
         translated_structure = {
@@ -175,8 +177,10 @@ class WikiTranslator:
             "title": page.title,
             "markdown": page.markdown,
             "source_refs": page.source_refs,
+            "style_guide": _translation_style_guide(target_language),
             "rules": [
-                "Translate prose and headings to the target language.",
+                "Translate prose and headings to the target language with natural local writing.",
+                "For Chinese targets, rewrite awkward literal phrasing into fluent Chinese technical prose.",
                 "Keep code blocks, inline code, file paths, URLs, anchors, and identifiers unchanged.",
                 "Keep Markdown structure and links valid.",
                 "Do not remove source citations or source sections.",
@@ -186,7 +190,7 @@ class WikiTranslator:
         response = await self._complete_translation_json(
             page.repo_id,
             payload,
-            cache_key_base=f"translation:v2:page:{page.id}:{source_language}:{target_language}",
+            cache_key_base=f"translation:v3:page:{page.id}:{source_language}:{target_language}",
             content_type="page",
         )
         translated_page = DocPageRecord(
@@ -304,6 +308,51 @@ def _validate_translation_response(response: dict[str, Any], *, content_type: st
             raise ValueError("Page translation JSON must include non-empty markdown.")
     else:
         raise ValueError(f"Unsupported translation content_type: {content_type}")
+
+
+def _translation_style_guide(target_language: str) -> dict[str, object]:
+    language = _normalize_language(target_language)
+    if language in {"zh", "zh-cn", "zh-hans", "cn"} or language.startswith("zh-"):
+        return {
+            "locale": "zh-Hans",
+            "voice": "natural Chinese technical documentation for developers in China",
+            "goals": [
+                "Use fluent Simplified Chinese rather than word-for-word translation.",
+                "Prefer concise headings and direct explanations.",
+                "Keep Chinese sentence order natural; split long English sentences when needed.",
+                "Use conventional Chinese technical terms while preserving common English terms.",
+            ],
+            "avoid": [
+                "machine-translation tone",
+                "overusing 该, 此, 其, 进行, 通过...来, 被用于, 负责于",
+                "stiff passive voice",
+                "long 的 chains",
+                "English-style modifier order",
+            ],
+            "preferred_terms": {
+                "Overview": "概览",
+                "Architecture": "架构",
+                "Reading Guide": "阅读指南",
+                "Dependencies": "依赖关系",
+                "Relevant source files": "相关源文件",
+                "Sources": "来源",
+                "Control Flow": "控制流程",
+                "Data Model": "数据模型",
+                "Failure Handling": "故障处理",
+                "Configuration": "配置",
+                "Operations": "运维",
+                "Testing": "测试",
+            },
+        }
+    return {
+        "locale": language,
+        "voice": "natural target-language technical documentation",
+        "goals": [
+            "Localize prose instead of translating word-for-word.",
+            "Keep headings concise and idiomatic.",
+            "Preserve all technical identifiers and links exactly.",
+        ],
+    }
 
 
 def _catalog_title_entries(items: list[Any]) -> list[dict[str, str]]:

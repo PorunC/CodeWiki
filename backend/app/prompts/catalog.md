@@ -6,14 +6,15 @@ Analysis workflow:
   evidence in the payload before deciding pages.
 - Treat the directory tree and graph as a module map. Group related files, symbols,
   routes, models, and workflows into logical developer-facing modules.
-- Identify the main systems, capabilities, and workflows, not individual files or
-  classes.
+- Identify the main systems, capabilities, workflows, public surfaces, data contracts,
+  and UI or API areas. Use individual files only as evidence for those boundaries.
 - Cross-check each proposed page against source_hints, graph nodes, source chunks,
   entry points, or README claims.
 - If a topic is only weakly evidenced, merge it into a broader page instead of
   creating a thin page.
 - Prefer a leaf-first mindset: child pages carry implementation detail, while parent
-  categories or parent pages summarize how those children fit together.
+  categories or parent pages summarize how those children fit together. When a parent
+  would otherwise cover many unrelated responsibilities, split it into children.
 
 Organization goals:
 - Build a navigable documentation tree, not a flat list of summaries.
@@ -29,14 +30,20 @@ Organization goals:
 - Start with top-level "Overview", "Architecture", "Reading Guide", and
   "Dependencies" pages, then group pages by real systems, layers, workflows, data
   models, APIs, services, and frontend surfaces that appear in the provided graph.
-- Prefer 5-9 top-level pages. Use children only when a subsystem has enough retrieved
-  evidence to justify a drill-down page.
+- Prefer 6-10 top-level sections. Use children aggressively when a subsystem has
+  enough retrieved evidence to justify drill-down pages. Medium repositories should
+  usually have 16-32 total pages across the tree rather than a small flat catalog.
+- Use 2-3 levels for complex areas. A parent can contain category children when a
+  layer has several distinct workflows or surfaces, but do not exceed 4 levels.
 - Use `kind: "category"` for parent section pages that should receive lightweight
   overview content and point readers to child pages. Use `kind: "page"` for focused
   documents that carry implementation detail.
 - Prefer detailed content for leaf pages. Parent category pages should summarize the
   child section, explain the mental model, and avoid repeating child implementation
   details.
+- Leaf pages should be narrow enough that `source_hints` are focused. A leaf should
+  normally cover one workflow stage, route/API group, data model family, UI view,
+  provider integration, export format, CLI/automation flow, or extension point.
 - Page titles should be short and concrete, like "Architecture", "Wiki Generation",
   "GraphRAG Retrieval", or "Frontend Wiki View".
 - Each topic must be a retrieval query that names the concrete subsystem and key files,
@@ -50,6 +57,11 @@ Organization goals:
 - Parent categories should have concise, meaningful names such as "Backend Services",
   "Graph Pipeline", "Wiki Generation", "Frontend", or "Operations" only when those
   boundaries are evident in the repository.
+- Split broad categories into concrete children. For example, "Backend Services" can
+  have "API Routes", "Graph Analysis", "GraphRAG Retrieval", "Wiki Generation",
+  "Persistence", and "Incremental Updates" when those boundaries are evidenced.
+  "Frontend" can have "Graph Explorer", "Wiki Reader", "Ask Interface", "Exports",
+  and "Settings" when evidenced.
 - Prefer pages such as Overview, Architecture, Core Workflows, API Surface,
   Data Model, Configuration, Frontend/UI, Testing, and Operations only when those
   topics are actually present in the repository evidence.
@@ -69,6 +81,11 @@ Coverage checklist:
   only when evidenced by repository files.
 - If a complex subsystem has several strongly related files, create one detailed page
   for the subsystem instead of one page per file.
+- If a complex subsystem has several distinct responsibilities, create a category
+  plus multiple focused leaf pages rather than one broad implementation page.
+- Use `module_candidates` as a shortlist of directories and symbol clusters that
+  deserve detailed splitting. Large candidates should normally become categories or
+  multiple leaf pages unless the evidence shows they are trivial.
 
 Rules:
 - Use only the provided graph context, community summaries, nodes, edges, and source
@@ -78,6 +95,8 @@ Rules:
 - Return only JSON in the requested shape.
 - Do not create pages for individual helpers, single tests, or isolated classes unless
   they are the primary public surface of the repository.
+- Do not collapse API, storage, background jobs, rendering, exports, and configuration
+  into one page when source evidence shows they are separate concerns.
 
 Catalog item shape:
 - `title`: display name.
