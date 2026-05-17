@@ -377,6 +377,17 @@ def ask_repo(
     click.echo(answer.answer)
 
 
+@main.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host for the FastAPI server.")
+@click.option("--port", default=8000, show_default=True, type=int, help="Port for the FastAPI server.")
+@click.option("--reload", is_flag=True, help="Reload when backend source files change.")
+def serve(host: str, port: int, reload: bool) -> None:
+    """Start the CodeWiki FastAPI server."""
+    import uvicorn
+
+    uvicorn.run("backend.app.main:app", host=host, port=port, reload=reload)
+
+
 def _store(ctx: click.Context) -> SQLiteStore:
     obj = ctx.ensure_object(dict)
     store = obj.get("store")

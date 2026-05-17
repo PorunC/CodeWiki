@@ -11,6 +11,15 @@ from backend.app.config import get_settings
 from backend.app.db.store import get_store
 
 
+def test_cli_help_lists_serve_command() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "serve" in result.output
+
+
 def test_cli_registers_and_lists_repositories(tmp_path: Path, monkeypatch) -> None:
     _configure_database(tmp_path, monkeypatch)
     repo_dir = _repo(tmp_path)

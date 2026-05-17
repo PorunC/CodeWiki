@@ -1,9 +1,25 @@
 [project]
-name = "code-wiki-platform"
+name = "codewiki"
 version = "0.1.0"
-description = "Single-user Code Wiki platform with AST graph, GraphRAG, and LiteLLM."
+description = "Local-first code wiki platform with AST graph analysis, GraphRAG, and LiteLLM."
 readme = "README.md"
 requires-python = ">=3.12"
+authors = [
+  { name = "PorunC", email = "09982.misaka@gmail.com" },
+]
+keywords = ["code-wiki", "graphrag", "fastapi", "llm", "documentation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Documentation",
+  "Topic :: Software Development :: Documentation",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
   "aiosqlite>=0.20.0",
   "click>=8.1.0",
@@ -34,6 +50,11 @@ dependencies = [
 
 [project.scripts]
 codewiki = "backend.app.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PorunC/CodeWiki"
+Repository = "https://github.com/PorunC/CodeWiki"
+Issues = "https://github.com/PorunC/CodeWiki/issues"
 
 [project.optional-dependencies]
 dev = [

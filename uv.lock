@@ -291,7 +291,7 @@ wheels = [
 ]
 
 [[package]]
-name = "code-wiki-platform"
+name = "codewiki"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

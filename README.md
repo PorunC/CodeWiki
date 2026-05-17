@@ -1,6 +1,6 @@
-# Code Wiki Platform
+# CodeWiki
 
-Single-user Code Wiki platform for AST-based code graph analysis, GraphRAG retrieval,
+Single-user CodeWiki platform for AST-based code graph analysis, GraphRAG retrieval,
 source-grounded wiki generation, and LiteLLM-powered Q&A.
 
 ## Current Scope
@@ -20,6 +20,24 @@ source-grounded wiki generation, and LiteLLM-powered Q&A.
   updates.
 - Pure frontend wiki exports: interactive standalone HTML and Obsidian vault ZIP.
 - Design notes live in `docs/design.md`.
+
+## Installation
+
+Install the Python package from PyPI:
+
+```bash
+pip install codewiki
+codewiki --help
+```
+
+Start the backend API after installation:
+
+```bash
+codewiki serve
+```
+
+The source checkout is still the recommended way to run the full backend + Vite
+frontend development stack.
 
 ## Wiki Workflow
 
