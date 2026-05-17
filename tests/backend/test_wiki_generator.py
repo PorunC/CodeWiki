@@ -120,6 +120,33 @@ async def test_wiki_generator_marks_page_draft_when_source_refs_are_invalid(
 
 
 @pytest.mark.asyncio
+async def test_wiki_generator_marks_page_draft_when_llm_provider_fails(
+    tmp_path: Path,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        _FailingPageLLM(),
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    result = await generator.generate_page(
+        repo.id,
+        {"title": "Request Handler", "slug": "request-handler", "topic": "handler answer"},
+    )
+
+    runs = store.list_llm_runs(repo.id, task_type="page")
+    assert result.page.status == "draft"
+    assert result.page.source_refs == []
+    assert "LLM provider call failed" in result.page.markdown
+    assert result.validation_errors == [f"LLM provider call failed: {runs[0].error}"]
+    assert len(runs) == 1
+    assert runs[0].status == "error"
+    assert runs[0].model == "page"
+
+
+@pytest.mark.asyncio
 async def test_wiki_generator_marks_page_draft_when_server_mermaid_is_invalid(
     tmp_path: Path,
     monkeypatch,
@@ -796,6 +823,20 @@ def _page_by_slug(results: list[object], slug: str) -> DocPageRecord:
 
 
 type _FakeTranslationPayload = dict[str, object] | str
+
+
+class _FailingPageLLM:
+    async def complete(
+        self,
+        task_type: str,
+        messages: list[dict[str, str]],
+        *,
+        response_format: str | None = None,
+    ) -> LLMResult:
+        assert task_type == "page"
+        assert messages
+        assert response_format == "json_object"
+        raise RuntimeError("provider returned an empty response body")
 
 
 class _FakeWikiLLM:

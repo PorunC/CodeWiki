@@ -271,7 +271,7 @@ def _draft_markdown(title: str, errors: list[str]) -> str:
     lines = [
         f"# {title}",
         "",
-        "This page was not promoted because source reference validation failed.",
+        "This page was not promoted because generation or validation failed.",
         "",
         "## Validation Errors",
     ]

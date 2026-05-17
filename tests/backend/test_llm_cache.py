@@ -5,7 +5,7 @@ import pytest
 
 from backend.app.database import SQLiteStore
 from backend.app.services.llm_gateway import LLMResult
-from backend.app.services.llm_run_recorder import complete_with_cache, unique_cache_key
+from backend.app.services.llm_run_recorder import LLMCallError, complete_with_cache, unique_cache_key
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -90,6 +90,40 @@ async def test_complete_with_cache_misses_when_input_hash_changes(tmp_path: Path
     assert second.cache_hit is False
 
 
+@pytest.mark.asyncio
+async def test_complete_with_cache_records_failed_llm_call(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    llm = _FailingLLM()
+    messages = [{"role": "user", "content": "Explain the handler."}]
+
+    with pytest.raises(LLMCallError) as exc_info:
+        await complete_with_cache(
+            store,
+            repo.id,
+            llm=llm,
+            task_type="qa",
+            messages=messages,
+            input_payload={"question": "Explain the handler."},
+            cache_key=unique_cache_key("qa", "trace-1", "question-1"),
+            model_alias="qa",
+            prompt_version="qa:v1",
+        )
+
+    runs = store.list_llm_runs(repo.id, task_type="qa")
+    assert len(runs) == 1
+    run = runs[0]
+    assert run.status == "error"
+    assert run.cached is False
+    assert run.response_content == ""
+    assert run.model == "fake/qa"
+    assert "RuntimeError: provider returned invalid JSON" in run.error
+    assert "sk-test-secret" not in run.error
+    assert exc_info.value.run_id == run.id
+
+
 def test_unique_cache_key_is_stable() -> None:
     assert unique_cache_key("community_naming", "batch", 1) == "community_naming:batch:1"
 
@@ -122,3 +156,16 @@ class _CountingLLM:
             model="fake/qa",
             usage={"prompt_tokens": 11, "completion_tokens": 7},
         )
+
+
+class _FailingLLM:
+    router = _FakeRouter()
+
+    async def complete(
+        self,
+        task_type: str,
+        messages: list[dict[str, str]],
+        *,
+        response_format: str | None = None,
+    ) -> LLMResult:
+        raise RuntimeError("provider returned invalid JSON for api_key=sk-test-secret-123456")

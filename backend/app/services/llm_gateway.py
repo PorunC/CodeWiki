@@ -44,6 +44,7 @@ class LLMGateway:
             "messages": messages,
             "temperature": profile.temperature,
             "timeout": self.settings.llm.timeout_seconds,
+            "num_retries": max(0, self.settings.llm.max_retries),
         }
         if profile.max_tokens:
             kwargs["max_tokens"] = profile.max_tokens
@@ -81,6 +82,7 @@ class LLMGateway:
             "temperature": profile.temperature,
             "stream": True,
             "timeout": self.settings.llm.timeout_seconds,
+            "num_retries": max(0, self.settings.llm.max_retries),
         }
         if profile.endpoint:
             kwargs["api_base"] = profile.endpoint
@@ -100,6 +102,7 @@ class LLMGateway:
         kwargs: dict[str, Any] = {
             "model": _litellm_model(profile),
             "input": texts,
+            "num_retries": max(0, self.settings.llm.max_retries),
         }
         if profile.endpoint:
             kwargs["api_base"] = profile.endpoint

@@ -1,10 +1,26 @@
 import json
+import re
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
 from backend.app.database import LLMRunRecord, SQLiteStore
 from backend.app.services.llm_gateway import LLMResult
+
+ERROR_MESSAGE_LIMIT = 1600
+
+
+class LLMCallError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        task_type: str,
+        run_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.task_type = task_type
+        self.run_id = run_id
 
 
 @dataclass(frozen=True)
@@ -29,6 +45,7 @@ async def complete_with_cache(
 ) -> RecordedLLMResult:
     input_hash = payload_hash(input_payload)
     model = llm_model(llm, task_type)
+    provider = llm_provider(llm, task_type)
     cached_run = store.get_cached_llm_run(
         repo_id,
         task_type=task_type,
@@ -63,7 +80,24 @@ async def complete_with_cache(
         )
         return RecordedLLMResult(result=result, run=run, cache_hit=True)
 
-    result = await llm.complete(task_type, messages, response_format=response_format)
+    try:
+        result = await llm.complete(task_type, messages, response_format=response_format)
+    except Exception as exc:
+        error = sanitized_llm_error(exc)
+        run = record_failed_llm_run(
+            store,
+            repo_id,
+            task_type=task_type,
+            input_payload=input_payload,
+            input_hash=input_hash,
+            cache_key=cache_key,
+            model=model,
+            provider=provider,
+            model_alias=model_alias,
+            prompt_version=prompt_version,
+            error=error,
+        )
+        raise LLMCallError(error, task_type=task_type, run_id=run.id) from exc
     run = record_llm_run(
         store,
         repo_id,
@@ -113,6 +147,40 @@ def record_llm_run(
     )
 
 
+def record_failed_llm_run(
+    store: SQLiteStore,
+    repo_id: str,
+    *,
+    task_type: str,
+    input_payload: dict[str, Any],
+    cache_key: str,
+    error: str,
+    input_hash: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    model_alias: str | None = None,
+    prompt_version: str | None = None,
+) -> LLMRunRecord:
+    recorded_model = model or model_alias or task_type
+    return store.record_llm_run(
+        repo_id,
+        task_type=task_type,
+        provider=provider or model_provider(recorded_model),
+        model=recorded_model,
+        model_alias=model_alias or task_type,
+        prompt_version=prompt_version,
+        input_hash=input_hash or payload_hash(input_payload),
+        cache_key=cache_key,
+        tokens_in=0,
+        tokens_out=0,
+        response_content="",
+        response_usage={},
+        cached=False,
+        status="error",
+        error=error,
+    )
+
+
 def unique_cache_key(*parts: object) -> str:
     return stable_cache_key(*parts)
 
@@ -130,12 +198,20 @@ def model_provider(model: str) -> str | None:
 
 
 def llm_model(llm: Any, task_type: str) -> str | None:
+    return _llm_profile_value(llm, task_type, "model")
+
+
+def llm_provider(llm: Any, task_type: str) -> str | None:
+    return _llm_profile_value(llm, task_type, "provider_type")
+
+
+def _llm_profile_value(llm: Any, task_type: str, name: str) -> str | None:
     router = getattr(llm, "router", None)
     profile_for = getattr(router, "profile_for", None)
     if profile_for is None:
         return None
     profile = profile_for(task_type)
-    return getattr(profile, "model", None)
+    return getattr(profile, name, None)
 
 
 def token_count(usage: dict[str, Any], *keys: str) -> int:
@@ -144,3 +220,29 @@ def token_count(usage: dict[str, Any], *keys: str) -> int:
         if value is not None:
             return int(value or 0)
     return 0
+
+
+def sanitized_llm_error(exc: Exception) -> str:
+    raw = str(exc) or exc.__class__.__name__
+    redacted = _redact_secrets(raw.replace("\x00", ""))
+    if len(redacted) > ERROR_MESSAGE_LIMIT:
+        redacted = f"{redacted[:ERROR_MESSAGE_LIMIT]}..."
+    return f"{exc.__class__.__name__}: {redacted}"
+
+
+def _redact_secrets(message: str) -> str:
+    patterns = [
+        r"sk-[A-Za-z0-9_-]{8,}",
+        r"(?i)(api[_-]?key\s*[:=]\s*)\S+",
+        r"(?i)(authorization\s*[:=]\s*bearer\s+)\S+",
+    ]
+    redacted = message
+    for pattern in patterns:
+        redacted = re.sub(pattern, _redaction_replacement, redacted)
+    return redacted
+
+
+def _redaction_replacement(match: re.Match[str]) -> str:
+    if match.lastindex:
+        return f"{match.group(1)}[REDACTED]"
+    return "[REDACTED]"

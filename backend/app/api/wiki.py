@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from backend.app.api.dependencies import IncrementalUpdaterDep, StoreDep, WikiGeneratorDep
 from backend.app.database import DocCatalogRecord, DocPageRecord
 from backend.app.services.incremental.models import IncrementalUpdateResult
+from backend.app.services.llm_run_recorder import LLMCallError
 from backend.app.services.wiki import PageGenerationResult, WikiUpdateResult
 
 router = APIRouter()
@@ -26,6 +27,8 @@ async def generate_catalog(
 ) -> dict[str, object]:
     try:
         catalog = await generator.generate_catalog(repo_id, language_code=language)
+    except LLMCallError as exc:
+        raise _llm_http_error(exc) from exc
     except ValueError as exc:
         raise _http_error(exc) from exc
     return _catalog_payload(catalog)
@@ -39,6 +42,8 @@ async def generate_pages(
 ) -> dict[str, object]:
     try:
         results = await generator.generate_all_pages(repo_id, language_code=language)
+    except LLMCallError as exc:
+        raise _llm_http_error(exc) from exc
     except ValueError as exc:
         raise _http_error(exc) from exc
     return {
@@ -67,6 +72,8 @@ async def update_pages(
             refresh_chunks=request.refresh_chunks,
         )
         wiki_update = await generator.update_pages(repo_id, language_code=language)
+    except LLMCallError as exc:
+        raise _llm_http_error(exc) from exc
     except ValueError as exc:
         raise _http_error(exc) from exc
     return _wiki_update_payload(repo_id, wiki_update, incremental_update)
@@ -81,6 +88,8 @@ async def regenerate_page(
 ) -> dict[str, object]:
     try:
         result = await generator.regenerate_page(repo_id, slug, language_code=language)
+    except LLMCallError as exc:
+        raise _llm_http_error(exc) from exc
     except ValueError as exc:
         raise _http_error(exc) from exc
     return _page_result_payload(result)
@@ -98,6 +107,8 @@ async def translate_wiki(
             source_language=payload.source_language,
             target_language=payload.target_language,
         )
+    except LLMCallError as exc:
+        raise _llm_http_error(exc) from exc
     except ValueError as exc:
         raise _http_error(exc) from exc
     return {
@@ -202,3 +213,12 @@ def _http_error(exc: ValueError) -> HTTPException:
     message = str(exc)
     status_code = 404 if message.startswith("Repository not found") else 400
     return HTTPException(status_code=status_code, detail=message)
+
+
+def _llm_http_error(exc: LLMCallError) -> HTTPException:
+    detail = {
+        "message": str(exc),
+        "task_type": exc.task_type,
+        "run_id": exc.run_id,
+    }
+    return HTTPException(status_code=502, detail=detail)

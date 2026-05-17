@@ -5,6 +5,7 @@ from backend.app.database import get_store
 from backend.app.schemas.ask import AskRequest, AskResponse
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm_run_recorder import LLMCallError
 from backend.app.services.question_answerer import QuestionAnswerer
 
 router = APIRouter()
@@ -21,6 +22,15 @@ async def ask_repo(repo_id: str, payload: AskRequest) -> AskResponse:
     )
     try:
         return await answerer.answer(repo_id, payload)
+    except LLMCallError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": str(exc),
+                "task_type": exc.task_type,
+                "run_id": exc.run_id,
+            },
+        ) from exc
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if message.startswith("Repository not found") else 400

@@ -6,6 +6,7 @@ from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_operations import CachedLLMService, LLMOperation
+from backend.app.services.llm_run_recorder import LLMCallError
 from backend.app.services.wiki.agent_tools import readfile_evidence_for_page
 from backend.app.services.wiki.catalog import (
     _source_hints_from_item,
@@ -110,23 +111,27 @@ class WikiPageGenerator:
         prompt = _load_prompt("page.md")
 
         for attempt in range(PAGE_GENERATION_ATTEMPTS):
-            completion = await self.llm_service.complete(
-                repo_id,
-                LLMOperation(
-                    task_type="page",
-                    messages=_page_messages(
-                        prompt,
-                        attempt_payload,
-                        validation_errors if attempt else [],
+            try:
+                completion = await self.llm_service.complete(
+                    repo_id,
+                    LLMOperation(
+                        task_type="page",
+                        messages=_page_messages(
+                            prompt,
+                            attempt_payload,
+                            validation_errors if attempt else [],
+                        ),
+                        input_payload=attempt_payload,
+                        cache_namespace=PAGE_CACHE_VERSION,
+                        cache_parts=(slug, trace.trace_id, "attempt", attempt + 1),
+                        model_alias="page",
+                        prompt_version=PAGE_PROMPT_VERSION,
+                        response_format="json_object",
                     ),
-                    input_payload=attempt_payload,
-                    cache_namespace=PAGE_CACHE_VERSION,
-                    cache_parts=(slug, trace.trace_id, "attempt", attempt + 1),
-                    model_alias="page",
-                    prompt_version=PAGE_PROMPT_VERSION,
-                    response_format="json_object",
-                ),
-            )
+                )
+            except LLMCallError as exc:
+                validation_errors = [f"LLM provider call failed: {exc}"]
+                break
             result = completion.result
 
             try:
