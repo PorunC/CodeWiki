@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import networkx as nx
 
-from backend.app.db.records import GraphCommunityRecord
-from backend.app.services.community_records import CommunityRecordBuilder
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 COMMUNITY_NODE_TYPES = {"file", "config", "class", "function", "method", "schema", "endpoint"}
@@ -26,17 +24,13 @@ MAX_COMMUNITIES = 32
 
 @dataclass(frozen=True)
 class CommunityDetectionResult:
-    communities: list[GraphCommunityRecord]
+    partitions: list[list[str]]
     algorithm: str
 
 
 class CommunityDetector:
-    def __init__(self, *, record_builder: CommunityRecordBuilder | None = None) -> None:
-        self.record_builder = record_builder or CommunityRecordBuilder()
-
     def detect(
         self,
-        repo_id: str,
         nodes: list[CodeGraphNode],
         edges: list[CodeGraphEdge],
     ) -> CommunityDetectionResult:
@@ -62,12 +56,12 @@ class CommunityDetector:
                 graph.add_edge(edge.source_id, edge.target_id, weight=weight)
 
         communities, algorithm = _partition(graph)
-        records = [
-            self.record_builder.build(repo_id, index, node_ids, node_by_id, edges, algorithm)
-            for index, node_ids in enumerate(_rank_communities(communities, node_by_id)[:MAX_COMMUNITIES])
+        partitions = [
+            node_ids
+            for node_ids in _rank_communities(communities, node_by_id)[:MAX_COMMUNITIES]
             if node_ids
         ]
-        return CommunityDetectionResult(communities=records, algorithm=algorithm)
+        return CommunityDetectionResult(partitions=partitions, algorithm=algorithm)
 
 
 def _partition(graph: nx.Graph) -> tuple[list[set[str]], str]:

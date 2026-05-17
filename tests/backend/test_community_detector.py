@@ -1,6 +1,7 @@
 import networkx as nx
 
-from backend.app.services.community_detector import _partition
+from backend.app.services.community_detector import CommunityDetector, _partition
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
 def test_partition_prefers_graspologic_leiden_when_available() -> None:
@@ -14,3 +15,25 @@ def test_partition_prefers_graspologic_leiden_when_available() -> None:
 
     assert algorithm == "graspologic_leiden"
     assert set().union(*communities) == set(graph.nodes)
+
+
+def test_detector_returns_partitions_without_names_or_summaries() -> None:
+    nodes = [
+        CodeGraphNode(id="repo:file:a.py", repo_id="repo", type="file", name="a.py", file_path="a.py"),
+        CodeGraphNode(id="repo:file:b.py", repo_id="repo", type="file", name="b.py", file_path="b.py"),
+    ]
+    edges = [
+        CodeGraphEdge(
+            id="edge-1",
+            repo_id="repo",
+            source_id="repo:file:a.py",
+            target_id="repo:file:b.py",
+            type="imports",
+        )
+    ]
+
+    result = CommunityDetector().detect(nodes, edges)
+
+    assert result.algorithm
+    assert result.partitions == [["repo:file:a.py", "repo:file:b.py"]]
+    assert not hasattr(result, "communities")

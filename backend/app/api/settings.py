@@ -28,7 +28,7 @@ async def get_llm_models() -> dict[str, object]:
         )
     }
     return {
-        "mode": settings.llm_mode,
+        "mode": settings.llm.mode,
         "default_profile": _profile_payload(model_router.default_profile()),
         "profiles": profiles,
     }

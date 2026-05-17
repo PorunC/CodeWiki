@@ -109,7 +109,7 @@ class IncrementalUpdater:
                 reused_file_count=len(plan.unchanged_files),
                 node_count=len(pipeline_result.graph.nodes),
                 edge_count=len(pipeline_result.graph.edges),
-                community_count=len(pipeline_result.communities.communities),
+                community_count=len(pipeline_result.communities),
                 chunk_count=chunk_count,
                 stale_pages=stale_pages,
                 errors=pipeline_result.parse_errors,

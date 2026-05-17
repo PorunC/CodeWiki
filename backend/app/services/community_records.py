@@ -10,6 +10,21 @@ MAX_SUMMARY_EDGES = 8
 
 
 class CommunityRecordBuilder:
+    def build_all(
+        self,
+        repo_id: str,
+        partitions: list[list[str]],
+        nodes: list[CodeGraphNode],
+        edges: list[CodeGraphEdge],
+        algorithm: str,
+    ) -> list[GraphCommunityRecord]:
+        node_by_id = {node.id: node for node in nodes}
+        return [
+            self.build(repo_id, index, node_ids, node_by_id, edges, algorithm)
+            for index, node_ids in enumerate(partitions)
+            if node_ids
+        ]
+
     def build(
         self,
         repo_id: str,

@@ -127,7 +127,7 @@ class AnalysisService:
                 parsed_file_count=pipeline_result.parsed_file_count,
                 node_count=len(pipeline_result.graph.nodes),
                 edge_count=len(pipeline_result.graph.edges),
-                community_count=len(pipeline_result.communities.communities),
+                community_count=len(pipeline_result.communities),
                 errors=pipeline_result.parse_errors,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())

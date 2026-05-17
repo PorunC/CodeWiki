@@ -43,7 +43,7 @@ class LLMGateway:
             "model": _litellm_model(profile),
             "messages": messages,
             "temperature": profile.temperature,
-            "timeout": self.settings.llm_timeout_seconds,
+            "timeout": self.settings.llm.timeout_seconds,
         }
         if profile.max_tokens:
             kwargs["max_tokens"] = profile.max_tokens
@@ -80,7 +80,7 @@ class LLMGateway:
             "messages": messages,
             "temperature": profile.temperature,
             "stream": True,
-            "timeout": self.settings.llm_timeout_seconds,
+            "timeout": self.settings.llm.timeout_seconds,
         }
         if profile.endpoint:
             kwargs["api_base"] = profile.endpoint
