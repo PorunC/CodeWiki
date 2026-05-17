@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from backend.app.config import Settings, get_settings
 from backend.app.database import SQLiteStore
-from backend.app.services.ast_parser import AstParser, parse_scanned_files
+from backend.app.services.analysis_pipeline import AnalysisPipeline
+from backend.app.services.ast_parser import AstParser
 from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
@@ -59,6 +59,13 @@ class AnalysisService:
         self.parser = parser or AstParser()
         self.graph_builder = graph_builder or GraphBuilder()
         self.community_detector = community_detector or CommunityDetector()
+        self.pipeline = AnalysisPipeline(
+            store=self.store,
+            scanner=self.scanner,
+            parser=self.parser,
+            graph_builder=self.graph_builder,
+            community_detector=self.community_detector,
+        )
 
     async def analyze_with_community_summaries(
         self,
@@ -109,31 +116,23 @@ class AnalysisService:
 
         run = self.store.create_analysis_run(repo_id)
         try:
-            scan = self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
-            symbols, parse_errors = parse_scanned_files(
-                self.parser,
-                scan.files,
-                repo_root=Path(scan.repo.path),
-            )
-            graph = self.graph_builder.build(scan, symbols)
-            self.store.replace_graph(repo_id, nodes=graph.nodes, edges=graph.edges)
-            communities = self.community_detector.detect(repo_id, graph.nodes, graph.edges)
-            self.store.replace_graph_communities(repo_id, communities.communities)
+            scan = self.pipeline.scan_repo(repo)
+            pipeline_result = self.pipeline.run(scan)
 
             result = AnalysisResult(
                 run_id=run.id,
                 repo_id=repo_id,
                 status="done",
-                scanned_count=scan.scanned_count,
-                parsed_file_count=len({symbol.file_path for symbol in symbols}),
-                node_count=len(graph.nodes),
-                edge_count=len(graph.edges),
-                community_count=len(communities.communities),
-                errors=parse_errors,
+                scanned_count=pipeline_result.scan.scanned_count,
+                parsed_file_count=pipeline_result.parsed_file_count,
+                node_count=len(pipeline_result.graph.nodes),
+                edge_count=len(pipeline_result.graph.edges),
+                community_count=len(pipeline_result.communities.communities),
+                errors=pipeline_result.parse_errors,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
-            self.store.upsert_repo(scan.repo)
-            write_repo_metadata(scan.repo)
+            self.store.upsert_repo(pipeline_result.scan.repo)
+            write_repo_metadata(pipeline_result.scan.repo)
             return result
         except Exception as exc:
             self.store.finish_analysis_run(
@@ -145,13 +144,7 @@ class AnalysisService:
             raise
 
     def build_graph_for_path(self, path: str) -> CodeGraph:
-        scan = self.scanner.scan(path)
-        symbols, _ = parse_scanned_files(
-            self.parser,
-            scan.files,
-            repo_root=Path(scan.repo.path),
-        )
-        return self.graph_builder.build(scan, symbols)
+        return self.pipeline.build_graph_for_path(path)
 
 
 def _llm_configured(settings: Settings) -> bool:

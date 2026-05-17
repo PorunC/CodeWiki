@@ -1,31 +1,19 @@
-from collections import Counter
-from dataclasses import dataclass, field
-from pathlib import PurePosixPath
 from typing import Any
 
 from backend.app.database import DocCatalogRecord, SQLiteStore
-from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import complete_with_cache
+from backend.app.services.llm_operations import CachedLLMService, LLMOperation
 from backend.app.services.repo_context import RepositoryContextBuilder
 from backend.app.services.wiki.catalog import (
     _normalize_catalog_payload,
     _source_chunk_summaries,
     _validate_catalog_payload,
 )
+from backend.app.services.wiki.catalog_planner import CatalogModuleCandidatePlanner
 from backend.app.services.wiki.prompts import _catalog_messages, _json_object, _load_prompt
 
 CATALOG_GENERATION_ATTEMPTS = 3
-
-
-@dataclass
-class _ModuleCandidateDraft:
-    path: str
-    files: set[str] = field(default_factory=set)
-    node_types: Counter[str] = field(default_factory=Counter)
-    symbols: list[dict[str, str]] = field(default_factory=list)
-    edge_types: Counter[str] = field(default_factory=Counter)
 
 
 class WikiCatalogGenerator:
@@ -36,11 +24,14 @@ class WikiCatalogGenerator:
         *,
         store: SQLiteStore,
         context_builder: RepositoryContextBuilder,
+        candidate_planner: CatalogModuleCandidatePlanner | None = None,
     ) -> None:
         self.retriever = retriever
         self.llm = llm
         self.store = store
         self.context_builder = context_builder
+        self.candidate_planner = candidate_planner or CatalogModuleCandidatePlanner()
+        self.llm_service = CachedLLMService(store=self.store, llm=self.llm)
 
     async def generate_catalog(
         self,
@@ -60,17 +51,18 @@ class WikiCatalogGenerator:
         attempt_payload = user_payload
 
         for attempt in range(CATALOG_GENERATION_ATTEMPTS):
-            completion = await complete_with_cache(
-                self.store,
+            completion = await self.llm_service.complete(
                 repo_id,
-                llm=self.llm,
-                task_type="catalog",
-                messages=_catalog_messages(prompt, attempt_payload, validation_errors),
-                input_payload=attempt_payload,
-                cache_key=f"catalog:v4:{trace.trace_id}:attempt:{attempt + 1}",
-                model_alias="catalog",
-                prompt_version="catalog:deepwiki:v4",
-                response_format="json_object",
+                LLMOperation(
+                    task_type="catalog",
+                    messages=_catalog_messages(prompt, attempt_payload, validation_errors),
+                    input_payload=attempt_payload,
+                    cache_namespace="catalog:v4",
+                    cache_parts=(trace.trace_id, "attempt", attempt + 1),
+                    model_alias="catalog",
+                    prompt_version="catalog:deepwiki:v4",
+                    response_format="json_object",
+                ),
             )
             result = completion.result
             try:
@@ -200,7 +192,7 @@ class WikiCatalogGenerator:
                 ],
             },
             "repository_context": repo_context.as_dict(),
-            "module_candidates": _module_candidates(nodes, edges),
+            "module_candidates": self.candidate_planner.build(nodes, edges),
             "context_pack": trace.context_pack,
             "seed_nodes": trace.seed_nodes,
             "expanded_nodes": trace.expanded_nodes[:80],
@@ -267,83 +259,3 @@ class WikiCatalogGenerator:
                 ],
             },
         }
-
-
-def _module_candidates(
-    nodes: list[CodeGraphNode],
-    edges: list[CodeGraphEdge],
-) -> list[dict[str, object]]:
-    groups: dict[str, _ModuleCandidateDraft] = {}
-    node_module: dict[str, str] = {}
-    for node in nodes:
-        file_path = node.file_path or ""
-        if not file_path:
-            continue
-        module_path = _module_path(file_path)
-        node_module[node.id] = module_path
-        group = groups.setdefault(module_path, _ModuleCandidateDraft(path=module_path))
-        group.files.add(file_path)
-        group.node_types[node.type] += 1
-        if node.type != "file" and len(group.symbols) < 18:
-            group.symbols.append(
-                {
-                    "name": node.name,
-                    "type": node.type,
-                    "file_path": file_path,
-                }
-            )
-
-    for edge in edges:
-        source_module = node_module.get(edge.source_id)
-        target_module = node_module.get(edge.target_id)
-        if not source_module or source_module != target_module:
-            continue
-        group = groups.get(source_module)
-        if group is not None:
-            group.edge_types[edge.type] += 1
-
-    candidates = []
-    for group in groups.values():
-        files = sorted(group.files)
-        candidates.append(
-            {
-                "path": group.path,
-                "file_count": len(files),
-                "files": files[:12],
-                "node_types": dict(group.node_types.most_common(8)),
-                "edge_types": dict(group.edge_types.most_common(8)),
-                "symbols": group.symbols,
-                "split_hint": _split_hint(group.path, files, group.node_types),
-            }
-        )
-    return sorted(
-        candidates,
-        key=lambda item: (-int(item["file_count"]), str(item["path"])),
-    )[:36]
-
-
-def _module_path(file_path: str) -> str:
-    parts = PurePosixPath(file_path).parts
-    if len(parts) <= 1:
-        return "."
-    directory_parts = parts[:-1]
-    if not directory_parts:
-        return "."
-    if directory_parts[0] in {"backend", "frontend"} and len(directory_parts) >= 3:
-        return "/".join(directory_parts[:4])
-    return "/".join(directory_parts[:3])
-
-
-def _split_hint(path: str, files: list[str], node_types: Counter[str]) -> str:
-    names = {PurePosixPath(file_path).name.lower() for file_path in files}
-    if any("api" in file_path or "routes" in file_path for file_path in files):
-        return "Consider separate pages for public routes, request/response contracts, and service delegation."
-    if any(name in names for name in {"models.py", "schema.py", "schemas.py", "database.py"}):
-        return "Consider separate pages for data models, repositories, persistence, and migrations."
-    if any("component" in node_type or node_type in {"component", "hook"} for node_type in node_types):
-        return "Consider separate pages for UI views, reusable components, hooks, and user workflows."
-    if len(files) >= 6:
-        return f"Large module {path}; split by workflow stage, public surface, and extension point."
-    if len(files) >= 3:
-        return f"Medium module {path}; use at least one focused implementation leaf page."
-    return f"Small module {path}; merge into a nearby broader page unless it is a public surface."

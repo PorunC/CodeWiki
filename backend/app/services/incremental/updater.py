@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from backend.app.database import SQLiteStore
-from backend.app.services.ast_parser import AstParser, parse_scanned_files
+from backend.app.services.analysis_pipeline import AnalysisPipeline
+from backend.app.services.ast_parser import AstParser
 from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.graph import CodeGraphNode, GraphBuilder
 from backend.app.services.graphrag import GraphRAGRetriever
@@ -38,16 +39,23 @@ class IncrementalUpdater:
         self.graph_builder = graph_builder or GraphBuilder()
         self.community_detector = community_detector or CommunityDetector()
         self.graphrag = graphrag or GraphRAGRetriever(store=self.store)
+        self.pipeline = AnalysisPipeline(
+            store=self.store,
+            scanner=self.scanner,
+            parser=self.parser,
+            graph_builder=self.graph_builder,
+            community_detector=self.community_detector,
+        )
 
     def plan(self, repo_id: str) -> IncrementalUpdatePlan:
         repo = self._repo(repo_id)
-        scan = self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
+        scan = self.pipeline.scan_repo(repo)
         nodes, _edges = self.store.get_graph(repo_id)
         return self._plan_from_scan_with_metadata(repo, scan, nodes)
 
     def update(self, repo_id: str, *, refresh_chunks: bool = True) -> IncrementalUpdateResult:
         repo = self._repo(repo_id)
-        scan = self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
+        scan = self.pipeline.scan_repo(repo)
         old_nodes, old_edges = self.store.get_graph(repo_id)
         plan = self._plan_from_scan_with_metadata(repo, scan, old_nodes)
         stale_graph_refs = _affected_graph_refs(old_nodes, old_edges, plan.changed_files + plan.deleted_files)
@@ -76,20 +84,15 @@ class IncrementalUpdater:
 
             changed_or_new = set(plan.changed_files + plan.new_files)
             reused_symbols = _symbols_from_existing_graph(old_nodes, old_edges, set(plan.unchanged_files))
-            parsed_symbols, parse_errors = parse_scanned_files(
-                self.parser,
-                scan.files,
-                repo_root=Path(scan.repo.path),
+            pipeline_result = self.pipeline.run(
+                scan,
                 only_paths=changed_or_new,
+                reused_symbols=reused_symbols,
             )
-            graph = self.graph_builder.build(scan, [*reused_symbols, *parsed_symbols])
-            self.store.replace_graph(repo_id, nodes=graph.nodes, edges=graph.edges)
-            communities = self.community_detector.detect(repo_id, graph.nodes, graph.edges)
-            self.store.replace_graph_communities(repo_id, communities.communities)
 
             chunk_count = len(self.store.list_code_chunks(repo_id))
             if refresh_chunks:
-                chunk_count = self._refresh_chunks(repo, plan, graph.nodes)
+                chunk_count = self._refresh_chunks(repo, plan, pipeline_result.graph.nodes)
 
             stale_pages = self.store.mark_doc_pages_stale(
                 repo_id,
@@ -102,14 +105,14 @@ class IncrementalUpdater:
                 status="done",
                 plan=plan,
                 scanned_count=scan.scanned_count,
-                parsed_file_count=len({symbol.file_path for symbol in parsed_symbols}),
+                parsed_file_count=pipeline_result.parsed_file_count,
                 reused_file_count=len(plan.unchanged_files),
-                node_count=len(graph.nodes),
-                edge_count=len(graph.edges),
-                community_count=len(communities.communities),
+                node_count=len(pipeline_result.graph.nodes),
+                edge_count=len(pipeline_result.graph.edges),
+                community_count=len(pipeline_result.communities.communities),
                 chunk_count=chunk_count,
                 stale_pages=stale_pages,
-                errors=parse_errors,
+                errors=pipeline_result.parse_errors,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
             self.store.upsert_repo(scan.repo)

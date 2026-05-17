@@ -12,7 +12,7 @@ from backend.app.services.community_naming import (
     renamed_count,
 )
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import complete_with_cache, unique_cache_key
+from backend.app.services.llm_operations import CachedLLMService, LLMOperation
 from backend.app.services.prompts import load_prompt
 
 
@@ -27,6 +27,7 @@ class CommunityNamer:
     ) -> None:
         self.llm = llm
         self.store = store or get_store()
+        self.llm_service = CachedLLMService(store=self.store, llm=self.llm)
 
     async def summarize_communities(
         self,
@@ -70,23 +71,24 @@ class CommunityNamer:
                 for item in payload["communities"]
                 if isinstance(item, dict)
             }
-            completion = await complete_with_cache(
-                self.store,
+            completion = await self.llm_service.complete(
                 repo_id,
-                llm=self.llm,
-                task_type="community_summary",
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {
-                        "role": "user",
-                        "content": json.dumps(payload, ensure_ascii=False),
-                    },
-                ],
-                input_payload=payload,
-                cache_key=unique_cache_key("community_naming", "batch", batch_index),
-                model_alias="community_namer",
-                prompt_version="community_naming:v2",
-                response_format="json_object",
+                LLMOperation(
+                    task_type="community_summary",
+                    messages=[
+                        {"role": "system", "content": prompt},
+                        {
+                            "role": "user",
+                            "content": json.dumps(payload, ensure_ascii=False),
+                        },
+                    ],
+                    input_payload=payload,
+                    cache_namespace="community_naming",
+                    cache_parts=("batch", batch_index),
+                    model_alias="community_namer",
+                    prompt_version="community_naming:v2",
+                    response_format="json_object",
+                ),
             )
             result = completion.result
             renamed, batch_errors = apply_llm_names(

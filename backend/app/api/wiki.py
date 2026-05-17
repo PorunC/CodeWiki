@@ -1,13 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.app.config import get_settings
-from backend.app.database import DocCatalogRecord, DocPageRecord, get_store
-from backend.app.services.graphrag import GraphRAGRetriever
-from backend.app.services.incremental import IncrementalUpdater
+from backend.app.api.dependencies import IncrementalUpdaterDep, StoreDep, WikiGeneratorDep
+from backend.app.database import DocCatalogRecord, DocPageRecord
 from backend.app.services.incremental.models import IncrementalUpdateResult
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.wiki import PageGenerationResult, WikiGenerator, WikiUpdateResult
+from backend.app.services.wiki import PageGenerationResult, WikiUpdateResult
 
 router = APIRouter()
 
@@ -22,18 +19,26 @@ class UpdateWikiPagesRequest(BaseModel):
 
 
 @router.post("/{repo_id}/wiki/catalog")
-async def generate_catalog(repo_id: str, language: str = "en") -> dict[str, object]:
+async def generate_catalog(
+    repo_id: str,
+    generator: WikiGeneratorDep,
+    language: str = "en",
+) -> dict[str, object]:
     try:
-        catalog = await _generator().generate_catalog(repo_id, language_code=language)
+        catalog = await generator.generate_catalog(repo_id, language_code=language)
     except ValueError as exc:
         raise _http_error(exc) from exc
     return _catalog_payload(catalog)
 
 
 @router.post("/{repo_id}/wiki/pages/generate")
-async def generate_pages(repo_id: str, language: str = "en") -> dict[str, object]:
+async def generate_pages(
+    repo_id: str,
+    generator: WikiGeneratorDep,
+    language: str = "en",
+) -> dict[str, object]:
     try:
-        results = await _generator().generate_all_pages(repo_id, language_code=language)
+        results = await generator.generate_all_pages(repo_id, language_code=language)
     except ValueError as exc:
         raise _http_error(exc) from exc
     return {
@@ -47,37 +52,48 @@ async def generate_pages(repo_id: str, language: str = "en") -> dict[str, object
 @router.post("/{repo_id}/wiki/pages/update")
 async def update_pages(
     repo_id: str,
+    store: StoreDep,
+    updater: IncrementalUpdaterDep,
+    generator: WikiGeneratorDep,
     language: str = "en",
     payload: UpdateWikiPagesRequest | None = None,
 ) -> dict[str, object]:
-    store = get_store()
     if store.get_repo(repo_id) is None:
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     request = payload or UpdateWikiPagesRequest()
     try:
-        incremental_update = IncrementalUpdater(store=store).update(
+        incremental_update = updater.update(
             repo_id,
             refresh_chunks=request.refresh_chunks,
         )
-        wiki_update = await _generator().update_pages(repo_id, language_code=language)
+        wiki_update = await generator.update_pages(repo_id, language_code=language)
     except ValueError as exc:
         raise _http_error(exc) from exc
     return _wiki_update_payload(repo_id, wiki_update, incremental_update)
 
 
 @router.post("/{repo_id}/wiki/pages/{slug}/regenerate")
-async def regenerate_page(repo_id: str, slug: str, language: str = "en") -> dict[str, object]:
+async def regenerate_page(
+    repo_id: str,
+    slug: str,
+    generator: WikiGeneratorDep,
+    language: str = "en",
+) -> dict[str, object]:
     try:
-        result = await _generator().regenerate_page(repo_id, slug, language_code=language)
+        result = await generator.regenerate_page(repo_id, slug, language_code=language)
     except ValueError as exc:
         raise _http_error(exc) from exc
     return _page_result_payload(result)
 
 
 @router.post("/{repo_id}/wiki/translate")
-async def translate_wiki(repo_id: str, payload: TranslateWikiRequest) -> dict[str, object]:
+async def translate_wiki(
+    repo_id: str,
+    payload: TranslateWikiRequest,
+    generator: WikiGeneratorDep,
+) -> dict[str, object]:
     try:
-        result = await _generator().translate_wiki(
+        result = await generator.translate_wiki(
             repo_id,
             source_language=payload.source_language,
             target_language=payload.target_language,
@@ -95,8 +111,7 @@ async def translate_wiki(repo_id: str, payload: TranslateWikiRequest) -> dict[st
 
 
 @router.get("/{repo_id}/wiki")
-async def get_wiki(repo_id: str, language: str = "en") -> dict[str, object]:
-    store = get_store()
+async def get_wiki(repo_id: str, store: StoreDep, language: str = "en") -> dict[str, object]:
     if store.get_repo(repo_id) is None:
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     catalog = store.get_latest_doc_catalog(repo_id, language_code=language)
@@ -110,22 +125,11 @@ async def get_wiki(repo_id: str, language: str = "en") -> dict[str, object]:
 
 
 @router.get("/{repo_id}/wiki/pages/{slug}")
-async def get_page(repo_id: str, slug: str, language: str = "en") -> dict[str, object]:
-    page = get_store().get_doc_page(repo_id, slug, language_code=language)
+async def get_page(repo_id: str, slug: str, store: StoreDep, language: str = "en") -> dict[str, object]:
+    page = store.get_doc_page(repo_id, slug, language_code=language)
     if page is None:
         raise HTTPException(status_code=404, detail=f"Wiki page not found: {slug}")
     return _page_payload(page)
-
-
-def _generator() -> WikiGenerator:
-    settings = get_settings()
-    store = get_store()
-    return WikiGenerator(
-        GraphRAGRetriever(store=store, settings=settings),
-        LLMGateway(settings),
-        store=store,
-        settings=settings,
-    )
 
 
 def _catalog_payload(catalog: DocCatalogRecord) -> dict[str, object]:

@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 from backend.app.services.wiki.catalog.source_hints import (
@@ -7,6 +6,7 @@ from backend.app.services.wiki.catalog.source_hints import (
     _source_hints_from_item,
     _trace_with_source_hint_chunks,
 )
+from backend.app.services.wiki.utils import slugify
 
 MAX_CATALOG_ITEMS = 24
 MAX_LLM_CATALOG_ITEMS = 24
@@ -97,7 +97,7 @@ def _normalize_catalog_item(
     title = str(raw_item.get("title") or "").strip()
     if not title:
         return None
-    slug = _unique_slug(_slugify(str(raw_item.get("slug") or raw_item.get("path") or title)), used_slugs)
+    slug = _unique_slug(slugify(str(raw_item.get("slug") or raw_item.get("path") or title)), used_slugs)
     path = str(raw_item.get("path") or slug).strip().strip("/") or slug
     topic = str(raw_item.get("topic") or title)
     raw_kind = str(raw_item.get("kind") or "").strip().lower()
@@ -248,40 +248,8 @@ def _related_catalog_pages(
     return ranked[:12]
 
 
-def _flatten_catalog_items(
-    items: list[Any],
-    *,
-    parent_slug: str | None = None,
-):
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        yield item, parent_slug
-        slug = _catalog_slug(item)
-        children = item.get("children") or []
-        if isinstance(children, list):
-            yield from _flatten_catalog_items(children, parent_slug=slug)
-
-
-def _catalog_items_for_generation(
-    items: list[Any],
-    *,
-    parent_slug: str | None = None,
-):
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        children = item.get("children") or []
-        has_children = isinstance(children, list) and bool(children)
-        kind = str(item.get("kind") or "").lower()
-        if kind in {"page", "category"} or not has_children:
-            yield item, parent_slug
-        if isinstance(children, list):
-            yield from _catalog_items_for_generation(children, parent_slug=_catalog_slug(item))
-
-
 def _catalog_slug(item: dict[str, Any]) -> str:
-    return _slugify(str(item.get("slug") or item.get("path") or item.get("title") or ""))
+    return slugify(str(item.get("slug") or item.get("path") or item.get("title") or ""))
 
 
 def _source_chunk_summaries(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -296,11 +264,6 @@ def _source_chunk_summaries(chunks: list[dict[str, object]]) -> list[dict[str, o
         }
         for chunk in chunks
     ]
-
-
-def _slugify(value: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
-    return slug or "page"
 
 
 def _unique_slug(slug: str, used_slugs: set[str]) -> str:
@@ -320,15 +283,12 @@ __all__ = [
     "SPECIAL_CATALOG_PAGES",
     "_catalog_context_for_page",
     "_catalog_item_summaries",
-    "_catalog_items_for_generation",
     "_catalog_slug",
     "_dedupe_source_chunks",
-    "_flatten_catalog_items",
     "_ensure_special_catalog_pages",
     "_matches_source_hint",
     "_normalize_catalog_payload",
     "_related_catalog_pages",
-    "_slugify",
     "_source_chunk_summaries",
     "_source_hints_from_item",
     "_sort_catalog_items",

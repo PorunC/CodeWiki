@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from backend.app.config import Settings
+from backend.app.config import LLMProfileSettings, LLMSettings, Settings
 from backend.app.database import SQLiteStore
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.community_detector import _community_name
+from backend.app.services.community_records import CommunityRecordBuilder
 from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.repo_scanner import RepoScanner
@@ -71,8 +71,10 @@ def test_deterministic_community_names_use_file_evidence_for_init_and_dotfiles()
         file_path=".gitignore",
     )
 
-    assert _community_name(22, [init_node.id], {init_node.id: init_node}) == "Api Package"
-    assert _community_name(19, [dotfile_node.id], {dotfile_node.id: dotfile_node}) == "Gitignore"
+    builder = CommunityRecordBuilder()
+
+    assert builder.name(22, [init_node.id], {init_node.id: init_node}) == "Api Package"
+    assert builder.name(19, [dotfile_node.id], {dotfile_node.id: dotfile_node}) == "Gitignore"
 
 
 def test_store_lists_analysis_runs(tmp_path: Path) -> None:
@@ -127,14 +129,15 @@ async def test_analyze_with_community_summaries_skips_llm_when_unconfigured(
     result = await AnalysisService(store=store).analyze_with_community_summaries(
         repo.id,
         settings=Settings(
-            llm_api_key=None,
-            llm_endpoint=None,
-            llm_provider=None,
-            llm_model="provider/strong-coding-model",
-            llm_community_api_key=None,
-            llm_community_endpoint=None,
-            llm_community_provider=None,
-            llm_community_model="provider/strong-coding-model",
+            _env_file=None,
+            llm=LLMSettings(
+                default=LLMProfileSettings(model="provider/strong-coding-model"),
+                profiles={
+                    "community_summary": LLMProfileSettings(
+                        model="provider/strong-coding-model",
+                    )
+                },
+            ),
         ),
     )
 

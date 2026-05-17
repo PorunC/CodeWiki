@@ -6,7 +6,7 @@ from backend.app.database import SQLiteStore
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import complete_with_cache
+from backend.app.services.llm_operations import CachedLLMService, LLMOperation
 from backend.app.services.prompts import load_prompt
 
 
@@ -31,6 +31,7 @@ class QuestionAnswerer:
         self.retriever = retriever
         self.llm = llm
         self.store = store
+        self.llm_service = CachedLLMService(store=self.store, llm=self.llm)
 
     async def answer(self, repo_id: str, request: AskRequest) -> AskResponse:
         if self.store.get_repo(repo_id) is None:
@@ -55,26 +56,27 @@ class QuestionAnswerer:
             related_edges=related_edges,
             community_summaries=related_communities,
         )
-        completion = await complete_with_cache(
-            self.store,
+        completion = await self.llm_service.complete(
             repo_id,
-            llm=self.llm,
-            task_type="qa",
-            messages=[
-                {"role": "system", "content": _load_prompt("qa.md")},
-                {
-                    "role": "user",
-                    "content": (
-                        "Use only this GraphRAG context. Cite files and lines from sources "
-                        "when making code claims.\n"
-                        f"{json.dumps(prompt_context.__dict__, ensure_ascii=False)}"
-                    ),
-                },
-            ],
-            input_payload=prompt_context.__dict__,
-            cache_key=f"qa:{trace.trace_id}:{sha256(request.question.encode('utf-8')).hexdigest()[:16]}",
-            model_alias="qa",
-            prompt_version="qa:v1",
+            LLMOperation(
+                task_type="qa",
+                messages=[
+                    {"role": "system", "content": _load_prompt("qa.md")},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Use only this GraphRAG context. Cite files and lines from sources "
+                            "when making code claims.\n"
+                            f"{json.dumps(prompt_context.__dict__, ensure_ascii=False)}"
+                        ),
+                    },
+                ],
+                input_payload=prompt_context.__dict__,
+                cache_namespace="qa",
+                cache_parts=(trace.trace_id, sha256(request.question.encode("utf-8")).hexdigest()[:16]),
+                model_alias="qa",
+                prompt_version="qa:v1",
+            ),
         )
         result = completion.result
         return AskResponse(

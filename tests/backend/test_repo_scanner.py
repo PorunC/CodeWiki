@@ -51,22 +51,12 @@ def test_scan_respects_nested_gitignore(tmp_path: Path) -> None:
     assert "nested/skip.ts" not in paths
 
 
-def test_scan_records_git_last_commit_time_for_source_files(tmp_path: Path, monkeypatch) -> None:
+def test_scan_records_git_last_commit_time_for_source_files(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n")
     (tmp_path / "notes.md").write_text("# Notes\n")
     timestamp = "2024-01-02T03:04:05+00:00"
 
-    def fake_commit_times(root: Path, paths: list[str]) -> dict[str, str]:
-        assert root == tmp_path
-        assert paths == ["main.py"]
-        return {"main.py": timestamp}
-
-    monkeypatch.setattr(
-        "backend.app.services.repo_scanner.scanner.git_file_commit_times",
-        fake_commit_times,
-    )
-
-    result = RepoScanner().scan(str(tmp_path))
+    result = RepoScanner(git_operations=_FakeGitOperations(timestamp)).scan(str(tmp_path))
     files = {item.path: item for item in result.files}
 
     assert files["main.py"].last_commit_at == timestamp
@@ -122,3 +112,18 @@ def _git_output(repo_dir: Path, *args: str) -> str:
         stderr=subprocess.PIPE,
         text=True,
     ).stdout.strip()
+
+
+class _FakeGitOperations:
+    def __init__(self, timestamp: str) -> None:
+        self.timestamp = timestamp
+
+    def metadata(self, repo_path: Path) -> tuple[str | None, str | None]:
+        return None, None
+
+    def file_commit_times(self, repo_path: Path, file_paths: list[str]) -> dict[str, str]:
+        assert file_paths == ["main.py"]
+        return {"main.py": self.timestamp}
+
+    def clone(self, git_url: str, destination: Path) -> Path:
+        raise AssertionError("clone should not be used for local scan")

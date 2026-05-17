@@ -127,10 +127,10 @@ def _configure_database(tmp_path: Path, monkeypatch) -> None:
         f"sqlite+aiosqlite:///{tmp_path / 'codewiki.sqlite3'}",
     )
     monkeypatch.setenv("CODEWIKI_STORAGE_DIR", str(tmp_path / "storage"))
-    monkeypatch.delenv("CODEWIKI_LLM_API_KEY", raising=False)
-    monkeypatch.delenv("CODEWIKI_LLM_ENDPOINT", raising=False)
-    monkeypatch.delenv("CODEWIKI_LLM_PROVIDER", raising=False)
-    monkeypatch.setenv("CODEWIKI_LLM_MODEL", "provider/strong-coding-model")
+    monkeypatch.delenv("CODEWIKI_LLM__DEFAULT__API_KEY", raising=False)
+    monkeypatch.delenv("CODEWIKI_LLM__DEFAULT__ENDPOINT", raising=False)
+    monkeypatch.delenv("CODEWIKI_LLM__DEFAULT__PROVIDER_TYPE", raising=False)
+    monkeypatch.setenv("CODEWIKI_LLM__DEFAULT__MODEL", "provider/strong-coding-model")
     get_settings.cache_clear()
     get_store.cache_clear()
 

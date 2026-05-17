@@ -4,9 +4,11 @@ from typing import Any
 
 from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore
 from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import complete_with_cache
+from backend.app.services.llm_operations import CachedLLMService, LLMOperation
 from backend.app.services.wiki.catalog import _validate_catalog_payload
+from backend.app.services.wiki.language import normalize_language as _normalize_language
 from backend.app.services.wiki.prompts import _json_object, _load_prompt
+from backend.app.services.wiki.utils import ordered_unique as _ordered_unique
 
 TRANSLATION_ATTEMPTS = 3
 TRANSLATION_PROMPT_VERSION = "translation:wiki:v3"
@@ -24,6 +26,7 @@ class WikiTranslator:
     def __init__(self, llm: LLMGateway, *, store: SQLiteStore) -> None:
         self.llm = llm
         self.store = store
+        self.llm_service = CachedLLMService(store=self.store, llm=self.llm)
 
     async def translate_wiki(
         self,
@@ -146,7 +149,7 @@ class WikiTranslator:
         response = await self._complete_translation_json(
             catalog.repo_id,
             payload,
-            cache_key_base=f"translation:v3:catalog:{catalog.id}:{source_language}:{target_language}",
+            cache_parts=("catalog", catalog.id, source_language, target_language),
             content_type="catalog",
         )
         translated_structure = {
@@ -190,7 +193,7 @@ class WikiTranslator:
         response = await self._complete_translation_json(
             page.repo_id,
             payload,
-            cache_key_base=f"translation:v3:page:{page.id}:{source_language}:{target_language}",
+            cache_parts=("page", page.id, source_language, target_language),
             content_type="page",
         )
         translated_page = DocPageRecord(
@@ -213,23 +216,24 @@ class WikiTranslator:
         repo_id: str,
         payload: dict[str, Any],
         *,
-        cache_key_base: str,
+        cache_parts: tuple[object, ...],
         content_type: str,
     ) -> dict[str, Any]:
         attempt_payload = payload
         validation_errors: list[str] = []
         for attempt in range(TRANSLATION_ATTEMPTS):
-            completion = await complete_with_cache(
-                self.store,
+            completion = await self.llm_service.complete(
                 repo_id,
-                llm=self.llm,
-                task_type="translation",
-                messages=_translation_messages(attempt_payload, validation_errors),
-                input_payload=attempt_payload,
-                cache_key=f"{cache_key_base}:attempt:{attempt + 1}",
-                model_alias="translation",
-                prompt_version=TRANSLATION_PROMPT_VERSION,
-                response_format="json_object",
+                LLMOperation(
+                    task_type="translation",
+                    messages=_translation_messages(attempt_payload, validation_errors),
+                    input_payload=attempt_payload,
+                    cache_namespace="translation:v3",
+                    cache_parts=(*cache_parts, "attempt", attempt + 1),
+                    model_alias="translation",
+                    prompt_version=TRANSLATION_PROMPT_VERSION,
+                    response_format="json_object",
+                ),
             )
             try:
                 response = _json_object(completion.result.content)
@@ -415,21 +419,6 @@ def _apply_catalog_title_translations(
         for item in original_items
         if isinstance(item, dict)
     ]
-
-
-def _normalize_language(language_code: str | None) -> str:
-    return (language_code or "en").strip().lower() or "en"
-
-
-def _ordered_unique(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    unique: list[str] = []
-    for value in values:
-        if value in seen:
-            continue
-        seen.add(value)
-        unique.append(value)
-    return unique
 
 
 def _json_dumps(payload: dict[str, Any]) -> str:

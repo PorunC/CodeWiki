@@ -1,4 +1,5 @@
 from backend.app.services.repo_scanner.file_info import is_probably_binary, scan_file, sha256_file
+from backend.app.services.repo_scanner.filesystem import FileSystemWalker, FileSystemWalkResult
 from backend.app.services.repo_scanner.git import (
     git_diff_changed_paths,
     git_file_commit_times,
@@ -6,6 +7,7 @@ from backend.app.services.repo_scanner.git import (
     git_metadata,
     git_origin_url,
 )
+from backend.app.services.repo_scanner.git_ops import GitOperations
 from backend.app.services.repo_scanner.ignore import DEFAULT_IGNORE_PATTERNS, IgnoreMatcher, IgnorePattern
 from backend.app.services.repo_scanner.models import RepoDescriptor, RepoScanResult, ScannedFile
 from backend.app.services.repo_scanner.scanner import (
@@ -17,6 +19,9 @@ from backend.app.services.repo_scanner.scanner import (
 
 __all__ = [
     "DEFAULT_IGNORE_PATTERNS",
+    "FileSystemWalker",
+    "FileSystemWalkResult",
+    "GitOperations",
     "IgnoreMatcher",
     "IgnorePattern",
     "RepoDescriptor",

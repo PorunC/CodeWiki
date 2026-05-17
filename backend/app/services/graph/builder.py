@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 
 from backend.app.services.ast_parser import AstSymbol
 from backend.app.services.graph.call_resolver import (
@@ -35,75 +35,110 @@ from backend.app.services.graph_provenance import with_edge_provenance
 from backend.app.services.repo_scanner import RepoScanResult
 
 
+@dataclass
+class _GraphBuildState:
+    repo_id: str
+    node_index: dict[str, CodeGraphNode] = field(default_factory=dict)
+    edge_index: dict[str, CodeGraphEdge] = field(default_factory=dict)
+    file_nodes: dict[str, str] = field(default_factory=dict)
+    config_nodes: dict[str, str] = field(default_factory=dict)
+    config_detection_by_path: dict[str, ConfigDetection] = field(default_factory=dict)
+    directory_nodes: dict[str, str] = field(default_factory=dict)
+    symbol_nodes: dict[str, str] = field(default_factory=dict)
+    symbols_by_file: dict[str, list[AstSymbol]] = field(default_factory=dict)
+
+    def add_node(self, node: CodeGraphNode) -> None:
+        self.node_index[node.id] = replace(node, metadata=node_metadata_with_provenance(node))
+
+    def add_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        edge_type: str,
+        *,
+        confidence: float = 1.0,
+        weight: float = 1.0,
+        is_inferred: bool = False,
+        reason: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        graph_edge_id = edge_id(self.repo_id, source_id, target_id, edge_type)
+        default_reason = reason or STRUCTURAL_EDGE_REASONS.get(edge_type, edge_type)
+        edge_metadata = with_edge_provenance(
+            metadata or {},
+            edge_type=edge_type,
+            confidence=confidence,
+            is_inferred=is_inferred,
+            reason=default_reason,
+        )
+        self.edge_index[graph_edge_id] = CodeGraphEdge(
+            id=graph_edge_id,
+            repo_id=self.repo_id,
+            source_id=source_id,
+            target_id=target_id,
+            type=edge_type,
+            confidence=confidence,
+            weight=weight,
+            is_inferred=is_inferred,
+            metadata=edge_metadata,
+        )
+
+    def graph(self) -> CodeGraph:
+        return CodeGraph(
+            repo_id=self.repo_id,
+            nodes=sorted(
+                self.node_index.values(),
+                key=lambda node: (node.type, node.file_path, node.name),
+            ),
+            edges=sorted(
+                self.edge_index.values(),
+                key=lambda edge: (edge.type, edge.source_id, edge.target_id),
+            ),
+        )
+
+
 class GraphBuilder:
     def build(self, scan: RepoScanResult, symbols: list[AstSymbol]) -> CodeGraph:
-        repo_id = scan.repo.id
-        node_index: dict[str, CodeGraphNode] = {}
-        edge_index: dict[str, CodeGraphEdge] = {}
-        file_nodes: dict[str, str] = {}
-        config_nodes: dict[str, str] = {}
-        config_detection_by_path: dict[str, ConfigDetection] = {}
-        directory_nodes: dict[str, str] = {}
-        symbol_nodes: dict[str, str] = {}
-        symbols_by_file: dict[str, list[AstSymbol]] = {}
+        state = _GraphBuildState(repo_id=scan.repo.id)
+        self._build_file_nodes(scan, state)
+        self._build_symbol_nodes(symbols, state)
+        call_index = build_call_index(symbols, state.symbol_nodes)
+        import_scopes = import_scopes_for_files(
+            {
+                symbol.file_path: symbol.imports
+                for symbol in symbols
+                if symbol.type == "file" and symbol.imports
+            },
+            file_nodes=state.file_nodes,
+        )
+        self._build_file_import_edges(symbols, state)
+        self._build_symbol_structure_edges(symbols, state, call_index, import_scopes)
+        self._build_call_reference_edges(symbols, state, call_index, import_scopes)
+        return state.graph()
 
-        def add_node(node: CodeGraphNode) -> None:
-            node_index[node.id] = replace(node, metadata=node_metadata_with_provenance(node))
-
-        def add_edge(
-            source_id: str,
-            target_id: str,
-            edge_type: str,
-            *,
-            confidence: float = 1.0,
-            weight: float = 1.0,
-            is_inferred: bool = False,
-            reason: str | None = None,
-            metadata: dict[str, object] | None = None,
-        ) -> None:
-            graph_edge_id = edge_id(repo_id, source_id, target_id, edge_type)
-            default_reason = reason or STRUCTURAL_EDGE_REASONS.get(edge_type, edge_type)
-            edge_metadata = with_edge_provenance(
-                metadata or {},
-                edge_type=edge_type,
-                confidence=confidence,
-                is_inferred=is_inferred,
-                reason=default_reason,
-            )
-            edge_index[graph_edge_id] = CodeGraphEdge(
-                id=graph_edge_id,
-                repo_id=repo_id,
-                source_id=source_id,
-                target_id=target_id,
-                type=edge_type,
-                confidence=confidence,
-                weight=weight,
-                is_inferred=is_inferred,
-                metadata=edge_metadata,
-            )
-
-        repo_node_id = f"{repo_id}:repository"
-        add_node(repository_node(scan.repo))
+    def _build_file_nodes(self, scan: RepoScanResult, state: _GraphBuildState) -> None:
+        repo_node_id = f"{state.repo_id}:repository"
+        state.add_node(repository_node(scan.repo))
 
         for scanned_file in scan.files:
-            current_file_node_id = file_node_id(repo_id, scanned_file.path)
-            file_nodes[scanned_file.path] = current_file_node_id
+            current_file_node_id = file_node_id(state.repo_id, scanned_file.path)
+            state.file_nodes[scanned_file.path] = current_file_node_id
             config_detection = detect_config_file(scanned_file)
             extra_metadata: dict[str, object] = {}
             node_type = "file"
             if config_detection.is_config:
                 node_type = "config"
-                config_nodes[scanned_file.path] = current_file_node_id
-                config_detection_by_path[scanned_file.path] = config_detection
+                state.config_nodes[scanned_file.path] = current_file_node_id
+                state.config_detection_by_path[scanned_file.path] = config_detection
                 extra_metadata = {
                     "config": True,
                     "config_kind": config_detection.kind,
                     "config_reason": config_detection.reason,
                     "config_confidence": config_detection.confidence,
                 }
-            add_node(
+            state.add_node(
                 file_node(
-                    repo_id,
+                    state.repo_id,
                     scanned_file,
                     current_file_node_id,
                     node_type=node_type,
@@ -111,92 +146,95 @@ class GraphBuilder:
                 )
             )
             parent_id = ensure_directory_nodes(
-                repo_id=repo_id,
+                repo_id=state.repo_id,
                 file_path=scanned_file.path,
                 repo_node_id=repo_node_id,
-                directory_nodes=directory_nodes,
-                add_node=add_node,
-                add_edge=add_edge,
+                directory_nodes=state.directory_nodes,
+                add_node=state.add_node,
+                add_edge=state.add_edge,
             )
-            add_edge(parent_id, current_file_node_id, "contains")
+            state.add_edge(parent_id, current_file_node_id, "contains")
 
+    def _build_symbol_nodes(self, symbols: list[AstSymbol], state: _GraphBuildState) -> None:
         for symbol in symbols:
-            symbols_by_file.setdefault(symbol.file_path, []).append(symbol)
+            state.symbols_by_file.setdefault(symbol.file_path, []).append(symbol)
             if symbol.type == "file":
                 continue
-            node_id = make_symbol_node_id(repo_id, symbol.id)
-            symbol_nodes[symbol.id] = node_id
-            add_node(symbol_node(repo_id, symbol, node_id))
+            node_id = make_symbol_node_id(state.repo_id, symbol.id)
+            state.symbol_nodes[symbol.id] = node_id
+            state.add_node(symbol_node(state.repo_id, symbol, node_id))
 
-        call_index = build_call_index(symbols, symbol_nodes)
-        import_scopes = import_scopes_for_files(
-            {
-                symbol.file_path: symbol.imports
-                for symbol in symbols
-                if symbol.type == "file" and symbol.imports
-            },
-            file_nodes=file_nodes,
-        )
+    def _build_file_import_edges(self, symbols: list[AstSymbol], state: _GraphBuildState) -> None:
         for symbol in symbols:
-            if symbol.type == "file":
-                current_file_id = file_nodes.get(symbol.file_path)
-                add_import_edges(
-                    repo_id=repo_id,
-                    file_node_id=current_file_id,
-                    from_file_path=symbol.file_path,
-                    imports=symbol.imports,
-                    file_nodes=file_nodes,
-                    add_node=add_node,
-                    add_edge=add_edge,
+            if symbol.type != "file":
+                continue
+            current_file_id = state.file_nodes.get(symbol.file_path)
+            add_import_edges(
+                repo_id=state.repo_id,
+                file_node_id=current_file_id,
+                from_file_path=symbol.file_path,
+                imports=symbol.imports,
+                file_nodes=state.file_nodes,
+                add_node=state.add_node,
+                add_edge=state.add_edge,
+            )
+            for config_target_id in config_targets_for_import(
+                symbol.imports,
+                from_file_path=symbol.file_path,
+                file_nodes=state.file_nodes,
+                config_nodes=state.config_nodes,
+            ):
+                if not current_file_id:
+                    continue
+                state.add_edge(
+                    current_file_id,
+                    config_target_id,
+                    "uses_config",
+                    confidence=0.78,
+                    is_inferred=True,
+                    reason="config-import",
+                    metadata={"imports": symbol.imports},
                 )
-                for config_target_id in config_targets_for_import(
-                    symbol.imports,
-                    from_file_path=symbol.file_path,
-                    file_nodes=file_nodes,
-                    config_nodes=config_nodes,
-                ):
-                    if not current_file_id:
-                        continue
-                    add_edge(
-                        current_file_id,
-                        config_target_id,
-                        "uses_config",
-                        confidence=0.78,
-                        is_inferred=True,
-                        reason="config-import",
-                        metadata={"imports": symbol.imports},
-                    )
-                continue
 
-            symbol_node_id = symbol_nodes.get(symbol.id)
+    def _build_symbol_structure_edges(
+        self,
+        symbols: list[AstSymbol],
+        state: _GraphBuildState,
+        call_index: dict[str, list[str]],
+        import_scopes: dict[str, set[str]],
+    ) -> None:
+        for symbol in symbols:
+            if symbol.type == "file":
+                continue
+            symbol_node_id = state.symbol_nodes.get(symbol.id)
             if not symbol_node_id:
                 continue
             parent_node_id = (
-                symbol_nodes.get(symbol.parent_id or "")
+                state.symbol_nodes.get(symbol.parent_id or "")
                 if symbol.parent_id
-                else file_nodes.get(symbol.file_path)
+                else state.file_nodes.get(symbol.file_path)
             )
             if parent_node_id:
-                add_edge(parent_node_id, symbol_node_id, "contains")
-            if current_file_node_id := file_nodes.get(symbol.file_path):
-                add_edge(current_file_node_id, symbol_node_id, "defines")
+                state.add_edge(parent_node_id, symbol_node_id, "contains")
+            if current_file_node_id := state.file_nodes.get(symbol.file_path):
+                state.add_edge(current_file_node_id, symbol_node_id, "defines")
                 if symbol.metadata.get("exported") or symbol.name in file_exports(
-                    symbols_by_file.get(symbol.file_path, [])
+                    state.symbols_by_file.get(symbol.file_path, [])
                 ):
-                    add_edge(current_file_node_id, symbol_node_id, "exports")
+                    state.add_edge(current_file_node_id, symbol_node_id, "exports")
 
             for base in symbol.bases:
                 resolved = resolve_type_reference(
                     base,
                     file_path=symbol.file_path,
                     symbols=symbols,
-                    symbol_nodes=symbol_nodes,
-                    repo_id=repo_id,
-                    add_node=add_node,
+                    symbol_nodes=state.symbol_nodes,
+                    repo_id=state.repo_id,
+                    add_node=state.add_node,
                     import_scopes=import_scopes,
                 )
                 if resolved:
-                    add_edge(
+                    state.add_edge(
                         symbol_node_id,
                         resolved.target_id,
                         "inherits",
@@ -211,13 +249,13 @@ class GraphBuilder:
                     interface,
                     file_path=symbol.file_path,
                     symbols=symbols,
-                    symbol_nodes=symbol_nodes,
-                    repo_id=repo_id,
-                    add_node=add_node,
+                    symbol_nodes=state.symbol_nodes,
+                    repo_id=state.repo_id,
+                    add_node=state.add_node,
                     import_scopes=import_scopes,
                 )
                 if resolved:
-                    add_edge(
+                    state.add_edge(
                         symbol_node_id,
                         resolved.target_id,
                         "implements",
@@ -236,7 +274,7 @@ class GraphBuilder:
                         import_scopes=import_scopes,
                     )
                     if resolved:
-                        add_edge(
+                        state.add_edge(
                             symbol_node_id,
                             resolved.target_id,
                             "routes_to",
@@ -251,8 +289,15 @@ class GraphBuilder:
                             },
                         )
 
+    def _build_call_reference_edges(
+        self,
+        symbols: list[AstSymbol],
+        state: _GraphBuildState,
+        call_index: dict[str, list[str]],
+        import_scopes: dict[str, set[str]],
+    ) -> None:
         for symbol in symbols:
-            source_id = symbol_nodes.get(symbol.id)
+            source_id = state.symbol_nodes.get(symbol.id)
             if not source_id:
                 continue
             for call in symbol.calls:
@@ -263,7 +308,7 @@ class GraphBuilder:
                     import_scopes=import_scopes,
                 )
                 if resolved and resolved.target_id != source_id:
-                    add_edge(
+                    state.add_edge(
                         source_id,
                         resolved.target_id,
                         "calls",
@@ -283,7 +328,7 @@ class GraphBuilder:
                     import_scopes=import_scopes,
                 )
                 if resolved and resolved.target_id != source_id:
-                    add_edge(
+                    state.add_edge(
                         source_id,
                         resolved.target_id,
                         "references",
@@ -295,10 +340,10 @@ class GraphBuilder:
 
             for config_target_id in config_targets_for_references(
                 [*symbol.calls, *symbol.references],
-                config_nodes=config_nodes,
-                config_detection_by_path=config_detection_by_path,
+                config_nodes=state.config_nodes,
+                config_detection_by_path=state.config_detection_by_path,
             ):
-                add_edge(
+                state.add_edge(
                     source_id,
                     config_target_id,
                     "uses_config",
@@ -307,12 +352,6 @@ class GraphBuilder:
                     reason="config-reference",
                     metadata={"references": sorted(set([*symbol.calls, *symbol.references]))},
                 )
-
-        return CodeGraph(
-            repo_id=repo_id,
-            nodes=sorted(node_index.values(), key=lambda node: (node.type, node.file_path, node.name)),
-            edges=sorted(edge_index.values(), key=lambda edge: (edge.type, edge.source_id, edge.target_id)),
-        )
 
 
 def should_skip_reference(symbol: AstSymbol, reference: str) -> bool:

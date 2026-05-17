@@ -1,46 +1,29 @@
-from backend.app.config import Settings
+from backend.app.config import LLMProfileSettings, LLMSettings, Settings
 from backend.app.services.model_router import ModelRouter
 
 
-def _test_settings(**overrides) -> Settings:
-    defaults = {
-        "llm_provider": None,
-        "llm_endpoint": None,
-        "llm_api_key": None,
-        "llm_catalog_model": None,
-        "llm_catalog_provider": None,
-        "llm_catalog_endpoint": None,
-        "llm_catalog_api_key": None,
-        "llm_community_model": None,
-        "llm_community_provider": None,
-        "llm_community_endpoint": None,
-        "llm_community_api_key": None,
-        "llm_page_model": None,
-        "llm_page_provider": None,
-        "llm_page_endpoint": None,
-        "llm_page_api_key": None,
-        "llm_translation_model": None,
-        "llm_translation_provider": None,
-        "llm_translation_endpoint": None,
-        "llm_translation_api_key": None,
-        "llm_qa_model": None,
-        "llm_qa_provider": None,
-        "llm_qa_endpoint": None,
-        "llm_qa_api_key": None,
-        "llm_embedding_model": None,
-        "llm_embedding_provider": None,
-        "llm_embedding_endpoint": None,
-        "llm_embedding_api_key": None,
-    }
-    return Settings(_env_file=None, **(defaults | overrides))
+def _test_settings(
+    *,
+    default: LLMProfileSettings | None = None,
+    profiles: dict[str, LLMProfileSettings] | None = None,
+) -> Settings:
+    return Settings(
+        _env_file=None,
+        llm=LLMSettings(
+            default=default or LLMProfileSettings(model="provider/strong-coding-model"),
+            profiles=profiles or {},
+        ),
+    )
 
 
 def test_default_profile_is_used_for_all_tasks_without_overrides() -> None:
     settings = _test_settings(
-        llm_model="provider/shared",
-        llm_provider="openai",
-        llm_endpoint="https://llm.example/v1",
-        llm_api_key="shared-key",
+        default=LLMProfileSettings(
+            model="provider/shared",
+            provider_type="openai",
+            endpoint="https://llm.example/v1",
+            api_key="shared-key",
+        ),
     )
     router = ModelRouter(settings)
 
@@ -54,7 +37,7 @@ def test_default_profile_is_used_for_all_tasks_without_overrides() -> None:
 
 def test_embedding_profile_uses_embedding_model() -> None:
     settings = _test_settings(
-        llm_embedding_model="provider/embed",
+        profiles={"embedding": LLMProfileSettings(model="provider/embed")},
     )
     profile = ModelRouter(settings).profile_for("embedding")
 
@@ -63,7 +46,7 @@ def test_embedding_profile_uses_embedding_model() -> None:
 
 def test_qa_profile_streams_by_default() -> None:
     settings = _test_settings(
-        llm_qa_model="provider/qa",
+        profiles={"qa": LLMProfileSettings(model="provider/qa")},
     )
     profile = ModelRouter(settings).profile_for("qa")
 
@@ -73,20 +56,25 @@ def test_qa_profile_streams_by_default() -> None:
 
 def test_catalog_and_community_use_independent_task_models() -> None:
     settings = _test_settings(
-        llm_catalog_model="provider/catalog",
-        llm_community_model="provider/community",
+        profiles={
+            "catalog": LLMProfileSettings(model="provider/catalog"),
+            "community_summary": LLMProfileSettings(model="provider/community"),
+        },
     )
     router = ModelRouter(settings)
 
     assert router.profile_for("catalog").model == "provider/catalog"
     assert router.profile_for("community_summary").model == "provider/community"
+    assert router.profile_for("cluster").model == "provider/community"
 
 
 def test_page_qa_and_translation_can_use_explicit_task_models() -> None:
     settings = _test_settings(
-        llm_page_model="provider/page",
-        llm_qa_model="provider/qa",
-        llm_translation_model="provider/translation",
+        profiles={
+            "page": LLMProfileSettings(model="provider/page"),
+            "qa": LLMProfileSettings(model="provider/qa"),
+            "translation": LLMProfileSettings(model="provider/translation"),
+        },
     )
     router = ModelRouter(settings)
 
@@ -97,14 +85,20 @@ def test_page_qa_and_translation_can_use_explicit_task_models() -> None:
 
 def test_task_profile_carries_provider_endpoint_and_api_key() -> None:
     settings = _test_settings(
-        llm_model="provider/shared",
-        llm_provider="openai",
-        llm_endpoint="https://shared.example/v1",
-        llm_api_key="shared-key",
-        llm_page_model="page-model",
-        llm_page_provider="anthropic",
-        llm_page_endpoint="https://llm.example/v1",
-        llm_page_api_key="task-key",
+        default=LLMProfileSettings(
+            model="provider/shared",
+            provider_type="openai",
+            endpoint="https://shared.example/v1",
+            api_key="shared-key",
+        ),
+        profiles={
+            "page": LLMProfileSettings(
+                model="page-model",
+                provider_type="anthropic",
+                endpoint="https://llm.example/v1",
+                api_key="task-key",
+            )
+        },
     )
     profile = ModelRouter(settings).profile_for("page")
 
@@ -116,11 +110,13 @@ def test_task_profile_carries_provider_endpoint_and_api_key() -> None:
 
 def test_task_profile_inherits_default_connection_when_only_model_is_overridden() -> None:
     settings = _test_settings(
-        llm_model="provider/shared",
-        llm_provider="openai",
-        llm_endpoint="https://shared.example/v1",
-        llm_api_key="shared-key",
-        llm_catalog_model="provider/catalog",
+        default=LLMProfileSettings(
+            model="provider/shared",
+            provider_type="openai",
+            endpoint="https://shared.example/v1",
+            api_key="shared-key",
+        ),
+        profiles={"catalog": LLMProfileSettings(model="provider/catalog")},
     )
     profile = ModelRouter(settings).profile_for("catalog")
 
