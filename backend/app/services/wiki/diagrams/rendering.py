@@ -157,4 +157,9 @@ def _mermaid_sequence_text(value: str) -> str:
 
 
 def _mermaid_class_text(value: str) -> str:
-    return _mermaid_edge_text(value).replace("{", "(").replace("}", ")")
+    return (
+        _mermaid_edge_text(value)
+        .replace("{", "(")
+        .replace("}", ")")
+        .replace(":", " -")
+    )

@@ -44,6 +44,12 @@ def _compact_error(message: str) -> str:
     lines = [line.strip() for line in message.splitlines() if line.strip()]
     if not lines:
         return "parser rejected the diagram."
+    for index, line in enumerate(lines):
+        if "Parse error" not in line:
+            continue
+        details = [line]
+        details.extend(next_line for next_line in lines[index + 1 : index + 5] if "Expecting" in next_line)
+        return " ".join(details)[:240]
     return lines[0][:240]
 
 

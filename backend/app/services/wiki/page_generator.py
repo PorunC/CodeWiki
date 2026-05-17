@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -16,8 +17,12 @@ from backend.app.services.wiki.diagrams import (
     _diagram_slots_payload,
     _graph_refs_from_trace,
     _mermaid_diagrams_from_trace,
+    MermaidDiagram,
 )
-from backend.app.services.wiki.mermaid_validation import validate_mermaid_blocks_async
+from backend.app.services.wiki.mermaid_validation import (
+    validate_mermaid,
+    validate_mermaid_blocks_async,
+)
 from backend.app.services.wiki.page_payload import PageGenerationPayloadBuilder
 from backend.app.services.wiki.page_validation import (
     PageResponseValidator,
@@ -178,10 +183,17 @@ class WikiPageGenerator:
 
         status = "generated" if not validation_errors else "draft"
         if status == "generated":
-            markdown = _replace_citation_markers(markdown, source_refs)
+            content_markdown = _replace_citation_markers(markdown, source_refs)
             diagrams = _mermaid_diagrams_from_trace(trace, title=title, source_refs=source_refs)
-            markdown = _compose_page_markdown(markdown, diagrams, source_refs)
+            markdown = _compose_page_markdown(content_markdown, diagrams, source_refs)
             mermaid_errors = await validate_mermaid_blocks_async(markdown)
+            if mermaid_errors and diagrams:
+                valid_diagrams = await _valid_mermaid_diagrams_async(diagrams)
+                markdown = _compose_page_markdown(content_markdown, valid_diagrams, source_refs)
+                mermaid_errors = await validate_mermaid_blocks_async(markdown)
+            if mermaid_errors and diagrams:
+                markdown = _compose_page_markdown(content_markdown, [], source_refs)
+                mermaid_errors = await validate_mermaid_blocks_async(markdown)
             if mermaid_errors:
                 validation_errors.extend(mermaid_errors)
                 status = "draft"
@@ -206,3 +218,22 @@ class WikiPageGenerator:
             page=self.store.upsert_doc_page(page),
             validation_errors=validation_errors,
         )
+
+
+async def _valid_mermaid_diagrams_async(
+    diagrams: list[MermaidDiagram],
+) -> list[MermaidDiagram]:
+    valid_diagrams: list[MermaidDiagram] = []
+    for diagram in diagrams:
+        error = await _validate_mermaid_diagram_async(diagram)
+        if error is None:
+            valid_diagrams.append(diagram)
+    return valid_diagrams
+
+
+async def _validate_mermaid_diagram_async(diagram: MermaidDiagram) -> str | None:
+    return await _validate_mermaid_lines_async(diagram.lines)
+
+
+async def _validate_mermaid_lines_async(lines: list[str]) -> str | None:
+    return await asyncio.to_thread(validate_mermaid, "\n".join(lines))

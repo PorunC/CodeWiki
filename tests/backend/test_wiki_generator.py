@@ -147,7 +147,7 @@ async def test_wiki_generator_marks_page_draft_when_llm_provider_fails(
 
 
 @pytest.mark.asyncio
-async def test_wiki_generator_marks_page_draft_when_server_mermaid_is_invalid(
+async def test_wiki_generator_omits_invalid_server_mermaid_without_drafting_page(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -184,9 +184,11 @@ async def test_wiki_generator_marks_page_draft_when_server_mermaid_is_invalid(
         {"title": "Request Handler", "slug": "request-handler", "topic": "handler answer"},
     )
 
-    assert result.page.status == "draft"
-    assert any(error.startswith("Mermaid block 1:") for error in result.validation_errors)
-    assert "Validation Errors" in result.page.markdown
+    assert result.page.status == "generated"
+    assert result.validation_errors == []
+    assert "Validation Errors" not in result.page.markdown
+    assert "```mermaid" not in result.page.markdown
+    assert "The handler delegates to answer()." in result.page.markdown
 
 
 @pytest.mark.asyncio
