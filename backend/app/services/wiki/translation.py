@@ -6,9 +6,9 @@ from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_operations import CachedLLMService, LLMOperation
 from backend.app.services.wiki.catalog import _validate_catalog_payload
-from backend.app.services.wiki.language import normalize_language as _normalize_language
+from backend.app.services.wiki.language import normalize_language
 from backend.app.services.wiki.prompts import _json_object, _load_prompt
-from backend.app.services.wiki.utils import ordered_unique as _ordered_unique
+from backend.app.services.wiki.utils import ordered_unique
 
 TRANSLATION_ATTEMPTS = 3
 TRANSLATION_PROMPT_VERSION = "translation:wiki:v3"
@@ -35,8 +35,8 @@ class WikiTranslator:
         source_language: str,
         target_language: str,
     ) -> WikiTranslationResult:
-        source_language = _normalize_language(source_language)
-        target_language = _normalize_language(target_language)
+        source_language = normalize_language(source_language)
+        target_language = normalize_language(target_language)
         if source_language == target_language:
             raise ValueError("source_language and target_language must be different.")
 
@@ -75,8 +75,8 @@ class WikiTranslator:
         source_language: str,
         target_language: str,
     ) -> DocCatalogRecord:
-        source_language = _normalize_language(source_language)
-        target_language = _normalize_language(target_language)
+        source_language = normalize_language(source_language)
+        target_language = normalize_language(target_language)
         source_catalog = self.store.get_latest_doc_catalog(repo_id, language_code=source_language)
         if source_catalog is None:
             raise ValueError(f"Source catalog not found for language: {source_language}")
@@ -100,9 +100,9 @@ class WikiTranslator:
         target_language: str,
         slugs: list[str],
     ) -> list[DocPageRecord]:
-        source_language = _normalize_language(source_language)
-        target_language = _normalize_language(target_language)
-        requested_slugs = _ordered_unique(slugs)
+        source_language = normalize_language(source_language)
+        target_language = normalize_language(target_language)
+        requested_slugs = ordered_unique(slugs)
         if not requested_slugs:
             return []
 
@@ -315,7 +315,7 @@ def _validate_translation_response(response: dict[str, Any], *, content_type: st
 
 
 def _translation_style_guide(target_language: str) -> dict[str, object]:
-    language = _normalize_language(target_language)
+    language = normalize_language(target_language)
     if language in {"zh", "zh-cn", "zh-hans", "cn"} or language.startswith("zh-"):
         return {
             "locale": "zh-Hans",
