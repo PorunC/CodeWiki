@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { WikiResponse } from "../../api/types";
 import { getRepoWiki } from "../../api/wiki";
@@ -58,6 +58,7 @@ export function useWikiData(selectedRepoId: string, language: string) {
     [wiki?.pages]
   );
   const selectedPage = selectedSlug ? pageBySlug.get(selectedSlug) ?? null : null;
+  const refresh = useCallback(() => setRefreshNonce((nonce) => nonce + 1), []);
 
   return {
     wiki,
@@ -66,7 +67,7 @@ export function useWikiData(selectedRepoId: string, language: string) {
     pageBySlug,
     loading,
     error,
-    refresh: () => setRefreshNonce((nonce) => nonce + 1),
+    refresh,
     setSelectedSlug
   };
 }

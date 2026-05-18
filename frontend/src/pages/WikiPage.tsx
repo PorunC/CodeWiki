@@ -19,6 +19,12 @@ import {
   downloadObsidianVault
 } from "../wiki/export";
 import { useWikiData } from "../wiki/hooks/useWikiData";
+import {
+  clearCompletedWikiGenerationOperation,
+  startWikiGenerationOperation,
+  useWikiGenerationOperation
+} from "../wiki/hooks/useWikiGenerationOperation";
+import { missingPageSlugsFromItems } from "../wiki/catalog";
 import { relatedPagesForPage } from "../wiki/relatedPages";
 
 const WIKI_CATALOG_WIDTH_KEY = "codewiki:wiki-catalog-width";
@@ -30,6 +36,7 @@ const WIKI_ARTICLE_MIN_WIDTH = 420;
 const WIKI_CATALOG_RESPONSIVE_BREAKPOINT = 900;
 const WIKI_OUTLINE_RESPONSIVE_BREAKPOINT = 1200;
 const WIKI_OUTLINE_RESERVED_WIDTH = 236;
+const WIKI_GENERATION_POLL_INTERVAL_MS = 3_000;
 const WIKI_LANGUAGES = [
   { code: "en", label: "English" },
   { code: "zh", label: "中文" }
@@ -59,6 +66,25 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function generationStatusMessage(
+  message: string | null,
+  task: "pages" | "update" | "page" | null,
+  status: "running" | "success" | "error" | null,
+  missingPageCount: number
+): string | null {
+  if (!message) {
+    return null;
+  }
+  if (missingPageCount === 0 || task === "page") {
+    return message;
+  }
+  const suffix =
+    status === "running"
+      ? `${missingPageCount} wiki pages remaining.`
+      : `${missingPageCount} wiki pages are still missing.`;
+  return `${message} ${suffix}`;
+}
+
 export function WikiPage({
   selectedRepoId,
   onRepoChange,
@@ -77,9 +103,6 @@ export function WikiPage({
   const [selectedLanguage, setSelectedLanguage] = useState<WikiLanguage>(initialWikiLanguage);
   const [isResizingCatalog, setIsResizingCatalog] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
-  const [generationTask, setGenerationTask] = useState<"pages" | "update" | "page" | null>(null);
-  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
-  const [generationError, setGenerationError] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const {
@@ -92,17 +115,32 @@ export function WikiPage({
     refresh,
     setSelectedSlug
   } = useWikiData(selectedRepoId, selectedLanguage);
+  const generationOperation = useWikiGenerationOperation(selectedRepoId, selectedLanguage);
   const relatedPages = useMemo(
     () => (wiki && selectedPage ? relatedPagesForPage(wiki.items, pageBySlug, selectedPage.slug) : []),
     [pageBySlug, selectedPage, wiki]
   );
+  const missingPageSlugs = useMemo(
+    () => (wiki ? missingPageSlugsFromItems(wiki.items, pageBySlug) : []),
+    [pageBySlug, wiki]
+  );
   const generatedCount = wiki?.pages.filter((page) => page.status === "generated").length ?? 0;
-  const isGenerating = generationTask !== null;
-  const generationDisabled = !selectedRepoId || loading || generationTask !== null;
+  const isGenerating = generationOperation?.status === "running";
+  const generationTask = isGenerating ? generationOperation.task : null;
+  const generationMessage = generationStatusMessage(
+    generationOperation?.message ?? null,
+    generationOperation?.task ?? null,
+    generationOperation?.status ?? null,
+    missingPageSlugs.length
+  );
+  const generationError =
+    generationOperation?.status === "error" ? generationOperation.error : null;
+  const generationDisabled = !selectedRepoId || loading || isGenerating;
   const currentPageDisabled = generationDisabled || !selectedSlug;
-  const exportDisabled = !wiki || wiki.pages.length === 0 || loading || generationTask !== null;
+  const exportDisabled = !wiki || wiki.pages.length === 0 || loading || isGenerating;
   const selectedLanguageLabel =
     WIKI_LANGUAGES.find((language) => language.code === selectedLanguage)?.label ?? "English";
+  const refreshedGenerationIdsRef = useRef<Set<number>>(new Set());
 
   const scrollArticleToTop = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -221,11 +259,40 @@ export function WikiPage({
   }, [selectedLanguage]);
 
   useEffect(() => {
-    setGenerationMessage(null);
-    setGenerationError(null);
     setExportMessage(null);
     setExportError(null);
   }, [selectedLanguage]);
+
+  useEffect(() => {
+    if (!isGenerating) {
+      return;
+    }
+    refresh();
+    const intervalId = window.setInterval(refresh, WIKI_GENERATION_POLL_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [isGenerating, refresh]);
+
+  useEffect(() => {
+    if (generationOperation?.status !== "success") {
+      return;
+    }
+    if (refreshedGenerationIdsRef.current.has(generationOperation.operationId)) {
+      return;
+    }
+    refreshedGenerationIdsRef.current.add(generationOperation.operationId);
+    refresh();
+  }, [generationOperation?.operationId, generationOperation?.status, refresh]);
+
+  useEffect(() => {
+    if (
+      !generationOperation ||
+      generationOperation.status === "running" ||
+      missingPageSlugs.length > 0
+    ) {
+      return;
+    }
+    clearCompletedWikiGenerationOperation(selectedRepoId, selectedLanguage);
+  }, [generationOperation, missingPageSlugs.length, selectedLanguage, selectedRepoId]);
 
   useEffect(() => {
     if (!isExportMenuOpen) {
@@ -251,76 +318,70 @@ export function WikiPage({
     };
   }, [isExportMenuOpen]);
 
-  const handleGeneratePages = useCallback(async () => {
-    if (!selectedRepoId || generationTask) {
+  const handleGeneratePages = useCallback(() => {
+    if (!selectedRepoId || isGenerating) {
       return;
     }
-    setGenerationTask("pages");
-    setGenerationError(null);
-    setGenerationMessage(`Generating ${selectedLanguageLabel} wiki pages...`);
-    try {
-      const result = await generateWikiPages(selectedRepoId, selectedLanguage);
-      const invalidCount = result.pages.filter((page) => page.validation_errors.length > 0).length;
-      const suffix = invalidCount ? ` ${invalidCount} pages need review.` : "";
-      setGenerationMessage(`Generated ${result.page_count} ${selectedLanguageLabel} wiki pages.${suffix}`);
-      refresh();
-    } catch (apiError) {
-      setGenerationError(apiError instanceof Error ? apiError.message : "Wiki page generation failed");
-      setGenerationMessage(null);
-    } finally {
-      setGenerationTask(null);
-    }
-  }, [generationTask, refresh, selectedLanguage, selectedLanguageLabel, selectedRepoId]);
+    void startWikiGenerationOperation({
+      repoId: selectedRepoId,
+      language: selectedLanguage,
+      task: "pages",
+      message: `Generating ${selectedLanguageLabel} wiki pages...`,
+      run: () => generateWikiPages(selectedRepoId, selectedLanguage),
+      successMessage: (result) => {
+        const invalidCount = result.pages.filter((page) => page.validation_errors.length > 0).length;
+        const suffix = invalidCount ? ` ${invalidCount} pages need review.` : "";
+        return `Generated ${result.page_count} ${selectedLanguageLabel} wiki pages.${suffix}`;
+      },
+      errorMessage: "Wiki page generation failed"
+    }).catch(() => undefined);
+  }, [isGenerating, selectedLanguage, selectedLanguageLabel, selectedRepoId]);
 
-  const handleUpdateWiki = useCallback(async () => {
-    if (!selectedRepoId || generationTask) {
+  const handleUpdateWiki = useCallback(() => {
+    if (!selectedRepoId || isGenerating) {
       return;
     }
-    setGenerationTask("update");
-    setGenerationError(null);
-    setGenerationMessage(`Updating ${selectedLanguageLabel} wiki incrementally...`);
-    try {
-      const result = await updateWikiPages(selectedRepoId, selectedLanguage);
-      const affectedFiles = result.incremental_update.affected_files.length;
-      const updatedText =
-        result.generated_count > 0
-          ? `Updated ${result.generated_count} ${selectedLanguageLabel} wiki pages`
-          : `No ${selectedLanguageLabel} wiki pages needed regeneration`;
-      const fileText =
-        affectedFiles > 0
-          ? ` from ${affectedFiles} changed files.`
-          : ". Source graph was already current.";
-      const deletedText =
-        result.deleted_page_count > 0 ? ` Removed ${result.deleted_page_count} obsolete pages.` : "";
-      setGenerationMessage(`${updatedText}${fileText}${deletedText}`);
-      refresh();
-    } catch (apiError) {
-      setGenerationError(apiError instanceof Error ? apiError.message : "Wiki incremental update failed");
-      setGenerationMessage(null);
-    } finally {
-      setGenerationTask(null);
-    }
-  }, [generationTask, refresh, selectedLanguage, selectedLanguageLabel, selectedRepoId]);
+    void startWikiGenerationOperation({
+      repoId: selectedRepoId,
+      language: selectedLanguage,
+      task: "update",
+      message: `Updating ${selectedLanguageLabel} wiki incrementally...`,
+      run: () => updateWikiPages(selectedRepoId, selectedLanguage),
+      successMessage: (result) => {
+        const affectedFiles = result.incremental_update.affected_files.length;
+        const updatedText =
+          result.generated_count > 0
+            ? `Updated ${result.generated_count} ${selectedLanguageLabel} wiki pages`
+            : `No ${selectedLanguageLabel} wiki pages needed regeneration`;
+        const fileText =
+          affectedFiles > 0
+            ? ` from ${affectedFiles} changed files.`
+            : ". Source graph was already current.";
+        const deletedText =
+          result.deleted_page_count > 0 ? ` Removed ${result.deleted_page_count} obsolete pages.` : "";
+        return `${updatedText}${fileText}${deletedText}`;
+      },
+      errorMessage: "Wiki incremental update failed"
+    }).catch(() => undefined);
+  }, [isGenerating, selectedLanguage, selectedLanguageLabel, selectedRepoId]);
 
-  const handleRegeneratePage = useCallback(async () => {
-    if (!selectedRepoId || !selectedSlug || generationTask) {
+  const handleRegeneratePage = useCallback(() => {
+    if (!selectedRepoId || !selectedSlug || isGenerating) {
       return;
     }
-    setGenerationTask("page");
-    setGenerationError(null);
-    setGenerationMessage(`Regenerating ${selectedSlug}...`);
-    try {
-      const result = await regenerateWikiPage(selectedRepoId, selectedSlug, selectedLanguage);
-      const suffix = result.validation_errors.length ? " Validation needs review." : "";
-      setGenerationMessage(`Regenerated ${result.title}.${suffix}`);
-      refresh();
-    } catch (apiError) {
-      setGenerationError(apiError instanceof Error ? apiError.message : "Wiki page regeneration failed");
-      setGenerationMessage(null);
-    } finally {
-      setGenerationTask(null);
-    }
-  }, [generationTask, refresh, selectedLanguage, selectedRepoId, selectedSlug]);
+    void startWikiGenerationOperation({
+      repoId: selectedRepoId,
+      language: selectedLanguage,
+      task: "page",
+      message: `Regenerating ${selectedSlug}...`,
+      run: () => regenerateWikiPage(selectedRepoId, selectedSlug, selectedLanguage),
+      successMessage: (result) => {
+        const suffix = result.validation_errors.length ? " Validation needs review." : "";
+        return `Regenerated ${result.title}.${suffix}`;
+      },
+      errorMessage: "Wiki page regeneration failed"
+    }).catch(() => undefined);
+  }, [isGenerating, selectedLanguage, selectedRepoId, selectedSlug]);
 
   const handleExportHtml = useCallback(() => {
     if (!wiki || exportDisabled) {
@@ -431,7 +492,7 @@ export function WikiPage({
             type="button"
             title="Refresh wiki"
             aria-label="Refresh wiki"
-            disabled={!selectedRepoId || loading || generationTask !== null}
+            disabled={!selectedRepoId || loading || isGenerating}
             onClick={refresh}
           >
             <RefreshCw size={15} />
@@ -517,7 +578,7 @@ export function WikiPage({
                     className={`wiki-language-button${selectedLanguage === language.code ? " is-active" : ""}`}
                     type="button"
                     aria-pressed={selectedLanguage === language.code}
-                    disabled={generationTask !== null}
+                    disabled={isGenerating}
                     onClick={() => setSelectedLanguage(language.code)}
                   >
                     {language.label}
