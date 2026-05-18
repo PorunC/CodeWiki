@@ -211,10 +211,36 @@ codewiki watch .
 # 基于 GraphRAG 的问答
 codewiki ask "How does the main workflow fit together?"
 codewiki ask --repo my-repo "Where are wiki pages generated?"
+
+# 面向本地 AI 助手的 MCP server
+codewiki mcp
+# 或：codewiki-mcp
 ```
 
 大多数命令都接受仓库 id、id 前缀、注册名、路径或 Git URL。
 需要机器可读输出时，可以为 CLI 命令添加 `--json`。
+
+## MCP Server
+
+CodeWiki 可以作为本地 stdio MCP server 运行，让 AI 助手通过工具访问已分析的仓库
+图谱和 Wiki：
+
+```json
+{
+  "mcpServers": {
+    "codewiki": {
+      "command": "codewiki",
+      "args": ["mcp"],
+      "env": {
+        "CODEWIKI_DATABASE_URL": "sqlite+aiosqlite:///./data/codewiki.sqlite3"
+      }
+    }
+  }
+}
+```
+
+MCP server 暴露的工具覆盖仓库注册/列表、AST 分析、GraphRAG 索引构建和检索、
+LLM 问答、图谱搜索/探索、受影响文件分析，以及已生成 Wiki 页面的读取。
 
 ## HTTP API 摘要
 

@@ -219,10 +219,37 @@ codewiki watch .
 # GraphRAG grounded Q&A
 codewiki ask "How does the main workflow fit together?"
 codewiki ask --repo my-repo "Where are wiki pages generated?"
+
+# MCP server for local AI assistants
+codewiki mcp
+# or: codewiki-mcp
 ```
 
 Most commands accept a repository id, id prefix, registered name, path, or Git URL.
 Use `--json` on CLI commands when machine-readable output is useful.
+
+## MCP Server
+
+CodeWiki can run as a local stdio MCP server so AI assistants can use the analyzed
+repository graph and wiki as tools:
+
+```json
+{
+  "mcpServers": {
+    "codewiki": {
+      "command": "codewiki",
+      "args": ["mcp"],
+      "env": {
+        "CODEWIKI_DATABASE_URL": "sqlite+aiosqlite:///./data/codewiki.sqlite3"
+      }
+    }
+  }
+}
+```
+
+The MCP server exposes tools for repository registration/listing, AST analysis,
+GraphRAG index building and retrieval, LLM-backed Q&A, graph search/exploration,
+affected-file analysis, and generated wiki page reads.
 
 ## HTTP API Highlights
 

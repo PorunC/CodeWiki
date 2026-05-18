@@ -18,6 +18,7 @@ def test_cli_help_lists_serve_command() -> None:
 
     assert result.exit_code == 0, result.output
     assert "config" in result.output
+    assert "mcp" in result.output
     assert "serve" in result.output
 
 

@@ -761,6 +761,14 @@ def serve(host: str, port: int, reload: bool) -> None:
     uvicorn.run("backend.app.main:app", host=host, port=port, reload=reload)
 
 
+@main.command("mcp")
+def serve_mcp() -> None:
+    """Start the CodeWiki MCP server over stdio."""
+    from backend.app.mcp_server import main as mcp_main
+
+    mcp_main()
+
+
 def _config_updates(
     *,
     assignment_values: tuple[str, ...],

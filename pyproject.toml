@@ -50,6 +50,7 @@ dependencies = [
 
 [project.scripts]
 codewiki = "backend.app.cli:main"
+codewiki-mcp = "backend.app.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/PorunC/CodeWiki"

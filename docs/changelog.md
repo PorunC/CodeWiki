@@ -8,6 +8,10 @@
   `codewiki serve` can serve the Web UI without requiring a Vite development server.
 - **Configuration CLI** — `codewiki config` can create, inspect, and update CodeWiki
   environment settings and LLM profiles from the command line.
+- **MCP server** — `codewiki mcp` and `codewiki-mcp` start a stdio MCP server for
+  local AI assistants, exposing tools for repository registration/listing, AST analysis,
+  GraphRAG index building and retrieval, LLM Q&A, graph search/exploration,
+  affected-file analysis, and generated wiki page reads.
 - **Graph node search** — `code_node_fts` indexes graph node names, paths, languages,
   symbol ids, summaries, signatures, and docstrings for symbol-level search.
 - **Graph query API** — endpoints now support symbol search, callers, callees, impact
