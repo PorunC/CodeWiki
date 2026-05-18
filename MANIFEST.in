@@ -1,0 +1,8 @@
+include frontend/index.html
+include frontend/package-lock.json
+include frontend/package.json
+include frontend/tsconfig.json
+include frontend/tsconfig.node.json
+include frontend/vite.config.ts
+recursive-include frontend/src *
+recursive-include backend/app/static *

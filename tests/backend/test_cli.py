@@ -17,6 +17,7 @@ def test_cli_help_lists_serve_command() -> None:
     result = runner.invoke(main, ["--help"])
 
     assert result.exit_code == 0, result.output
+    assert "config" in result.output
     assert "serve" in result.output
 
 
@@ -120,6 +121,104 @@ def test_cli_accepts_repo_name_instead_of_id(tmp_path: Path, monkeypatch) -> Non
     assert result.exit_code == 0, result.output
     analysis = json.loads(result.output)
     assert analysis["status"] == "done"
+
+
+def test_cli_config_sets_env_values(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main,
+        [
+            "config",
+            "--env-file",
+            str(env_file),
+            "--set",
+            "CODEWIKI_LLM__DEFAULT__MODEL=provider/test-model",
+            "--set",
+            "CODEWIKI_WIKI_TRANSLATION_LANGUAGES=zh,ja",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["created"] is True
+    assert payload["updated"] == {
+        "CODEWIKI_LLM__DEFAULT__MODEL": "provider/test-model",
+        "CODEWIKI_WIKI_TRANSLATION_LANGUAGES": "zh,ja",
+    }
+    env_text = env_file.read_text(encoding="utf-8")
+    assert "CODEWIKI_LLM__DEFAULT__MODEL=provider/test-model" in env_text
+    assert "CODEWIKI_WIKI_TRANSLATION_LANGUAGES=zh,ja" in env_text
+
+
+def test_cli_config_profile_options_mask_secret_output(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main,
+        [
+            "config",
+            "--env-file",
+            str(env_file),
+            "--profile",
+            "qa",
+            "--model",
+            "provider/qa-model",
+            "--api-key",
+            "secret-key",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "secret-key" not in result.output
+    assert "********" in result.output
+    env_text = env_file.read_text(encoding="utf-8")
+    assert "CODEWIKI_LLM__PROFILES__QA__MODEL=provider/qa-model" in env_text
+    assert "CODEWIKI_LLM__PROFILES__QA__API_KEY=secret-key" in env_text
+
+
+def test_cli_config_get_and_list_values(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "CODEWIKI_LLM__DEFAULT__MODEL=provider/test-model",
+                "CODEWIKI_LLM__DEFAULT__API_KEY=secret-key",
+                "IGNORED=value",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+
+    get_result = runner.invoke(
+        main,
+        [
+            "config",
+            "--env-file",
+            str(env_file),
+            "--get",
+            "CODEWIKI_LLM__DEFAULT__API_KEY",
+            "--json",
+        ],
+    )
+
+    assert get_result.exit_code == 0, get_result.output
+    assert json.loads(get_result.output)["values"] == {
+        "CODEWIKI_LLM__DEFAULT__API_KEY": "********"
+    }
+
+    list_result = runner.invoke(main, ["config", "--env-file", str(env_file), "--list", "--json"])
+
+    assert list_result.exit_code == 0, list_result.output
+    listed = json.loads(list_result.output)["values"]
+    assert listed == {
+        "CODEWIKI_LLM__DEFAULT__MODEL": "provider/test-model",
+        "CODEWIKI_LLM__DEFAULT__API_KEY": "********",
+    }
 
 
 def _repo(tmp_path: Path) -> Path:

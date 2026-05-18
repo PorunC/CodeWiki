@@ -16,6 +16,7 @@ dist/
 build/
 .vite/
 *.tsbuildinfo
+backend/app/static/
 
 data/
 storage/
@@ -27,4 +28,3 @@ coverage/
 .coverage
 graphify-out/
 *.egg-info/
-

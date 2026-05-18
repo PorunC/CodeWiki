@@ -1,5 +1,7 @@
 # CodeWiki
 
+[简体中文](README.zh-CN.md)
+
 Single-user CodeWiki platform for AST-based code graph analysis, GraphRAG retrieval,
 source-grounded wiki generation, and LiteLLM-powered Q&A.
 
@@ -30,14 +32,23 @@ pip install codewiki
 codewiki --help
 ```
 
-Start the backend API after installation:
+Start CodeWiki after installation:
 
 ```bash
 codewiki serve
 ```
 
-The source checkout is still the recommended way to run the full backend + Vite
-frontend development stack.
+Then open `http://127.0.0.1:8000` for the Web UI. The Python package includes the
+built frontend; a source checkout is only needed for frontend development with Vite.
+
+Configure local environment variables with:
+
+```bash
+codewiki config
+codewiki config --set CODEWIKI_LLM__DEFAULT__MODEL=openai/gpt-4.1
+codewiki config --profile qa --model openai/gpt-4.1 --api-key "$OPENAI_API_KEY"
+codewiki config --list
+```
 
 ## Wiki Workflow
 
@@ -88,7 +99,7 @@ require a backend export API.
 
 ## LLM Configuration
 
-Copy `.env.example` and fill in a default model profile:
+Run `codewiki config` or copy `.env.example` and fill in a default model profile:
 
 ```bash
 cp .env.example .env

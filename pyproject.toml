@@ -73,6 +73,11 @@ exclude = ["data*", "docs*", "frontend*", "tests*"]
 
 [tool.setuptools.package-data]
 "backend.app.prompts" = ["*.md"]
+"backend.app" = ["static/**/*"]
+
+[tool.setuptools.cmdclass]
+build_py = "backend.build_frontend.build_py"
+sdist = "backend.build_frontend.sdist"
 
 [tool.ruff]
 line-length = 100

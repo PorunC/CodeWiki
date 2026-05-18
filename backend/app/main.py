@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api import ask, files, graph, repos, runs, settings, wiki
 from backend.app.config import get_settings
+from backend.app.frontend import mount_frontend
 
 
 def create_app() -> FastAPI:
@@ -28,6 +29,8 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    mount_frontend(app)
 
     return app
 
