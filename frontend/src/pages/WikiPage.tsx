@@ -21,6 +21,7 @@ import {
 import { useWikiData } from "../wiki/hooks/useWikiData";
 import {
   clearCompletedWikiGenerationOperation,
+  completeWikiGenerationOperation,
   startWikiGenerationOperation,
   useWikiGenerationOperation
 } from "../wiki/hooks/useWikiGenerationOperation";
@@ -83,6 +84,14 @@ function generationStatusMessage(
       ? `${missingPageCount} wiki pages remaining.`
       : `${missingPageCount} wiki pages are still missing.`;
   return `${message} ${suffix}`;
+}
+
+function wikiPageUpdatedAfter(updatedAt: string | null, startedAt: number): boolean {
+  if (!updatedAt) {
+    return false;
+  }
+  const updatedAtTime = Date.parse(updatedAt);
+  return Number.isFinite(updatedAtTime) && updatedAtTime >= startedAt;
 }
 
 export function WikiPage({
@@ -286,8 +295,32 @@ export function WikiPage({
   useEffect(() => {
     if (
       !generationOperation ||
-      generationOperation.status === "running" ||
-      missingPageSlugs.length > 0
+      generationOperation.status !== "running" ||
+      generationOperation.task !== "page"
+    ) {
+      return;
+    }
+    const targetSlug = generationOperation.targetSlug ?? selectedSlug;
+    if (!targetSlug) {
+      return;
+    }
+    const regeneratedPage = pageBySlug.get(targetSlug);
+    if (!regeneratedPage || !wikiPageUpdatedAfter(regeneratedPage.updated_at, generationOperation.startedAt)) {
+      return;
+    }
+    completeWikiGenerationOperation(
+      selectedRepoId,
+      selectedLanguage,
+      generationOperation.operationId,
+      `Regenerated ${regeneratedPage.title}.`
+    );
+  }, [generationOperation, pageBySlug, selectedLanguage, selectedRepoId, selectedSlug]);
+
+  useEffect(() => {
+    if (
+      !generationOperation ||
+      generationOperation.status !== "success" ||
+      (generationOperation.task !== "page" && missingPageSlugs.length > 0)
     ) {
       return;
     }
@@ -373,6 +406,7 @@ export function WikiPage({
       repoId: selectedRepoId,
       language: selectedLanguage,
       task: "page",
+      targetSlug: selectedSlug,
       message: `Regenerating ${selectedSlug}...`,
       run: () => regenerateWikiPage(selectedRepoId, selectedSlug, selectedLanguage),
       successMessage: (result) => {

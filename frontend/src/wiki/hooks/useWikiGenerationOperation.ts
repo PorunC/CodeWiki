@@ -8,6 +8,7 @@ export type WikiGenerationOperation = {
   repoId: string;
   language: string;
   task: WikiGenerationTask;
+  targetSlug?: string | null;
   status: WikiGenerationStatus;
   message: string | null;
   error: string | null;
@@ -25,6 +26,7 @@ type StartWikiGenerationOptions<T> = {
   repoId: string;
   language: string;
   task: WikiGenerationTask;
+  targetSlug?: string | null;
   message: string;
   run: () => Promise<T>;
   successMessage: (result: T) => string;
@@ -95,6 +97,7 @@ export function startWikiGenerationOperation<T>(
       repoId: options.repoId,
       language: options.language,
       task: options.task,
+      targetSlug: options.targetSlug ?? null,
       status: "running",
       message: options.message,
       error: null,
@@ -124,6 +127,25 @@ export function clearCompletedWikiGenerationOperation(repoId: string, language: 
   emitWikiGenerationChange();
 }
 
+export function completeWikiGenerationOperation(
+  repoId: string,
+  language: string,
+  operationId: number,
+  message: string
+) {
+  hydrateWikiGenerationOperations();
+  const key = operationKey(repoId, language);
+  const record = operations.get(key);
+  if (!record || record.snapshot.operationId !== operationId || record.snapshot.status !== "running") {
+    return;
+  }
+  finishWikiGenerationOperation(key, operationId, {
+    status: "success",
+    message,
+    error: null
+  });
+}
+
 function getWikiGenerationOperation(
   repoId: string,
   language: string
@@ -150,14 +172,7 @@ function finishWikiGenerationOperation(
     ...update,
     completedAt: Date.now()
   };
-  const clearTimer = window.setTimeout(() => {
-    const current = operations.get(key);
-    if (current?.snapshot.operationId === operationId && current.snapshot.status !== "running") {
-      operations.delete(key);
-      persistWikiGenerationOperations();
-      emitWikiGenerationChange();
-    }
-  }, COMPLETED_OPERATION_TTL_MS);
+  const clearTimer = scheduleCompletedOperationClear(key, operationId, snapshot.completedAt);
 
   operations.set(key, {
     snapshot,
@@ -196,10 +211,15 @@ function hydrateWikiGenerationOperations() {
       if (snapshot.completedAt !== null && now - snapshot.completedAt > COMPLETED_OPERATION_TTL_MS) {
         continue;
       }
-      operations.set(operationKey(snapshot.repoId, snapshot.language), {
+      const key = operationKey(snapshot.repoId, snapshot.language);
+      const clearTimer =
+        snapshot.status === "running"
+          ? null
+          : scheduleCompletedOperationClear(key, snapshot.operationId, snapshot.completedAt);
+      operations.set(key, {
         snapshot,
         promise: null,
-        clearTimer: null
+        clearTimer
       });
       nextOperationId = Math.max(nextOperationId, snapshot.operationId + 1);
     }
@@ -229,6 +249,9 @@ function isWikiGenerationOperation(value: unknown): value is WikiGenerationOpera
     typeof snapshot.operationId === "number" &&
     typeof snapshot.repoId === "string" &&
     typeof snapshot.language === "string" &&
+    (typeof snapshot.targetSlug === "string" ||
+      snapshot.targetSlug === null ||
+      typeof snapshot.targetSlug === "undefined") &&
     (snapshot.task === "pages" || snapshot.task === "update" || snapshot.task === "page") &&
     (snapshot.status === "running" || snapshot.status === "success" || snapshot.status === "error") &&
     typeof snapshot.startedAt === "number" &&
@@ -245,6 +268,25 @@ function emitWikiGenerationChange() {
   for (const listener of listeners) {
     listener();
   }
+}
+
+function scheduleCompletedOperationClear(
+  key: string,
+  operationId: number,
+  completedAt: number | null
+): ReturnType<typeof setTimeout> | null {
+  if (typeof window === "undefined" || completedAt === null) {
+    return null;
+  }
+  const delay = Math.max(0, COMPLETED_OPERATION_TTL_MS - (Date.now() - completedAt));
+  return window.setTimeout(() => {
+    const current = operations.get(key);
+    if (current?.snapshot.operationId === operationId && current.snapshot.status !== "running") {
+      operations.delete(key);
+      persistWikiGenerationOperations();
+      emitWikiGenerationChange();
+    }
+  }, delay);
 }
 
 function operationKey(repoId: string, language: string): string {
