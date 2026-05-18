@@ -21,6 +21,7 @@ from backend.app.schemas.graph import (
     GraphStatusResponse,
     GraphSubgraphResponse,
 )
+from backend.app.services.async_tasks import repo_write_lock
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graph.query import GraphQueryService
@@ -306,10 +307,11 @@ async def name_communities(
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     request = payload or NameCommunitiesRequest()
     try:
-        result = await CommunityNamer(
-            LLMGateway(get_settings()),
-            store=store,
-        ).summarize_communities(repo_id, max_communities=request.max_communities)
+        async with repo_write_lock(repo_id):
+            result = await CommunityNamer(
+                LLMGateway(get_settings()),
+                store=store,
+            ).summarize_communities(repo_id, max_communities=request.max_communities)
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if message.startswith("Repository not found") else 400
@@ -326,10 +328,11 @@ async def build_graphrag(
     store = get_store()
     settings = get_settings()
     try:
-        result = await GraphRAGRetriever(store=store, settings=settings).build_index(
-            repo_id,
-            include_embeddings=request.include_embeddings,
-        )
+        async with repo_write_lock(repo_id):
+            result = await GraphRAGRetriever(store=store, settings=settings).build_index(
+                repo_id,
+                include_embeddings=request.include_embeddings,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return asdict(result)

@@ -5,6 +5,7 @@ from backend.app.config import Settings, get_settings
 from backend.app.database import SQLiteStore
 from backend.app.services.analysis_pipeline import AnalysisPipeline
 from backend.app.services.ast_parser import AstParser
+from backend.app.services.async_tasks import run_blocking
 from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
@@ -75,7 +76,7 @@ class AnalysisService:
         community_namer: CommunityNamer | None = None,
         settings: Settings | None = None,
     ) -> AnalysisWithCommunitySummariesResult:
-        result = self.analyze(repo_id)
+        result = await run_blocking(self.analyze, repo_id)
         if not name_communities:
             return AnalysisWithCommunitySummariesResult(analysis=result)
 

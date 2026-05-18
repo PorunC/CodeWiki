@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from backend.app.api.dependencies import IncrementalUpdaterDep, StoreDep, WikiGeneratorDep
 from backend.app.database import DocCatalogRecord, DocPageRecord
+from backend.app.services.async_tasks import repo_write_lock, run_blocking
 from backend.app.services.incremental.models import IncrementalUpdateResult
 from backend.app.services.llm_run_recorder import LLMCallError
 from backend.app.services.wiki import PageGenerationResult, WikiUpdateResult
@@ -26,7 +27,8 @@ async def generate_catalog(
     language: str = "en",
 ) -> dict[str, object]:
     try:
-        catalog = await generator.generate_catalog(repo_id, language_code=language)
+        async with repo_write_lock(repo_id):
+            catalog = await generator.generate_catalog(repo_id, language_code=language)
     except LLMCallError as exc:
         raise _llm_http_error(exc) from exc
     except ValueError as exc:
@@ -41,7 +43,8 @@ async def generate_pages(
     language: str = "en",
 ) -> dict[str, object]:
     try:
-        results = await generator.generate_all_pages(repo_id, language_code=language)
+        async with repo_write_lock(repo_id):
+            results = await generator.generate_all_pages(repo_id, language_code=language)
     except LLMCallError as exc:
         raise _llm_http_error(exc) from exc
     except ValueError as exc:
@@ -63,15 +66,17 @@ async def update_pages(
     language: str = "en",
     payload: UpdateWikiPagesRequest | None = None,
 ) -> dict[str, object]:
-    if store.get_repo(repo_id) is None:
-        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     request = payload or UpdateWikiPagesRequest()
     try:
-        incremental_update = updater.update(
-            repo_id,
-            refresh_chunks=request.refresh_chunks,
-        )
-        wiki_update = await generator.update_pages(repo_id, language_code=language)
+        async with repo_write_lock(repo_id):
+            if store.get_repo(repo_id) is None:
+                raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+            incremental_update = await run_blocking(
+                updater.update,
+                repo_id,
+                refresh_chunks=request.refresh_chunks,
+            )
+            wiki_update = await generator.update_pages(repo_id, language_code=language)
     except LLMCallError as exc:
         raise _llm_http_error(exc) from exc
     except ValueError as exc:
@@ -87,7 +92,8 @@ async def regenerate_page(
     language: str = "en",
 ) -> dict[str, object]:
     try:
-        result = await generator.regenerate_page(repo_id, slug, language_code=language)
+        async with repo_write_lock(repo_id):
+            result = await generator.regenerate_page(repo_id, slug, language_code=language)
     except LLMCallError as exc:
         raise _llm_http_error(exc) from exc
     except ValueError as exc:
@@ -102,11 +108,12 @@ async def translate_wiki(
     generator: WikiGeneratorDep,
 ) -> dict[str, object]:
     try:
-        result = await generator.translate_wiki(
-            repo_id,
-            source_language=payload.source_language,
-            target_language=payload.target_language,
-        )
+        async with repo_write_lock(repo_id):
+            result = await generator.translate_wiki(
+                repo_id,
+                source_language=payload.source_language,
+                target_language=payload.target_language,
+            )
     except LLMCallError as exc:
         raise _llm_http_error(exc) from exc
     except ValueError as exc:

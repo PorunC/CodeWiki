@@ -3,6 +3,7 @@ from pathlib import Path
 from backend.app.database import SQLiteStore
 from backend.app.services.analysis_pipeline import AnalysisPipeline
 from backend.app.services.ast_parser import AstParser
+from backend.app.services.async_tasks import run_blocking
 from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.graph import CodeGraphNode, GraphBuilder
 from backend.app.services.graphrag import GraphRAGRetriever
@@ -129,7 +130,7 @@ class IncrementalUpdater:
         refresh_chunks: bool = True,
         regenerate_wiki: bool = True,
     ) -> tuple[IncrementalUpdateResult, dict[str, object]]:
-        result = self.update(repo_id, refresh_chunks=refresh_chunks)
+        result = await run_blocking(self.update, repo_id, refresh_chunks=refresh_chunks)
         wiki_regeneration = (
             await regenerate_stale_wiki_pages(self.store, repo_id, result.stale_pages)
             if regenerate_wiki

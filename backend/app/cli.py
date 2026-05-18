@@ -758,7 +758,13 @@ def serve(host: str, port: int, reload: bool) -> None:
     """Start the CodeWiki FastAPI server."""
     import uvicorn
 
-    uvicorn.run("backend.app.main:app", host=host, port=port, reload=reload)
+    reload_kwargs: dict[str, object] = {}
+    if reload:
+        reload_kwargs = {
+            "reload_dirs": [str(Path(__file__).resolve().parents[1])],
+            "reload_excludes": ["storage/*", "data/*"],
+        }
+    uvicorn.run("backend.app.main:app", host=host, port=port, reload=reload, **reload_kwargs)
 
 
 @main.command("mcp")

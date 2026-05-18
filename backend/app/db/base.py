@@ -12,6 +12,9 @@ from backend.app.db.schema import AUXILIARY_SCHEMA_SQL
 from backend.app.db.utils import sqlite_path_from_url
 from backend.app.models import Base
 
+SQLITE_BUSY_TIMEOUT_SECONDS = 30
+SQLITE_BUSY_TIMEOUT_MS = SQLITE_BUSY_TIMEOUT_SECONDS * 1000
+
 
 class BaseSQLiteStore:
     def __init__(self, database_path: Path) -> None:
@@ -26,9 +29,13 @@ class BaseSQLiteStore:
         return cls(sqlite_path_from_url(database_url))
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path)
+        connection = sqlite3.connect(
+            self.database_path,
+            timeout=SQLITE_BUSY_TIMEOUT_SECONDS,
+            check_same_thread=False,
+        )
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
+        self._configure_connection(connection)
         self._load_sqlite_vec(connection)
         return connection
 
@@ -99,14 +106,27 @@ class BaseSQLiteStore:
             )
 
     def _create_engine(self) -> Engine:
-        engine = create_engine(f"sqlite:///{self.database_path}", future=True)
+        engine = create_engine(
+            f"sqlite:///{self.database_path}",
+            connect_args={
+                "timeout": SQLITE_BUSY_TIMEOUT_SECONDS,
+                "check_same_thread": False,
+            },
+            future=True,
+        )
 
         @event.listens_for(engine, "connect")
         def configure_connection(dbapi_connection, _connection_record) -> None:
-            dbapi_connection.execute("PRAGMA foreign_keys = ON")
+            self._configure_connection(dbapi_connection)
             self._load_sqlite_vec(dbapi_connection)
 
         return engine
+
+    def _configure_connection(self, connection: sqlite3.Connection) -> None:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA synchronous = NORMAL")
 
     def _load_sqlite_vec(self, connection: sqlite3.Connection) -> None:
         try:

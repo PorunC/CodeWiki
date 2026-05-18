@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from backend.app.config import get_settings
 from backend.app.database import get_store
 from backend.app.services.analyzer import AnalysisService, _llm_configured
+from backend.app.services.async_tasks import repo_write_lock
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.incremental import IncrementalUpdater
@@ -27,14 +28,15 @@ class IncrementalUpdateRequest(BaseModel):
 @router.post("/{repo_id}/analyze")
 async def analyze_repo(repo_id: str, payload: AnalyzeRepoRequest | None = None) -> dict[str, object]:
     store = get_store()
-    if store.get_repo(repo_id) is None:
-        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     request = payload or AnalyzeRepoRequest()
     try:
-        analysis = await AnalysisService(store=store).analyze_with_community_summaries(
-            repo_id,
-            name_communities=request.name_communities,
-        )
+        async with repo_write_lock(repo_id):
+            if store.get_repo(repo_id) is None:
+                raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+            analysis = await AnalysisService(store=store).analyze_with_community_summaries(
+                repo_id,
+                name_communities=request.name_communities,
+            )
         result = analysis.analysis
         naming_result = analysis.community_naming
     except ValueError as exc:
@@ -61,16 +63,18 @@ async def update_repo(
     payload: IncrementalUpdateRequest | None = None,
 ) -> dict[str, object]:
     store = get_store()
-    if store.get_repo(repo_id) is None:
-        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     request = payload or IncrementalUpdateRequest()
     try:
-        result, wiki_regeneration = await IncrementalUpdater(store=store).update_with_wiki_regeneration(
-            repo_id,
-            refresh_chunks=request.refresh_chunks,
-            regenerate_wiki=request.regenerate_wiki,
-        )
-        naming_result = await _name_communities(repo_id) if request.name_communities else None
+        async with repo_write_lock(repo_id):
+            if store.get_repo(repo_id) is None:
+                raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+            updater = IncrementalUpdater(store=store)
+            result, wiki_regeneration = await updater.update_with_wiki_regeneration(
+                repo_id,
+                refresh_chunks=request.refresh_chunks,
+                regenerate_wiki=request.regenerate_wiki,
+            )
+            naming_result = await _name_communities(repo_id) if request.name_communities else None
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     response = {

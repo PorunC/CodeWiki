@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from backend.app.database import get_store
+from backend.app.services.async_tasks import repo_write_lock, run_blocking
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner
 
 router = APIRouter()
@@ -21,17 +22,28 @@ class ScanRepoRequest(CreateRepoRequest):
 async def create_repo(payload: CreateRepoRequest) -> RepoDescriptor:
     scanner = RepoScanner()
     try:
-        repo = scanner.describe(payload.path, name=payload.name, source_type=payload.source_type)
+        repo = await run_blocking(
+            scanner.describe,
+            payload.path,
+            name=payload.name,
+            source_type=payload.source_type,
+        )
     except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return get_store().upsert_repo(repo)
+    async with repo_write_lock(repo.id):
+        return await run_blocking(get_store().upsert_repo, repo)
 
 
 @router.post("/scan")
 async def scan_repo(payload: ScanRepoRequest) -> RepoScanResult:
     scanner = RepoScanner()
     try:
-        return scanner.scan(payload.path, name=payload.name, source_type=payload.source_type)
+        return await run_blocking(
+            scanner.scan,
+            payload.path,
+            name=payload.name,
+            source_type=payload.source_type,
+        )
     except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -68,7 +80,8 @@ async def get_repo(repo_id: str) -> dict[str, str]:
 
 @router.delete("/{repo_id}", status_code=204)
 async def delete_repo(repo_id: str) -> Response:
-    deleted = get_store().delete_repo(repo_id)
+    async with repo_write_lock(repo_id):
+        deleted = await run_blocking(get_store().delete_repo, repo_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     return Response(status_code=204)

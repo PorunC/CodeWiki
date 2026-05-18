@@ -36,6 +36,27 @@ def test_main_refuses_to_start_when_dev_ports_are_occupied(monkeypatch, capsys) 
     assert "make kill" in output
 
 
+def test_main_restricts_backend_reload_to_backend_sources(monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(dev_script, "listener_pids_by_port", lambda _ports: {})
+    monkeypatch.setattr(dev_script, "wait_for_processes", lambda _processes: 0)
+
+    def fake_popen(args, *_positional, **_kwargs):
+        commands.append(args)
+        return object()
+
+    monkeypatch.setattr(dev_script.subprocess, "Popen", fake_popen)
+
+    assert dev_script.main() == 0
+
+    backend_command = commands[0]
+    assert "--reload-dir" in backend_command
+    assert str(dev_script.ROOT / "backend") in backend_command
+    assert "storage/*" in backend_command
+    assert "data/*" in backend_command
+
+
 def test_normalize_return_code_treats_sigterm_as_graceful_shutdown() -> None:
     assert dev_script.normalize_return_code(-int(signal.SIGTERM)) == 0
     assert dev_script.normalize_return_code(1) == 1

@@ -72,7 +72,7 @@ check-ports: ensure-backend-python
 
 backend: ensure-backend-python
 	$(PYTHON) scripts/kill_ports.py --check $(BACKEND_PORT)
-	$(PYTHON) -m uvicorn $(BACKEND_APP) --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
+	$(PYTHON) -m uvicorn $(BACKEND_APP) --reload --reload-dir backend --reload-exclude 'storage/*' --reload-exclude 'data/*' --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
 frontend:
 	$(PYTHON) scripts/kill_ports.py --check $(FRONTEND_PORT)
