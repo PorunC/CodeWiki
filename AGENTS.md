@@ -22,6 +22,15 @@
 - TypeScript/React: ESLint + TypeScript checks; components in `PascalCase` files (for example `GraphPage.tsx`), hooks prefixed with `use` (for example `useRepoGraph.ts`).
 - Keep modules focused by domain (graph, wiki, ask, db) and colocate helpers with the feature directory.
 
+## Architecture & Responsibility Boundaries
+- Apply responsibility separation across the whole project, not only to a specific file or interface. Each module should have one clear reason to change and should avoid mixing transport, orchestration, domain logic, persistence, formatting, and configuration concerns.
+- Keep entrypoints thin across all transports and runtimes. CLI commands, MCP handlers, FastAPI routes, frontend API wrappers, scripts, and build hooks should parse inputs, call focused services, format outputs, and handle transport-specific errors only.
+- Put business workflows in focused service modules under `backend/app/services/`; keep persistence in `backend/app/db/` repositories; keep HTTP schemas, MCP tool schemas, CLI options, and frontend types at their respective boundaries.
+- Extract shared behavior instead of duplicating it across interfaces. Repo selector resolution, JSON/dataclass serialization, graph status summaries, command/tool/API payload shaping, and validation helpers should live in reusable modules when used by more than one boundary.
+- Split large modules before adding new feature families. Prefer domain-oriented packages and small files over growing entrypoints, service modules, API routes, or frontend components past a coherent responsibility.
+- Keep protocol and framework concerns separate from domain concerns. JSON-RPC framing, HTTP request handling, Click command wiring, React state/rendering, and build tooling should not directly own graph/wiki/GraphRAG business rules.
+- Add or update tests at the boundary being changed: service tests for shared workflows, repository tests for persistence, CLI tests for command wiring/output, MCP tests for tool schemas and JSON-RPC behavior, API tests for HTTP routes, and frontend tests/build checks for UI behavior.
+
 ## Testing Guidelines
 - Framework: `pytest` with tests under `tests/backend/` and files named `test_*.py`.
 - Prefer focused unit tests per service/module, with API/CLI coverage for user-facing flows.
