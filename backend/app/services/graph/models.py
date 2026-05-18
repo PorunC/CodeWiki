@@ -35,3 +35,10 @@ class CodeGraph:
     repo_id: str
     nodes: list[CodeGraphNode]
     edges: list[CodeGraphEdge]
+
+
+@dataclass(frozen=True)
+class CodeGraphNodeSearchHit:
+    node: CodeGraphNode
+    score: float
+    reasons: tuple[str, ...] = ()

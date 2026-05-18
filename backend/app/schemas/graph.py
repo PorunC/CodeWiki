@@ -41,3 +41,77 @@ class GraphResponse(BaseModel):
     nodes: list[CodeNode]
     edges: list[CodeEdge]
     communities: list[GraphCommunity] = Field(default_factory=list)
+
+
+class CodeNodeSearchHit(BaseModel):
+    node: CodeNode
+    score: float
+    reasons: list[str] = Field(default_factory=list)
+
+
+class GraphSearchResponse(BaseModel):
+    repo_id: str
+    query: str
+    results: list[CodeNodeSearchHit]
+
+
+class GraphRelationshipResponse(BaseModel):
+    source: CodeNode
+    target: CodeNode
+    edge: CodeEdge
+
+
+class GraphRelationshipsResponse(BaseModel):
+    repo_id: str
+    symbol: str
+    relationships: list[GraphRelationshipResponse]
+
+
+class GraphSubgraphResponse(BaseModel):
+    repo_id: str
+    root_ids: list[str]
+    nodes: list[CodeNode]
+    edges: list[CodeEdge]
+
+
+class GraphExploreRequest(BaseModel):
+    query: str
+    max_files: int = 12
+    max_nodes: int = 160
+
+
+class GraphExploreResponse(BaseModel):
+    repo_id: str
+    query: str
+    entry_points: list[dict[str, object]]
+    relationships: list[dict[str, object]]
+    source_sections: list[dict[str, object]]
+    additional_files: list[dict[str, object]]
+    text: str
+    stats: dict[str, int]
+
+
+class GraphAffectedRequest(BaseModel):
+    file_paths: list[str]
+    depth: int = 5
+    test_glob: str | None = None
+
+
+class GraphAffectedResponse(BaseModel):
+    repo_id: str
+    changed_files: list[str]
+    affected_files: list[str]
+    affected_tests: list[str]
+    affected_wiki_pages: list[str]
+    affected_node_ids: list[str]
+    traversed_file_count: int
+
+
+class GraphStatusResponse(BaseModel):
+    repo_id: str
+    file_count: int
+    node_count: int
+    edge_count: int
+    nodes_by_type: dict[str, int]
+    edges_by_type: dict[str, int]
+    languages: dict[str, int]

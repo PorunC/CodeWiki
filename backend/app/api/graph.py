@@ -5,9 +5,25 @@ from pydantic import BaseModel
 
 from backend.app.config import get_settings
 from backend.app.database import get_store
-from backend.app.schemas.graph import CodeEdge, CodeNode, GraphCommunity, GraphResponse
+from backend.app.schemas.graph import (
+    CodeEdge,
+    CodeNode,
+    CodeNodeSearchHit,
+    GraphAffectedRequest,
+    GraphAffectedResponse,
+    GraphCommunity,
+    GraphExploreRequest,
+    GraphExploreResponse,
+    GraphRelationshipResponse,
+    GraphRelationshipsResponse,
+    GraphResponse,
+    GraphSearchResponse,
+    GraphStatusResponse,
+    GraphSubgraphResponse,
+)
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
+from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 
@@ -86,6 +102,165 @@ async def get_graph(repo_id: str) -> GraphResponse:
             )
             for community in communities
         ],
+    )
+
+
+@router.get("/{repo_id}/graph/search")
+async def search_graph(
+    repo_id: str,
+    q: str = "",
+    type: str | None = None,
+    language: str | None = None,
+    path: str | None = None,
+    name: str | None = None,
+    limit: int = 20,
+) -> GraphSearchResponse:
+    store = get_store()
+    try:
+        hits = GraphQueryService(store=store).search(
+            repo_id,
+            q,
+            types=[type] if type else None,
+            languages=[language] if language else None,
+            path_filters=[path] if path else None,
+            name_filters=[name] if name else None,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise _graph_http_error(exc) from exc
+    return GraphSearchResponse(
+        repo_id=repo_id,
+        query=q,
+        results=[
+            CodeNodeSearchHit(
+                node=_node_response(hit.node),
+                score=hit.score,
+                reasons=list(hit.reasons),
+            )
+            for hit in hits
+        ],
+    )
+
+
+@router.get("/{repo_id}/graph/callers")
+async def graph_callers(repo_id: str, symbol: str, limit: int = 20) -> GraphRelationshipsResponse:
+    store = get_store()
+    try:
+        relationships = GraphQueryService(store=store).callers(repo_id, symbol, limit=limit)
+    except ValueError as exc:
+        raise _graph_http_error(exc) from exc
+    return GraphRelationshipsResponse(
+        repo_id=repo_id,
+        symbol=symbol,
+        relationships=[
+            GraphRelationshipResponse(
+                source=_node_response(item.source),
+                target=_node_response(item.target),
+                edge=_edge_response(item.edge),
+            )
+            for item in relationships
+        ],
+    )
+
+
+@router.get("/{repo_id}/graph/callees")
+async def graph_callees(repo_id: str, symbol: str, limit: int = 20) -> GraphRelationshipsResponse:
+    store = get_store()
+    try:
+        relationships = GraphQueryService(store=store).callees(repo_id, symbol, limit=limit)
+    except ValueError as exc:
+        raise _graph_http_error(exc) from exc
+    return GraphRelationshipsResponse(
+        repo_id=repo_id,
+        symbol=symbol,
+        relationships=[
+            GraphRelationshipResponse(
+                source=_node_response(item.source),
+                target=_node_response(item.target),
+                edge=_edge_response(item.edge),
+            )
+            for item in relationships
+        ],
+    )
+
+
+@router.get("/{repo_id}/graph/impact")
+async def graph_impact(repo_id: str, symbol: str, depth: int = 2) -> GraphSubgraphResponse:
+    store = get_store()
+    try:
+        result = GraphQueryService(store=store).impact(repo_id, symbol, depth=depth)
+    except ValueError as exc:
+        raise _graph_http_error(exc) from exc
+    return GraphSubgraphResponse(
+        repo_id=repo_id,
+        root_ids=result.root_ids,
+        nodes=[_node_response(node) for node in result.nodes],
+        edges=[_edge_response(edge) for edge in result.edges],
+    )
+
+
+@router.post("/{repo_id}/graph/explore")
+async def graph_explore(repo_id: str, payload: GraphExploreRequest) -> GraphExploreResponse:
+    store = get_store()
+    try:
+        result = GraphQueryService(store=store).explore(
+            repo_id,
+            payload.query,
+            max_files=payload.max_files,
+            max_nodes=payload.max_nodes,
+        )
+    except ValueError as exc:
+        raise _graph_http_error(exc) from exc
+    return GraphExploreResponse(
+        repo_id=result.repo_id,
+        query=result.query,
+        entry_points=result.entry_points,
+        relationships=result.relationships,
+        source_sections=[asdict(section) for section in result.source_sections],
+        additional_files=result.additional_files,
+        text=result.text,
+        stats=result.stats,
+    )
+
+
+@router.post("/{repo_id}/graph/affected")
+async def graph_affected(repo_id: str, payload: GraphAffectedRequest) -> GraphAffectedResponse:
+    store = get_store()
+    try:
+        result = GraphQueryService(store=store).affected(
+            repo_id,
+            payload.file_paths,
+            depth=payload.depth,
+            test_glob=payload.test_glob,
+        )
+    except ValueError as exc:
+        raise _graph_http_error(exc) from exc
+    return GraphAffectedResponse(**asdict(result))
+
+
+@router.get("/{repo_id}/graph/status")
+async def graph_status(repo_id: str) -> GraphStatusResponse:
+    store = get_store()
+    if store.get_repo(repo_id) is None:
+        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+    nodes, edges = store.get_graph(repo_id)
+    nodes_by_type: dict[str, int] = {}
+    edges_by_type: dict[str, int] = {}
+    languages: dict[str, int] = {}
+    for node in nodes:
+        nodes_by_type[node.type] = nodes_by_type.get(node.type, 0) + 1
+        if node.language:
+            languages[node.language] = languages.get(node.language, 0) + 1
+    for edge in edges:
+        edges_by_type[edge.type] = edges_by_type.get(edge.type, 0) + 1
+    return GraphStatusResponse(
+        repo_id=repo_id,
+        file_count=sum(1 for node in nodes if node.type in {"file", "config"}),
+        node_count=len(nodes),
+        edge_count=len(edges),
+        nodes_by_type=nodes_by_type,
+        edges_by_type=edges_by_type,
+        languages=languages,
     )
 
 
@@ -181,3 +356,48 @@ async def retrieve_context(repo_id: str, payload: RetrieveRequest) -> dict[str, 
 @router.get("/{repo_id}/graphrag/traces/{trace_id}")
 async def get_retrieval_trace(repo_id: str, trace_id: str) -> dict[str, object]:
     return {"repo_id": repo_id, "trace_id": trace_id, "status": "not_persisted_yet"}
+
+
+def _node_response(node) -> CodeNode:
+    return CodeNode(
+        id=node.id,
+        type=node.type,
+        name=node.name,
+        file_path=node.file_path,
+        start_line=node.start_line,
+        end_line=node.end_line,
+        language=node.language,
+        symbol_id=node.symbol_id,
+        confidence=node_confidence(node.metadata),
+        provenance=node_provenance(node.metadata),
+        metadata=node.metadata,
+    )
+
+
+def _edge_response(edge) -> CodeEdge:
+    return CodeEdge(
+        id=edge.id,
+        source=edge.source_id,
+        target=edge.target_id,
+        type=edge.type,
+        confidence=edge.confidence,
+        confidence_level=(
+            str(edge.metadata["confidence_level"])
+            if isinstance(edge.metadata.get("confidence_level"), str)
+            else None
+        ),
+        reason=(
+            str(edge.metadata["reason"])
+            if isinstance(edge.metadata.get("reason"), str)
+            else None
+        ),
+        is_inferred=edge.is_inferred,
+        provenance=edge_provenance(edge.metadata),
+        metadata=edge.metadata,
+    )
+
+
+def _graph_http_error(exc: ValueError) -> HTTPException:
+    message = str(exc)
+    status_code = 404 if message.startswith("Repository not found") else 400
+    return HTTPException(status_code=status_code, detail=message)

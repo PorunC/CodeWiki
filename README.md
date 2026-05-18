@@ -1,6 +1,6 @@
 # CodeWiki
 
-[简体中文](README.zh-CN.md)
+[简体中文](docs/README.zh-CN.md)
 
 Single-user CodeWiki platform for AST-based code graph analysis, GraphRAG retrieval,
 source-grounded wiki generation, and LiteLLM-powered Q&A.
@@ -199,6 +199,13 @@ codewiki analyze .
 codewiki graphrag build .
 codewiki graphrag build . --embeddings
 
+# Symbol and graph intelligence
+codewiki graph search "AuthService"
+codewiki graph callers generate_page
+codewiki graph impact GraphRAGRetriever
+codewiki graph explore "wiki page generation"
+git diff --name-only | codewiki graph affected --stdin
+
 # Wiki generation
 codewiki wiki catalog .
 codewiki wiki pages .
@@ -207,6 +214,7 @@ codewiki wiki page overview .
 
 # Incremental graph update, with wiki regeneration enabled by default
 codewiki update .
+codewiki watch .
 
 # GraphRAG grounded Q&A
 codewiki ask "How does the main workflow fit together?"
@@ -227,6 +235,12 @@ Use `--json` on CLI commands when machine-readable output is useful.
 | `POST` | `/api/repos/{repo_id}/wiki/translate` | Translate catalog and pages |
 | `GET` | `/api/repos/{repo_id}/wiki?language=en` | Read the wiki catalog and pages |
 | `POST` | `/api/repos/{repo_id}/ask` | Ask a GraphRAG-grounded question |
+| `GET` | `/api/repos/{repo_id}/graph/search?q=...` | Search indexed symbols |
+| `GET` | `/api/repos/{repo_id}/graph/callers?symbol=...` | Find callers/references |
+| `GET` | `/api/repos/{repo_id}/graph/callees?symbol=...` | Find callees/references |
+| `GET` | `/api/repos/{repo_id}/graph/impact?symbol=...` | Analyze change impact |
+| `POST` | `/api/repos/{repo_id}/graph/explore` | Build grouped source exploration context |
+| `POST` | `/api/repos/{repo_id}/graph/affected` | Find affected files/tests/wiki pages |
 
 ## Supported AST Languages
 

@@ -46,6 +46,20 @@ class BaseSQLiteStore:
         Base.metadata.create_all(self.engine)
         with self.connect() as connection:
             connection.executescript(AUXILIARY_SCHEMA_SQL)
+            connection.execute(
+                """
+                INSERT INTO code_node_fts (
+                  id, repo_id, type, name, file_path, language, symbol_id, summary, signature, docstring
+                )
+                SELECT n.id, n.repo_id, n.type, n.name, n.file_path,
+                       COALESCE(n.language, ''), COALESCE(n.symbol_id, ''),
+                       COALESCE(n.summary, ''), '', ''
+                FROM code_node n
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM code_node_fts f WHERE f.id = n.id
+                )
+                """
+            )
             self._ensure_columns(
                 connection,
                 "repo",

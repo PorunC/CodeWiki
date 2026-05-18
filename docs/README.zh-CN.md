@@ -1,6 +1,6 @@
 # CodeWiki
 
-[English](README.md)
+[English](../README.md)
 
 CodeWiki 是一个面向单用户的本地代码知识平台，用于基于 AST 的代码图分析、
 GraphRAG 检索、带源码依据的 Wiki 生成，以及由 LiteLLM 驱动的问答。
@@ -191,6 +191,13 @@ codewiki analyze .
 codewiki graphrag build .
 codewiki graphrag build . --embeddings
 
+# 符号和图谱智能查询
+codewiki graph search "AuthService"
+codewiki graph callers generate_page
+codewiki graph impact GraphRAGRetriever
+codewiki graph explore "wiki page generation"
+git diff --name-only | codewiki graph affected --stdin
+
 # Wiki 生成
 codewiki wiki catalog .
 codewiki wiki pages .
@@ -199,6 +206,7 @@ codewiki wiki page overview .
 
 # 增量图更新，默认会启用 Wiki 重新生成
 codewiki update .
+codewiki watch .
 
 # 基于 GraphRAG 的问答
 codewiki ask "How does the main workflow fit together?"
@@ -219,6 +227,12 @@ codewiki ask --repo my-repo "Where are wiki pages generated?"
 | `POST` | `/api/repos/{repo_id}/wiki/translate` | 翻译目录和页面 |
 | `GET` | `/api/repos/{repo_id}/wiki?language=en` | 读取 Wiki 目录和页面 |
 | `POST` | `/api/repos/{repo_id}/ask` | 提出基于 GraphRAG 的问题 |
+| `GET` | `/api/repos/{repo_id}/graph/search?q=...` | 搜索已索引符号 |
+| `GET` | `/api/repos/{repo_id}/graph/callers?symbol=...` | 查找调用方/引用方 |
+| `GET` | `/api/repos/{repo_id}/graph/callees?symbol=...` | 查找被调用/被引用目标 |
+| `GET` | `/api/repos/{repo_id}/graph/impact?symbol=...` | 分析变更影响面 |
+| `POST` | `/api/repos/{repo_id}/graph/explore` | 生成按源码文件聚合的探索上下文 |
+| `POST` | `/api/repos/{repo_id}/graph/affected` | 查找受影响文件、测试和 Wiki 页面 |
 
 ## 支持的 AST 语言
 

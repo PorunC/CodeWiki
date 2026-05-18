@@ -79,7 +79,7 @@ class GraphRAGRetriever:
             chunks = self.store.list_code_chunks(repo_id)
 
         node_by_id = {node.id: node for node in nodes}
-        seed_hits = seed_from_symbols(query, nodes)
+        seed_hits = seed_from_symbols(query, nodes, store=self.store, repo_id=repo_id)
         fts_hits = search_fts(self.store, repo_id, query, limit=self._max_source_chunks())
         vector_hits = (
             await search_vectors(

@@ -35,6 +35,7 @@ def test_schema_contains_graphrag_wiki_and_llm_tables(tmp_path: Path) -> None:
         "code_chunk",
         "code_chunk_embedding",
         "code_chunk_fts",
+        "code_node_fts",
         "graph_community",
         "doc_catalog",
         "doc_page",

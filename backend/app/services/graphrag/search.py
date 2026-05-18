@@ -7,12 +7,31 @@ from backend.app.services.graphrag.utils import fts_query, node_haystack, node_t
 from backend.app.services.llm_gateway import LLMGateway
 
 
-def seed_from_symbols(query: str, nodes: list[CodeGraphNode]) -> dict[str, NodeHit]:
+def seed_from_symbols(
+    query: str,
+    nodes: list[CodeGraphNode],
+    *,
+    store: SQLiteStore | None = None,
+    repo_id: str | None = None,
+) -> dict[str, NodeHit]:
     query_lower = query.lower()
     query_terms = set(terms(query))
     hits: dict[str, NodeHit] = {}
     if not query_terms and not query_lower:
         return hits
+
+    if store is not None and repo_id is not None:
+        for search_hit in store.search_code_nodes(
+            repo_id,
+            query,
+            types=sorted(SEED_NODE_TYPES),
+            limit=32,
+        ):
+            hits[search_hit.node.id] = NodeHit(
+                node_id=search_hit.node.id,
+                score=min(1.3, max(0.35, search_hit.score)),
+                reasons={*search_hit.reasons, "symbol_fts"},
+            )
 
     for node in nodes:
         if node.type not in SEED_NODE_TYPES:
@@ -36,7 +55,12 @@ def seed_from_symbols(query: str, nodes: list[CodeGraphNode]) -> dict[str, NodeH
             score = 0.42
         if score:
             score += node_type_boost(node.type)
-            hits[node.id] = NodeHit(node_id=node.id, score=min(score, 1.25), reasons={"symbol"})
+            existing = hits.get(node.id)
+            if existing:
+                existing.score = max(existing.score, min(score, 1.25))
+                existing.reasons.add("symbol")
+            else:
+                hits[node.id] = NodeHit(node_id=node.id, score=min(score, 1.25), reasons={"symbol"})
     return hits
 
 
