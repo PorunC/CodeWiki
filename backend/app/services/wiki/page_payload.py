@@ -54,6 +54,7 @@ class PageGenerationPayloadBuilder:
         )
         child_page_summaries = self.child_summary_builder.build(child_pages)
         evidence_inventory = self.evidence_inventory_builder.build(trace)
+        prompt_source_chunks = _source_chunk_metadata(trace.source_chunks)
         return {
             "title": title,
             "slug": slug,
@@ -79,7 +80,7 @@ class PageGenerationPayloadBuilder:
             "detail_expectations": self.template.detail_expectations(),
             "evidence_inventory": evidence_inventory,
             "context_pack": trace.context_pack,
-            "source_chunks": trace.source_chunks,
+            "source_chunks": prompt_source_chunks,
             "allowed_source_refs": allowed_source_refs,
             "agent_tools": self.template.agent_tools(),
             "readfile_evidence": readfile_evidence.as_payload(),
@@ -88,3 +89,20 @@ class PageGenerationPayloadBuilder:
             "server_diagram_strategy": self.template.server_diagram_strategy(),
             "required_json_shape": self.template.required_json_shape(title=title),
         }
+
+
+def _source_chunk_metadata(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Trim chunk body to avoid duplicating full code in both context_pack and source_chunks."""
+    kept_keys = (
+        "id",
+        "node_id",
+        "file_path",
+        "start_line",
+        "end_line",
+        "content_hash",
+        "token_count",
+        "score",
+        "score_components",
+        "reasons",
+    )
+    return [{key: chunk[key] for key in kept_keys if key in chunk} for chunk in chunks]

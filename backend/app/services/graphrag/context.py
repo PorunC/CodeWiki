@@ -5,6 +5,13 @@ from backend.app.services.graphrag.models import ChunkHit
 from backend.app.services.graphrag.ranking import rank_source_chunks
 from backend.app.services.graphrag.utils import estimate_tokens
 
+IGNORED_SOURCE_FILES = {"uv.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}
+
+
+def _is_ignored_source_file(file_path: str) -> bool:
+    normalized = file_path.replace("\\", "/")
+    return normalized.rsplit("/", 1)[-1] in IGNORED_SOURCE_FILES
+
 
 def select_source_chunks(
     store: SQLiteStore,
@@ -39,7 +46,11 @@ def select_source_chunks(
     for hit in selected_chunks:
         if len(packed) >= max_source_chunks:
             break
-        if packed and token_total + hit.chunk.token_count > context_token_budget:
+        if _is_ignored_source_file(hit.chunk.file_path):
+            continue
+        if hit.chunk.token_count > context_token_budget:
+            continue
+        if token_total + hit.chunk.token_count > context_token_budget:
             continue
         packed.append(hit)
         token_total += hit.chunk.token_count

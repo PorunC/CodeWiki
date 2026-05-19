@@ -4,6 +4,8 @@ from typing import Any
 
 MAX_READFILE_REFS = 14
 MAX_READFILE_CHARS = 32000
+MAX_SINGLE_READFILE_CHARS = 8000
+IGNORED_READFILE_NAMES = {"uv.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"}
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,9 @@ def readfile_evidence_for_page(
         if key in seen:
             continue
         seen.add(key)
+        normalized = file_path.replace("\\", "/")
+        if normalized.rsplit("/", 1)[-1] in IGNORED_READFILE_NAMES:
+            continue
         absolute_path = (repo_root / file_path).resolve()
         if not absolute_path.is_file() or not absolute_path.is_relative_to(repo_root):
             continue
@@ -54,7 +59,9 @@ def readfile_evidence_for_page(
         if start_line < 1 or end_line < start_line or end_line > len(lines):
             continue
         numbered_content = _numbered_lines(lines, start_line, end_line)
-        if reads and total_chars + len(numbered_content) > MAX_READFILE_CHARS:
+        if len(numbered_content) > MAX_SINGLE_READFILE_CHARS:
+            continue
+        if total_chars + len(numbered_content) > MAX_READFILE_CHARS:
             break
         total_chars += len(numbered_content)
         reads.append(
