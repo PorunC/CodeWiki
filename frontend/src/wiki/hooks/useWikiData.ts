@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WikiResponse } from "../../api/types";
 import { getRepoWiki } from "../../api/wiki";
@@ -10,22 +10,26 @@ export function useWikiData(selectedRepoId: string, language: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const loadedWikiKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!selectedRepoId) {
       setWiki(null);
       setSelectedSlug(null);
+      loadedWikiKeyRef.current = null;
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
+    const wikiKey = `${selectedRepoId}\u0000${language}`;
+    setLoading(loadedWikiKeyRef.current !== wikiKey);
     setError(null);
     getRepoWiki(selectedRepoId, language)
       .then((response) => {
         if (cancelled) {
           return;
         }
+        loadedWikiKeyRef.current = wikiKey;
         setWiki(response);
         setSelectedSlug((current) => {
           if (current && response.pages.some((page) => page.slug === current)) {

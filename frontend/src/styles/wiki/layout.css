@@ -191,13 +191,23 @@
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.22);
   border-radius: 8px;
+  box-sizing: border-box;
   color: #a9c6f5;
   display: flex;
   gap: 8px;
   font-size: 13px;
   font-weight: 800;
   line-height: 1.4;
+  min-height: 41px;
   padding: 10px 12px;
+}
+
+.wiki-state svg {
+  flex: 0 0 auto;
+}
+
+.wiki-state span {
+  min-width: 0;
 }
 
 .wiki-state.is-loading {
