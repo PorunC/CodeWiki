@@ -51,6 +51,23 @@ def test_scan_respects_nested_gitignore(tmp_path: Path) -> None:
     assert "nested/skip.ts" not in paths
 
 
+def test_scan_ignores_lockfiles_by_default(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text("print('hello')\n")
+    (tmp_path / "uv.lock").write_text("version = 1\n")
+    (tmp_path / "package-lock.json").write_text('{"name":"demo"}\n')
+    (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")
+    (tmp_path / "yarn.lock").write_text("__metadata:\n")
+
+    result = RepoScanner().scan(str(tmp_path))
+    paths = {item.path for item in result.files}
+
+    assert "main.py" in paths
+    assert "uv.lock" not in paths
+    assert "package-lock.json" not in paths
+    assert "pnpm-lock.yaml" not in paths
+    assert "yarn.lock" not in paths
+
+
 def test_scan_records_git_last_commit_time_for_source_files(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n")
     (tmp_path / "notes.md").write_text("# Notes\n")

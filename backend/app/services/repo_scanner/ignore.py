@@ -44,6 +44,10 @@ DEFAULT_IGNORE_PATTERNS = [
     "*.webp",
     "*.ico",
     "*.pdf",
+    "uv.lock",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
 ]
 
 
