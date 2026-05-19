@@ -84,8 +84,7 @@ class PageGenerationPayloadBuilder:
             "allowed_source_refs": allowed_source_refs,
             "agent_tools": self.template.agent_tools(),
             "readfile_evidence": readfile_evidence.as_payload(),
-            "graph_facts": self.template.graph_facts(trace),
-            "graph_edges_for_mermaid": self.template.graph_edges_for_mermaid(trace),
+            "graph_facts": self.template.prompt_graph_facts(trace),
             "server_diagram_strategy": self.template.server_diagram_strategy(),
             "required_json_shape": self.template.required_json_shape(title=title),
         }

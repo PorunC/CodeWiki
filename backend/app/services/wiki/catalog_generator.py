@@ -11,6 +11,7 @@ from backend.app.services.wiki.catalog import (
     _validate_catalog_payload,
 )
 from backend.app.services.wiki.catalog_planner import CatalogModuleCandidatePlanner
+from backend.app.services.wiki.page_payload_template import prompt_graph_facts
 from backend.app.services.wiki.prompts import _catalog_messages, _json_object, _load_prompt
 
 CATALOG_GENERATION_ATTEMPTS = 3
@@ -103,6 +104,7 @@ class WikiCatalogGenerator:
     def _catalog_payload(self, repo: Any, trace: Any, *, language_code: str) -> dict[str, Any]:
         repo_context = self.context_builder.build(repo.path)
         nodes, edges = self.store.get_graph(repo.id)
+        graph_facts = prompt_graph_facts(trace)
         return {
             "repo": {
                 "id": repo.id,
@@ -193,10 +195,10 @@ class WikiCatalogGenerator:
             },
             "repository_context": repo_context.as_dict(),
             "module_candidates": self.candidate_planner.build(nodes, edges),
-            "context_pack": trace.context_pack,
-            "seed_nodes": trace.seed_nodes,
-            "expanded_nodes": trace.expanded_nodes[:80],
-            "community_summaries": trace.community_summaries,
+            "context_pack": _catalog_context_pack(trace.context_pack),
+            "seed_nodes": graph_facts["seed_nodes"],
+            "expanded_nodes": graph_facts["expanded_nodes"][:80],
+            "community_summaries": graph_facts["community_summaries"],
             "source_chunks": _source_chunk_summaries(trace.source_chunks),
             "required_json_shape": {
                 "title": "Code Wiki",
@@ -259,3 +261,21 @@ class WikiCatalogGenerator:
                 ],
             },
         }
+
+
+def _catalog_context_pack(context_pack: dict[str, object]) -> dict[str, object]:
+    return {
+        key: context_pack[key]
+        for key in (
+            "token_count",
+            "node_count",
+            "edge_count",
+            "chunk_count",
+            "community_count",
+            "source_chunk_ids",
+            "node_ids",
+            "edge_ids",
+            "community_ids",
+        )
+        if key in context_pack
+    }

@@ -129,6 +129,42 @@ async def test_chunk_builder_and_embedding_index_are_standalone_services(tmp_pat
     assert store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0].chunk_id == chunks[0].id
 
 
+def test_chunk_builder_skips_file_nodes(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    file_node = CodeGraphNode(
+        id=f"{repo.id}:file:main.py",
+        repo_id=repo.id,
+        type="file",
+        name="main.py",
+        file_path="main.py",
+        start_line=1,
+        end_line=2,
+    )
+    function_node = CodeGraphNode(
+        id=f"{repo.id}:function:answer",
+        repo_id=repo.id,
+        type="function",
+        name="answer",
+        file_path="main.py",
+        start_line=1,
+        end_line=2,
+    )
+
+    chunks = ChunkBuilder().build_source_chunks(
+        repo_id=repo.id,
+        repo_path=str(repo_dir),
+        nodes=[file_node, function_node],
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].node_id == function_node.id
+    assert chunks[0].content == "def answer():\n    return 42\n"
+
+
 @pytest.mark.asyncio
 async def test_embedding_index_deduplicates_llm_calls_by_content_hash(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"

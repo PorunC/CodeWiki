@@ -1,7 +1,16 @@
-from typing import Any
-
 from backend.app.services.graphrag import RetrievalTrace
-from backend.app.services.wiki.diagrams import MAX_MERMAID_EDGES, SOURCE_EDGE_TYPES
+
+
+def prompt_graph_facts(trace: RetrievalTrace) -> dict[str, object]:
+    return {
+        "seed_nodes": [_prompt_node(node) for node in trace.seed_nodes],
+        "expanded_nodes": [_prompt_node(node) for node in trace.expanded_nodes],
+        "related_edges": [_prompt_edge(edge) for edge in trace.related_edges],
+        "community_summaries": [
+            _prompt_community_summary(community)
+            for community in trace.community_summaries
+        ],
+    }
 
 
 class PagePayloadTemplate:
@@ -124,18 +133,8 @@ class PagePayloadTemplate:
             "required_for_page_generation": ["ReadFile"],
         }
 
-    def graph_facts(self, trace: RetrievalTrace) -> dict[str, object]:
-        return {
-            "seed_nodes": trace.seed_nodes,
-            "expanded_nodes": trace.expanded_nodes,
-            "related_edges": trace.related_edges,
-            "community_summaries": trace.community_summaries,
-        }
-
-    def graph_edges_for_mermaid(self, trace: RetrievalTrace) -> list[dict[str, Any]]:
-        return [
-            edge for edge in trace.related_edges if edge.get("type") in SOURCE_EDGE_TYPES
-        ][:MAX_MERMAID_EDGES]
+    def prompt_graph_facts(self, trace: RetrievalTrace) -> dict[str, object]:
+        return prompt_graph_facts(trace)
 
     def server_diagram_strategy(self) -> dict[str, object]:
         return {
@@ -173,3 +172,60 @@ class PagePayloadTemplate:
                 }
             ],
         }
+
+
+def _prompt_node(node: dict[str, object]) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in {
+            "id": node.get("id"),
+            "type": node.get("type"),
+            "name": node.get("name"),
+            "file_path": node.get("file_path"),
+            "line": _line_range(node),
+            "hop": node.get("hop"),
+            "score": node.get("score"),
+            "confidence": node.get("confidence"),
+        }.items()
+        if value is not None
+    }
+
+
+def _prompt_edge(edge: dict[str, object]) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in {
+            "id": edge.get("id"),
+            "source": edge.get("source"),
+            "target": edge.get("target"),
+            "type": edge.get("type"),
+            "confidence": edge.get("confidence"),
+            "reason": edge.get("reason"),
+        }.items()
+        if value is not None
+    }
+
+
+def _prompt_community_summary(community: dict[str, object]) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in {
+            "id": community.get("id"),
+            "name": community.get("name"),
+            "level": community.get("level"),
+            "summary": community.get("summary"),
+            "node_count": community.get("node_count"),
+            "matched_node_ids": community.get("matched_node_ids"),
+        }.items()
+        if value not in (None, [], "")
+    }
+
+
+def _line_range(item: dict[str, object]) -> str | None:
+    start_line = item.get("start_line")
+    end_line = item.get("end_line")
+    if not isinstance(start_line, int):
+        return None
+    if not isinstance(end_line, int) or end_line == start_line:
+        return str(start_line)
+    return f"{start_line}-{end_line}"

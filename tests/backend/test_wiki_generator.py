@@ -57,6 +57,13 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     catalog = await generator.generate_catalog(repo.id)
     results = await generator.generate_all_pages(repo.id)
 
+    catalog_request = llm.catalog_requests[0]
+    assert "text" not in catalog_request["context_pack"]
+    assert all("metadata" not in node and "provenance" not in node for node in catalog_request["seed_nodes"])
+    assert all(
+        "metadata" not in node and "provenance" not in node
+        for node in catalog_request["expanded_nodes"]
+    )
     catalog_slugs = [item["slug"] for item in catalog.structure["items"]]
     assert catalog_slugs[:4] == ["overview", "architecture", "reading-guide", "dependencies"]
     assert "request-handler" in catalog_slugs
@@ -77,11 +84,29 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     assert "handler (function)" in page.markdown
     assert "answer (function)" in page.markdown
     assert "Sources:" not in page.markdown
-    assert "  - S2 [L3-L4](source-link)" in page.markdown
+    assert "  - S1 [L3-L4](source-link)" in page.markdown
     assert page.graph_refs
     assert "llm-invented-node" not in page.graph_refs
     assert any(":edge:" in graph_ref for graph_ref in page.graph_refs)
     assert any(graph_ref.endswith("api.py::handler") for graph_ref in page.graph_refs)
+    request_payload = next(
+        request for request in llm.page_requests if request.get("slug") == "request-handler"
+    )
+    assert "graph_edges_for_mermaid" not in request_payload
+    graph_facts = request_payload["graph_facts"]
+    assert isinstance(graph_facts, dict)
+    assert all(
+        {"id", "type", "name", "file_path", "line", "hop", "score", "confidence"} >= set(node)
+        and "metadata" not in node
+        and "provenance" not in node
+        for node in graph_facts["seed_nodes"]
+    )
+    assert all(
+        {"id", "source", "target", "type", "confidence", "reason"} >= set(edge)
+        and "metadata" not in edge
+        and "provenance" not in edge
+        for edge in graph_facts["related_edges"]
+    )
     assert store.get_latest_doc_catalog(repo.id) is not None
     assert store.get_doc_page(repo.id, "request-handler") == page
     assert store.list_llm_runs(repo.id, task_type="catalog")
@@ -860,6 +885,7 @@ class _FakeWikiLLM:
             for key, value in (translation_payloads or {}).items()
         }
         self.page_requests: list[dict[str, object]] = []
+        self.catalog_requests: list[dict[str, object]] = []
         self.page_call_slugs: list[str] = []
         self.translation_requests: list[dict[str, object]] = []
 
@@ -878,6 +904,7 @@ class _FakeWikiLLM:
             assert "granularity_contract" in message_text
             assert "module_candidates" in message_text
             assert "leaf pages for implementation detail" in message_text
+            self.catalog_requests.append(_request_payload_from_message(messages[-1]["content"]))
             payload = self.catalog_payload or {
                 "title": "Repo Wiki",
                 "items": [
