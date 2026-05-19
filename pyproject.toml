@@ -1,6 +1,6 @@
 [project]
 name = "codewiki"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first code wiki platform with AST graph analysis, GraphRAG, and LiteLLM."
 readme = "README.md"
 requires-python = ">=3.12"

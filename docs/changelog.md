@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-19
+
 ### Added
 
 - **Packaged Web UI** — the Python package now bundles the built frontend, and
@@ -27,8 +29,23 @@
 
 - **GraphRAG symbol seeding** — retrieval now uses node-level FTS before falling back to
   in-memory symbol matching.
+- **Wiki prompt payloads** — page and catalog generation now use lightweight graph facts,
+  omit duplicate chunk bodies, and avoid sending Mermaid edge payloads to the LLM.
+- **Source chunk indexing** — file graph nodes remain in the graph but no longer produce
+  full-file source chunks, reducing retrieval context size.
 - **Documentation links** — README language links now point to the Chinese README in
   `docs/`.
+
+### Fixed
+
+- **Prompt budget control** — oversized lockfiles and single reads are skipped before they
+  can dominate GraphRAG context or ReadFile evidence.
+- **Repository scanning** — lockfiles are ignored during analysis so dependency snapshots
+  do not enter source chunk indexes.
+- **Wiki generation UX** — generation status refreshes no longer flash the whole wiki
+  page while background polling is active.
+- **Wiki generation reliability** — catalog prompts are smaller and avoid full graph
+  metadata, reducing malformed JSON responses from long catalog generations.
 
 ## [0.1.0] - 2026-05-18
 
