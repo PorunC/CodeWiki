@@ -7,6 +7,11 @@ else
 PYTHON ?= $(or $(wildcard .venv/bin/python),python$(PYTHON_VERSION))
 endif
 NPM ?= npm
+ifeq ($(OS),Windows_NT)
+VENV_PYTHON := .venv/Scripts/python.exe
+else
+VENV_PYTHON := .venv/bin/python
+endif
 
 BACKEND_APP ?= backend.app.main:app
 BACKEND_HOST ?= 127.0.0.1
@@ -23,7 +28,7 @@ export FRONTEND_PORT
 export NPM
 export PYTHON_VERSION
 
-.PHONY: help install install-backend ensure-backend-python ensure-backend-pip install-frontend start dev restart check-ports backend frontend kill test lint lint-backend lint-frontend build clean
+.PHONY: help install ensure-venv-python312 install-backend ensure-backend-python ensure-backend-pip install-frontend start dev restart check-ports backend frontend kill test lint lint-backend lint-frontend build clean
 
 help:
 	@echo "Code Wiki Platform"
@@ -46,7 +51,21 @@ help:
 	@echo "Overrides:"
 	@echo "  make start PYTHON=python3.12 BACKEND_PORT=8000"
 
-install: install-backend install-frontend
+install: ensure-venv-python312 install-backend install-frontend
+
+ensure-venv-python312:
+	@if [ ! -x "$(VENV_PYTHON)" ]; then \
+		echo "No .venv found, creating one with Python $(PYTHON_VERSION)..."; \
+		$(if $(filter Windows_NT,$(OS)),py -$(PYTHON_VERSION) -m venv .venv,python$(PYTHON_VERSION) -m venv .venv) || { \
+			echo "Error: failed to create .venv with Python $(PYTHON_VERSION). Please ensure python$(PYTHON_VERSION) is installed."; \
+			exit 1; \
+		}; \
+	fi
+	@venv_version=`"$(VENV_PYTHON)" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"`; \
+	if [ "$$venv_version" != "$(PYTHON_VERSION)" ]; then \
+		echo "Error: .venv uses Python $$venv_version, expected $(PYTHON_VERSION)."; \
+		exit 1; \
+	fi
 
 install-backend: ensure-backend-python ensure-backend-pip
 	$(PYTHON) -m pip install -e ".[dev]"
