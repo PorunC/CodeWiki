@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **LLM routing** — task output token limits can now be configured per profile with
+  `CODEWIKI_LLM__PROFILES__<TASK>__MAX_TOKENS`.
+
 ## [0.2.0] - 2026-05-19
 
 ### Added

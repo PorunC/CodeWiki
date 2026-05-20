@@ -420,7 +420,9 @@ CODEWIKI_LLM__DEFAULT__MODEL
 CODEWIKI_LLM__DEFAULT__PROVIDER_TYPE
 CODEWIKI_LLM__DEFAULT__ENDPOINT
 CODEWIKI_LLM__DEFAULT__API_KEY
+CODEWIKI_LLM__DEFAULT__MAX_TOKENS
 CODEWIKI_LLM__PROFILES__PAGE__MODEL
+CODEWIKI_LLM__PROFILES__PAGE__MAX_TOKENS
 CODEWIKI_LLM__PROFILES__TRANSLATION__MODEL
 ...
 ```
@@ -429,15 +431,16 @@ CODEWIKI_LLM__PROFILES__TRANSLATION__MODEL
 
 | task_type | 默认策略 |
 |---|---|
-| `catalog` | max_tokens 4096 |
-| `community_summary` | max_tokens 4096 |
-| `cluster` | alias to community_summary |
-| `page` | max_tokens 12000 |
-| `translation` | max_tokens 12000 |
-| `qa` | streaming profile flag |
+| `catalog` | default max_tokens 4096; override with `CODEWIKI_LLM__PROFILES__CATALOG__MAX_TOKENS` |
+| `community_summary` | default max_tokens 4096; override with `CODEWIKI_LLM__PROFILES__COMMUNITY_SUMMARY__MAX_TOKENS` |
+| `cluster` | aliases to community_summary unless `CODEWIKI_LLM__PROFILES__CLUSTER__*` is set |
+| `page` | default max_tokens 12000; override with `CODEWIKI_LLM__PROFILES__PAGE__MAX_TOKENS` |
+| `translation` | default max_tokens 12000; override with `CODEWIKI_LLM__PROFILES__TRANSLATION__MAX_TOKENS` |
+| `qa` | streaming profile flag; optional `CODEWIKI_LLM__PROFILES__QA__MAX_TOKENS` |
 | `embedding` | embedding profile |
 
-每个 task 可独立配置 model、provider_type、endpoint、api_key；空值继承 default profile。
+每个 task 可独立配置 model、provider_type、endpoint、api_key、max_tokens；空值继承
+default profile。`max_tokens=0` 表示不向 provider 传输出上限。
 
 ### 10.2 LLMOperation
 

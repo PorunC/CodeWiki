@@ -37,12 +37,17 @@ def register(main: click.Group) -> None:
         type=click.Choice(LLM_PROFILES),
         default="default",
         show_default=True,
-        help="LLM profile used by --model, --provider-type, --endpoint, and --api-key.",
+        help="LLM profile used by --model, --provider-type, --endpoint, --api-key, and --max-tokens.",
     )
     @click.option("--model", help="Set the selected LLM profile model.")
     @click.option("--provider-type", help="Set the selected LLM profile provider type.")
     @click.option("--endpoint", help="Set the selected LLM profile endpoint.")
     @click.option("--api-key", help="Set the selected LLM profile API key.")
+    @click.option(
+        "--max-tokens",
+        type=click.IntRange(min=0),
+        help="Set the selected LLM profile max output tokens. Use 0 to omit provider max_tokens.",
+    )
     @click.option("--base-language", help="Set CODEWIKI_WIKI_BASE_LANGUAGE.")
     @click.option("--translation-languages", help="Set CODEWIKI_WIKI_TRANSLATION_LANGUAGES.")
     @click.option("--show-secrets", is_flag=True, help="Do not mask secret values in command output.")
@@ -59,6 +64,7 @@ def register(main: click.Group) -> None:
         provider_type: str | None,
         endpoint: str | None,
         api_key: str | None,
+        max_tokens: int | None,
         base_language: str | None,
         translation_languages: str | None,
         show_secrets: bool,
@@ -74,6 +80,7 @@ def register(main: click.Group) -> None:
             provider_type=provider_type,
             endpoint=endpoint,
             api_key=api_key,
+            max_tokens=max_tokens,
             base_language=base_language,
             translation_languages=translation_languages,
         )
@@ -121,6 +128,7 @@ def _config_updates(
     provider_type: str | None,
     endpoint: str | None,
     api_key: str | None,
+    max_tokens: int | None,
     base_language: str | None,
     translation_languages: str | None,
 ) -> dict[str, str]:
@@ -134,6 +142,7 @@ def _config_updates(
         "PROVIDER_TYPE": provider_type,
         "ENDPOINT": endpoint,
         "API_KEY": api_key,
+        "MAX_TOKENS": None if max_tokens is None else str(max_tokens),
     }
     for field, value in profile_options.items():
         if value is not None:

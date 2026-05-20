@@ -46,7 +46,7 @@ class LLMGateway:
             "timeout": self.settings.llm.timeout_seconds,
             "num_retries": max(0, self.settings.llm.max_retries),
         }
-        if profile.max_tokens:
+        if profile.max_tokens is not None and profile.max_tokens > 0:
             kwargs["max_tokens"] = profile.max_tokens
         if response_format:
             kwargs["response_format"] = {"type": response_format}

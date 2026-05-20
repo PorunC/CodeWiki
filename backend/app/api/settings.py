@@ -21,6 +21,7 @@ async def get_llm_models() -> dict[str, object]:
         for task_type in (
             "catalog",
             "community_summary",
+            "cluster",
             "page",
             "translation",
             "qa",

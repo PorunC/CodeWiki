@@ -1,7 +1,9 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +12,14 @@ class LLMProfileSettings(BaseModel):
     provider_type: str | None = None
     endpoint: str | None = None
     api_key: str | None = None
+    max_tokens: int | None = Field(default=None, ge=0)
+
+    @field_validator("max_tokens", mode="before")
+    @classmethod
+    def _blank_max_tokens_as_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
 
 class LLMSettings(BaseModel):

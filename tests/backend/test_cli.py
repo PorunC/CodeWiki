@@ -168,6 +168,8 @@ def test_cli_config_profile_options_mask_secret_output(tmp_path: Path) -> None:
             "qa",
             "--model",
             "provider/qa-model",
+            "--max-tokens",
+            "8000",
             "--api-key",
             "secret-key",
         ],
@@ -178,6 +180,7 @@ def test_cli_config_profile_options_mask_secret_output(tmp_path: Path) -> None:
     assert "********" in result.output
     env_text = env_file.read_text(encoding="utf-8")
     assert "CODEWIKI_LLM__PROFILES__QA__MODEL=provider/qa-model" in env_text
+    assert "CODEWIKI_LLM__PROFILES__QA__MAX_TOKENS=8000" in env_text
     assert "CODEWIKI_LLM__PROFILES__QA__API_KEY=secret-key" in env_text
 
 

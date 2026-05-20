@@ -35,6 +35,50 @@ def test_default_profile_is_used_for_all_tasks_without_overrides() -> None:
         assert profile.api_key == "shared-key"
 
 
+def test_task_default_max_tokens_are_used_without_overrides() -> None:
+    router = ModelRouter(_test_settings())
+
+    assert router.profile_for("catalog").max_tokens == 4096
+    assert router.profile_for("community_summary").max_tokens == 4096
+    assert router.profile_for("cluster").max_tokens == 4096
+    assert router.profile_for("page").max_tokens == 12000
+    assert router.profile_for("translation").max_tokens == 12000
+    assert router.profile_for("qa").max_tokens is None
+    assert router.profile_for("embedding").max_tokens is None
+
+
+def test_task_profile_can_override_max_tokens() -> None:
+    settings = _test_settings(
+        profiles={
+            "catalog": LLMProfileSettings(model="provider/catalog", max_tokens=10000),
+            "page": LLMProfileSettings(model="provider/page", max_tokens=16000),
+        },
+    )
+    router = ModelRouter(settings)
+
+    assert router.profile_for("catalog").max_tokens == 10000
+    assert router.profile_for("page").max_tokens == 16000
+
+
+def test_default_profile_max_tokens_overrides_task_defaults() -> None:
+    settings = _test_settings(
+        default=LLMProfileSettings(model="provider/shared", max_tokens=9000),
+    )
+    router = ModelRouter(settings)
+
+    assert router.profile_for("catalog").max_tokens == 9000
+    assert router.profile_for("page").max_tokens == 9000
+    assert router.profile_for("qa").max_tokens == 9000
+
+
+def test_zero_max_tokens_disables_provider_limit() -> None:
+    settings = _test_settings(
+        profiles={"catalog": LLMProfileSettings(model="provider/catalog", max_tokens=0)},
+    )
+
+    assert ModelRouter(settings).profile_for("catalog").max_tokens is None
+
+
 def test_embedding_profile_uses_embedding_model() -> None:
     settings = _test_settings(
         profiles={"embedding": LLMProfileSettings(model="provider/embed")},
@@ -66,6 +110,19 @@ def test_catalog_and_community_use_independent_task_models() -> None:
     assert router.profile_for("catalog").model == "provider/catalog"
     assert router.profile_for("community_summary").model == "provider/community"
     assert router.profile_for("cluster").model == "provider/community"
+
+
+def test_cluster_profile_overrides_community_alias_when_configured() -> None:
+    settings = _test_settings(
+        profiles={
+            "community_summary": LLMProfileSettings(model="provider/community", max_tokens=4096),
+            "cluster": LLMProfileSettings(model="provider/cluster", max_tokens=8192),
+        },
+    )
+    profile = ModelRouter(settings).profile_for("cluster")
+
+    assert profile.model == "provider/cluster"
+    assert profile.max_tokens == 8192
 
 
 def test_page_qa_and_translation_can_use_explicit_task_models() -> None:
@@ -124,3 +181,21 @@ def test_task_profile_inherits_default_connection_when_only_model_is_overridden(
     assert profile.provider_type == "openai"
     assert profile.endpoint == "https://shared.example/v1"
     assert profile.api_key == "shared-key"
+
+
+def test_profile_max_tokens_loads_from_nested_env_file(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "CODEWIKI_LLM__DEFAULT__MODEL=provider/shared",
+                "CODEWIKI_LLM__PROFILES__CATALOG__MAX_TOKENS=11000",
+                "CODEWIKI_LLM__PROFILES__PAGE__MAX_TOKENS=",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    router = ModelRouter(Settings(_env_file=env_file))
+
+    assert router.profile_for("catalog").max_tokens == 11000
+    assert router.profile_for("page").max_tokens == 12000
