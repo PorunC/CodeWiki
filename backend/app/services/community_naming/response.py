@@ -53,6 +53,8 @@ def apply_llm_names(
             repo_id=community.repo_id,
             name=name,
             level=community.level,
+            parent_id=community.parent_id,
+            rank=community.rank,
             node_ids=community.node_ids,
             summary=summary,
             summary_hash=sha256(summary.encode("utf-8")).hexdigest(),

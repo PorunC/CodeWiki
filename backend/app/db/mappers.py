@@ -7,6 +7,7 @@ from backend.app.models import (
     CodeChunkRecord,
     DocCatalogRecord,
     DocPageRecord,
+    GraphCommunityEdgeRecord,
     GraphCommunityRecord,
     LLMRunRecord,
 )
@@ -89,9 +90,26 @@ def graph_community_from_row(row: Mapping[str, Any]) -> GraphCommunityRecord:
         repo_id=_get(row, "repo_id"),
         name=_get(row, "name"),
         level=_get(row, "level"),
+        parent_id=_get(row, "parent_id"),
+        rank=_get(row, "rank", 0) or 0,
         node_ids=_get(row, "node_ids", _get(row, "node_ids_json", [])),
         summary=_get(row, "summary"),
         summary_hash=_get(row, "summary_hash"),
+        created_at=_get(row, "created_at"),
+    )
+
+
+def graph_community_edge_from_row(row: Mapping[str, Any]) -> GraphCommunityEdgeRecord:
+    return GraphCommunityEdgeRecord(
+        id=_get(row, "id"),
+        repo_id=_get(row, "repo_id"),
+        source_community_id=_get(row, "source_community_id"),
+        target_community_id=_get(row, "target_community_id"),
+        type=_get(row, "type"),
+        weight=_get(row, "weight", 1.0),
+        confidence=_get(row, "confidence", 1.0),
+        reason=_get(row, "reason"),
+        evidence_edge_ids=_get(row, "evidence_edge_ids", _get(row, "evidence_edge_ids_json", [])),
         created_at=_get(row, "created_at"),
     )
 

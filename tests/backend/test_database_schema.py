@@ -5,6 +5,7 @@ from backend.app.database import (
     CodeChunkEmbeddingRecord,
     CodeChunkRecord,
     DocPageRecord,
+    GraphCommunityEdgeRecord,
     GraphCommunityRecord,
     SQLiteStore,
 )
@@ -201,6 +202,38 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
     assert len(communities) == 1
     assert communities[0].node_ids == [file_node.id]
     assert communities[0].summary == "Core files"
+
+    child = GraphCommunityRecord(
+        id="community-2",
+        repo_id=repo.id,
+        name="Core Child",
+        level=1,
+        parent_id=community.id,
+        rank=0,
+        node_ids=[file_node.id],
+        summary="Core child files",
+        summary_hash="summary-hash-child",
+        created_at=None,
+    )
+    store.replace_graph_communities(repo.id, [community, child])
+    community_edge = GraphCommunityEdgeRecord(
+        id="community-edge-1",
+        repo_id=repo.id,
+        source_community_id=community.id,
+        target_community_id=child.id,
+        type="contains",
+        weight=1.0,
+        confidence=1.0,
+        reason="Parent contains child.",
+        evidence_edge_ids=[],
+        created_at=None,
+    )
+    store.replace_graph_community_edges(repo.id, [community_edge])
+    community_edges = store.list_graph_community_edges(repo.id)
+    assert len(community_edges) == 1
+    assert community_edges[0].type == "contains"
+    assert community_edges[0].source_community_id == community.id
+    assert community_edges[0].target_community_id == child.id
 
     catalog = store.save_doc_catalog(
         repo.id,

@@ -59,13 +59,24 @@ class CommunityNamer:
 
         nodes, edges = self.store.get_graph(repo_id)
         node_by_id = {node.id: node for node in nodes}
-        target_communities = communities[: max(1, min(max_communities, MAX_COMMUNITIES_PER_LLM_CALL))]
+        target_communities = _select_naming_targets(
+            communities,
+            max_communities=max_communities,
+        )
         renamed = communities
         errors: list[str] = []
         llm_run_ids: list[str] = []
         prompt = load_prompt("community_summary.md")
         for batch_index, batch in enumerate(batches(target_communities, COMMUNITIES_PER_BATCH), start=1):
-            payload = naming_payload(repo.id, repo.name, repo.path, batch, node_by_id, edges)
+            payload = naming_payload(
+                repo.id,
+                repo.name,
+                repo.path,
+                batch,
+                node_by_id,
+                edges,
+                all_communities=renamed,
+            )
             fallback_names = {
                 str(item["id"]): fallback_name_from_payload(item)
                 for item in payload["communities"]
@@ -127,3 +138,44 @@ _apply_llm_names = apply_llm_names
 _fallback_name_from_payload = fallback_name_from_payload
 _renamed_count = renamed_count
 _batches = batches
+
+
+def _select_naming_targets(
+    communities,
+    *,
+    max_communities: int,
+):
+    limit = max(1, min(max_communities, MAX_COMMUNITIES_PER_LLM_CALL))
+    by_level: dict[int, list] = {}
+    for community in communities:
+        by_level.setdefault(int(community.level or 0), []).append(community)
+
+    selected = []
+    seen: set[str] = set()
+
+    def add(candidates) -> None:
+        for community in candidates:
+            if len(selected) >= limit:
+                return
+            if community.id in seen:
+                continue
+            selected.append(community)
+            seen.add(community.id)
+
+    add(sorted(by_level.get(0, []), key=_parent_target_key))
+    for level in sorted(level for level in by_level if level > 0):
+        add(sorted(by_level[level], key=_leaf_target_key))
+    add(communities)
+    return selected
+
+
+def _parent_target_key(community) -> tuple[int, int, str]:
+    return (int(community.rank or 0), -len(community.node_ids), community.name)
+
+
+def _leaf_target_key(community) -> tuple[int, int, int, str]:
+    return (-len(community.node_ids), -_file_count(community), int(community.rank or 0), community.name)
+
+
+def _file_count(community) -> int:
+    return len({node_id.rsplit(":", 1)[0] for node_id in community.node_ids})

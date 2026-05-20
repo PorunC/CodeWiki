@@ -44,6 +44,7 @@ class IncrementalUpdateResult:
     edge_count: int
     community_count: int
     chunk_count: int
+    community_count_by_level: dict[str, int] = field(default_factory=dict)
     stale_pages: list[str] = field(default_factory=list)
     errors: list[dict[str, str]] = field(default_factory=list)
 
@@ -57,6 +58,7 @@ class IncrementalUpdateResult:
             "node_count": self.node_count,
             "edge_count": self.edge_count,
             "community_count": self.community_count,
+            "community_count_by_level": self.community_count_by_level,
             "chunk_count": self.chunk_count,
             "stale_pages": self.stale_pages,
             "errors": self.errors,

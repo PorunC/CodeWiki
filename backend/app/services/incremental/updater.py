@@ -5,6 +5,7 @@ from backend.app.services.analysis_pipeline import AnalysisPipeline
 from backend.app.services.ast_parser import AstParser
 from backend.app.services.async_tasks import run_blocking
 from backend.app.services.community_detector import CommunityDetector
+from backend.app.services.analyzer import _community_count_by_level
 from backend.app.services.graph import CodeGraphNode, GraphBuilder
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.incremental.models import IncrementalUpdatePlan, IncrementalUpdateResult
@@ -65,6 +66,7 @@ class IncrementalUpdater:
         try:
             if not plan.affected_files:
                 chunk_count = len(self.store.list_code_chunks(repo_id))
+                existing_communities = self.store.list_graph_communities(repo_id)
                 result = IncrementalUpdateResult(
                     run_id=run.id,
                     repo_id=repo_id,
@@ -75,8 +77,9 @@ class IncrementalUpdater:
                     reused_file_count=len(plan.unchanged_files),
                     node_count=len(old_nodes),
                     edge_count=len(old_edges),
-                    community_count=len(self.store.list_graph_communities(repo_id)),
+                    community_count=len(existing_communities),
                     chunk_count=chunk_count,
+                    community_count_by_level=_community_count_by_level(existing_communities),
                 )
                 self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
                 self.store.upsert_repo(scan.repo)
@@ -112,6 +115,7 @@ class IncrementalUpdater:
                 edge_count=len(pipeline_result.graph.edges),
                 community_count=len(pipeline_result.communities),
                 chunk_count=chunk_count,
+                community_count_by_level=_community_count_by_level(pipeline_result.communities),
                 stale_pages=stale_pages,
                 errors=pipeline_result.parse_errors,
             )

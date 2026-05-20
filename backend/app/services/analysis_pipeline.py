@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from backend.app.database import GraphCommunityRecord, SQLiteStore
+from backend.app.database import GraphCommunityEdgeRecord, GraphCommunityRecord, SQLiteStore
 from backend.app.services.ast_parser import AstParser, AstSymbol, parse_scanned_files
 from backend.app.services.community_detector import CommunityDetector
+from backend.app.services.community_edges import CommunityEdgeBuilder
 from backend.app.services.community_records import CommunityRecordBuilder
 from backend.app.services.graph import CodeGraph, GraphBuilder
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner
@@ -14,6 +15,7 @@ class AnalysisPipelineResult:
     scan: RepoScanResult
     graph: CodeGraph
     communities: list[GraphCommunityRecord]
+    community_edges: list[GraphCommunityEdgeRecord]
     community_algorithm: str
     parsed_symbols: list[AstSymbol]
     parse_errors: list[dict[str, str]]
@@ -33,6 +35,7 @@ class AnalysisPipeline:
         graph_builder: GraphBuilder | None = None,
         community_detector: CommunityDetector | None = None,
         community_record_builder: CommunityRecordBuilder | None = None,
+        community_edge_builder: CommunityEdgeBuilder | None = None,
     ) -> None:
         self.store = store
         self.scanner = scanner or RepoScanner()
@@ -40,6 +43,7 @@ class AnalysisPipeline:
         self.graph_builder = graph_builder or GraphBuilder()
         self.community_detector = community_detector or CommunityDetector()
         self.community_record_builder = community_record_builder or CommunityRecordBuilder()
+        self.community_edge_builder = community_edge_builder or CommunityEdgeBuilder()
 
     def scan_repo(self, repo: RepoDescriptor) -> RepoScanResult:
         return self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
@@ -71,20 +75,23 @@ class AnalysisPipeline:
         community_partitions = self.community_detector.detect(graph.nodes, graph.edges)
         communities = self.community_record_builder.build_all(
             scan.repo.id,
-            community_partitions.partitions,
+            community_partitions.communities,
             graph.nodes,
             graph.edges,
             community_partitions.algorithm,
         )
+        community_edges = self.community_edge_builder.build(scan.repo.id, communities, graph.edges)
 
         if persist:
             self.store.replace_graph(scan.repo.id, nodes=graph.nodes, edges=graph.edges)
             self.store.replace_graph_communities(scan.repo.id, communities)
+            self.store.replace_graph_community_edges(scan.repo.id, community_edges)
 
         return AnalysisPipelineResult(
             scan=scan,
             graph=graph,
             communities=communities,
+            community_edges=community_edges,
             community_algorithm=community_partitions.algorithm,
             parsed_symbols=parsed_symbols,
             parse_errors=parse_errors,

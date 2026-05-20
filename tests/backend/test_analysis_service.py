@@ -5,6 +5,7 @@ import pytest
 from backend.app.config import LLMProfileSettings, LLMSettings, Settings
 from backend.app.database import SQLiteStore
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.community_detector import DetectedCommunity
 from backend.app.services.community_records import CommunityRecordBuilder
 from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.graph import CodeGraphNode
@@ -43,6 +44,7 @@ def test_analyze_persists_first_code_graph(tmp_path: Path) -> None:
     assert result.node_count == len(nodes)
     assert result.edge_count == len(edges)
     assert result.community_count == len(store.list_graph_communities(repo.id))
+    assert sum(result.community_count_by_level.values()) == result.community_count
     assert result.community_count >= 1
     assert {node.type for node in nodes} >= {"repository", "file", "class", "function", "method"}
     assert any(node.name == "os" and node.type == "module" for node in nodes)
@@ -77,6 +79,27 @@ def test_deterministic_community_names_use_file_evidence_for_init_and_dotfiles()
     assert builder.name(19, [dotfile_node.id], {dotfile_node.id: dotfile_node}) == "Gitignore"
 
 
+def test_community_record_builder_resolves_nested_parent_ids() -> None:
+    node = CodeGraphNode(
+        id="repo:file:api.py",
+        repo_id="repo",
+        type="file",
+        name="api.py",
+        file_path="api.py",
+    )
+    detected = [
+        DetectedCommunity(key="parent", node_ids=[node.id], level=0, parent_key=None, rank=0),
+        DetectedCommunity(key="child", node_ids=[node.id], level=1, parent_key="parent", rank=0),
+        DetectedCommunity(key="detail", node_ids=[node.id], level=2, parent_key="child", rank=0),
+    ]
+
+    records = CommunityRecordBuilder().build_all("repo", detected, [node], [], "test")
+    by_level = {record.level: record for record in records}
+
+    assert by_level[1].parent_id == by_level[0].id
+    assert by_level[2].parent_id == by_level[1].id
+
+
 def test_store_lists_analysis_runs(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -92,6 +115,7 @@ def test_store_lists_analysis_runs(tmp_path: Path) -> None:
     assert runs[0].status == "done"
     assert runs[0].stats["node_count"] == result.node_count
     assert runs[0].stats["community_count"] == result.community_count
+    assert runs[0].stats["community_count_by_level"] == result.community_count_by_level
 
 
 @pytest.mark.asyncio

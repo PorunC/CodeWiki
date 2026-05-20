@@ -32,8 +32,21 @@ class GraphCommunity(BaseModel):
     id: str
     name: str
     level: int
+    parent_id: str | None = None
+    rank: int = 0
     node_ids: list[str]
     summary: str = ""
+
+
+class GraphCommunityEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: str
+    weight: float = 1.0
+    confidence: float = 1.0
+    reason: str | None = None
+    evidence_edge_ids: list[str] = Field(default_factory=list)
 
 
 class GraphResponse(BaseModel):
@@ -41,6 +54,7 @@ class GraphResponse(BaseModel):
     nodes: list[CodeNode]
     edges: list[CodeEdge]
     communities: list[GraphCommunity] = Field(default_factory=list)
+    community_edges: list[GraphCommunityEdge] = Field(default_factory=list)
 
 
 class CodeNodeSearchHit(BaseModel):

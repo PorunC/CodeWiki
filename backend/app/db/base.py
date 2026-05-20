@@ -97,6 +97,14 @@ class BaseSQLiteStore:
                     "language_code": "TEXT NOT NULL DEFAULT 'en'",
                 },
             )
+            self._ensure_columns(
+                connection,
+                "graph_community",
+                {
+                    "parent_id": "TEXT",
+                    "rank": "INTEGER DEFAULT 0",
+                },
+            )
             connection.execute("DROP INDEX IF EXISTS idx_doc_page_slug")
             connection.execute(
                 """

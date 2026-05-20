@@ -16,7 +16,13 @@ def naming_payload(
     communities: list[GraphCommunityRecord],
     node_by_id: dict[str, CodeGraphNode],
     edges: list[CodeGraphEdge],
+    *,
+    all_communities: list[GraphCommunityRecord] | None = None,
 ) -> dict[str, Any]:
+    community_by_id = {
+        community.id: community
+        for community in (all_communities or communities)
+    }
     return {
         "repo": {
             "id": repo_id,
@@ -28,7 +34,7 @@ def naming_payload(
             "deterministic summaries, and graph relationships. Keep node membership unchanged."
         ),
         "communities": [
-            community_payload(community, node_by_id, edges)
+            community_payload(community, node_by_id, edges, community_by_id=community_by_id)
             for community in communities
         ],
         "naming_rules": [
@@ -60,6 +66,8 @@ def community_payload(
     community: GraphCommunityRecord,
     node_by_id: dict[str, CodeGraphNode],
     edges: list[CodeGraphEdge],
+    *,
+    community_by_id: dict[str, GraphCommunityRecord] | None = None,
 ) -> dict[str, Any]:
     node_ids = set(community.node_ids)
     files = sorted(
@@ -88,9 +96,19 @@ def community_payload(
         for edge in edges
         if (edge.source_id in node_ids) ^ (edge.target_id in node_ids)
     ][:MAX_COMMUNITY_EDGES]
-    return {
+    parent = (
+        community_by_id.get(community.parent_id)
+        if community_by_id is not None and isinstance(community.parent_id, str)
+        else None
+    )
+    payload = {
         "id": community.id,
         "current_name": community.name,
+        "level": community.level,
+        "parent_id": community.parent_id,
+        "parent_name": parent.name if parent is not None else None,
+        "ancestor_names": _ancestor_names(community, community_by_id or {}),
+        "rank": community.rank,
         "node_count": len(community.node_ids),
         "files": files[:MAX_COMMUNITY_FILES],
         "symbols": symbols[:MAX_COMMUNITY_SYMBOLS],
@@ -98,6 +116,7 @@ def community_payload(
         "internal_edges": internal_edges,
         "boundary_edges": boundary_edges,
     }
+    return {key: value for key, value in payload.items() if value not in (None, [])}
 
 
 def edge_payload(
@@ -114,3 +133,20 @@ def edge_payload(
         "target_type": target.type if target else "",
         "confidence": edge.confidence,
     }
+
+
+def _ancestor_names(
+    community: GraphCommunityRecord,
+    community_by_id: dict[str, GraphCommunityRecord],
+) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    parent_id = community.parent_id
+    while isinstance(parent_id, str) and parent_id and parent_id not in seen:
+        seen.add(parent_id)
+        parent = community_by_id.get(parent_id)
+        if parent is None:
+            break
+        names.append(parent.name)
+        parent_id = parent.parent_id
+    return list(reversed(names))

@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 
 from backend.app.database import GraphCommunityRecord, SQLiteStore
-from backend.app.services.community_naming import apply_llm_names, fallback_name_from_payload
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.community_namer import CommunityNamer
+from backend.app.services.community_namer import CommunityNamer, _select_naming_targets
+from backend.app.services.community_naming import apply_llm_names, fallback_name_from_payload, naming_payload
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 
@@ -104,6 +104,35 @@ def test_fallback_name_uses_init_package_and_dotfile_evidence() -> None:
     assert fallback_name_from_payload({"files": [".gitignore"]}) == "Gitignore"
 
 
+def test_community_namer_selects_targets_across_hierarchy() -> None:
+    parent = _community("parent", level=0, rank=0, node_ids=["parent:a"])
+    child = _community("child", level=1, parent_id="parent", node_ids=["child:a", "child:b"])
+    detail = _community("detail", level=2, parent_id="child", node_ids=["detail:a", "detail:b", "detail:c"])
+
+    selected = _select_naming_targets([parent, child, detail], max_communities=3)
+
+    assert [community.id for community in selected] == ["parent", "child", "detail"]
+
+
+def test_naming_payload_includes_parent_context() -> None:
+    parent = _community("parent", name="GraphRAG Pipeline", level=0)
+    child = _community("child", name="Context Packing", level=1, parent_id="parent")
+
+    payload = naming_payload(
+        "repo",
+        "Repo",
+        "/repo",
+        [child],
+        {},
+        [],
+        all_communities=[parent, child],
+    )
+
+    community = payload["communities"][0]
+    assert community["parent_name"] == "GraphRAG Pipeline"
+    assert community["ancestor_names"] == ["GraphRAG Pipeline"]
+
+
 class _FakeCommunityLLM:
     def __init__(self, community_id: str) -> None:
         self.community_id = community_id
@@ -154,3 +183,26 @@ class _FakeGenericCommunityLLM:
             ]
         }
         return LLMResult(content=json.dumps(payload), model="fake/community", usage={})
+
+
+def _community(
+    community_id: str,
+    *,
+    name: str | None = None,
+    level: int = 0,
+    parent_id: str | None = None,
+    rank: int = 0,
+    node_ids: list[str] | None = None,
+) -> GraphCommunityRecord:
+    return GraphCommunityRecord(
+        id=community_id,
+        repo_id="repo",
+        name=name or community_id.title(),
+        level=level,
+        parent_id=parent_id,
+        rank=rank,
+        node_ids=node_ids or [f"{community_id}:node"],
+        summary=f"{community_id} summary",
+        summary_hash=None,
+        created_at=None,
+    )

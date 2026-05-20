@@ -26,6 +26,7 @@ class AnalysisResult:
     node_count: int
     edge_count: int
     community_count: int
+    community_count_by_level: dict[str, int] = field(default_factory=dict)
     errors: list[dict[str, str]] = field(default_factory=list)
 
     def stats(self) -> dict[str, Any]:
@@ -35,6 +36,7 @@ class AnalysisResult:
             "node_count": self.node_count,
             "edge_count": self.edge_count,
             "community_count": self.community_count,
+            "community_count_by_level": self.community_count_by_level,
             "errors": self.errors,
         }
 
@@ -129,6 +131,7 @@ class AnalysisService:
                 node_count=len(pipeline_result.graph.nodes),
                 edge_count=len(pipeline_result.graph.edges),
                 community_count=len(pipeline_result.communities),
+                community_count_by_level=_community_count_by_level(pipeline_result.communities),
                 errors=pipeline_result.parse_errors,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
@@ -163,3 +166,11 @@ async def _summarize_communities(namer: CommunityNamer, repo_id: str) -> Communi
     if callable(summarize):
         return await summarize(repo_id)
     return await namer.name_communities(repo_id)
+
+
+def _community_count_by_level(communities) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for community in communities:
+        level = str(int(getattr(community, "level", 0) or 0))
+        counts[level] = counts.get(level, 0) + 1
+    return counts

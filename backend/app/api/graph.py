@@ -12,6 +12,7 @@ from backend.app.schemas.graph import (
     GraphAffectedRequest,
     GraphAffectedResponse,
     GraphCommunity,
+    GraphCommunityEdge,
     GraphExploreRequest,
     GraphExploreResponse,
     GraphRelationshipResponse,
@@ -52,6 +53,7 @@ async def get_graph(repo_id: str) -> GraphResponse:
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     nodes, edges = store.get_graph(repo_id)
     communities = store.list_graph_communities(repo_id)
+    community_edges = store.list_graph_community_edges(repo_id)
     return GraphResponse(
         repo_id=repo_id,
         nodes=[
@@ -98,10 +100,25 @@ async def get_graph(repo_id: str) -> GraphResponse:
                 id=community.id,
                 name=community.name,
                 level=community.level,
+                parent_id=community.parent_id,
+                rank=community.rank,
                 node_ids=community.node_ids,
                 summary=community.summary or "",
             )
             for community in communities
+        ],
+        community_edges=[
+            GraphCommunityEdge(
+                id=edge.id,
+                source=edge.source_community_id,
+                target=edge.target_community_id,
+                type=edge.type,
+                weight=edge.weight,
+                confidence=edge.confidence,
+                reason=edge.reason,
+                evidence_edge_ids=edge.evidence_edge_ids,
+            )
+            for edge in community_edges
         ],
     )
 
@@ -285,12 +302,14 @@ async def get_node(repo_id: str, node_id: str) -> dict[str, str]:
 
 
 @router.get("/{repo_id}/communities")
-async def get_communities(repo_id: str) -> list[dict[str, str]]:
+async def get_communities(repo_id: str) -> list[dict[str, object]]:
     return [
         {
             "id": community.id,
             "name": community.name,
-            "level": str(community.level),
+            "level": community.level,
+            "parent_id": community.parent_id,
+            "rank": community.rank,
             "summary": community.summary or "",
         }
         for community in get_store().list_graph_communities(repo_id)

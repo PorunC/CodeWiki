@@ -50,6 +50,7 @@ async def analyze_repo(repo_id: str, payload: AnalyzeRepoRequest | None = None) 
         "node_count": result.node_count,
         "edge_count": result.edge_count,
         "community_count": result.community_count,
+        "community_count_by_level": result.community_count_by_level,
         "errors": result.errors,
     }
     if naming_result is not None:
@@ -88,6 +89,7 @@ async def update_repo(
         "node_count": result.node_count,
         "edge_count": result.edge_count,
         "community_count": result.community_count,
+        "community_count_by_level": result.community_count_by_level,
         "chunk_count": result.chunk_count,
         "stale_pages": result.stale_pages,
         "wiki_regeneration": wiki_regeneration,

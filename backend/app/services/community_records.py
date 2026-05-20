@@ -2,6 +2,7 @@ import re
 from hashlib import sha1, sha256
 
 from backend.app.db.records import GraphCommunityRecord
+from backend.app.services.community_detector import DetectedCommunity
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 MAX_SUMMARY_FILES = 8
@@ -13,35 +14,48 @@ class CommunityRecordBuilder:
     def build_all(
         self,
         repo_id: str,
-        partitions: list[list[str]],
+        communities: list[DetectedCommunity],
         nodes: list[CodeGraphNode],
         edges: list[CodeGraphEdge],
         algorithm: str,
     ) -> list[GraphCommunityRecord]:
         node_by_id = {node.id: node for node in nodes}
+        parent_ids = {
+            community.key: self._community_id(repo_id, community)
+            for community in communities
+        }
         return [
-            self.build(repo_id, index, node_ids, node_by_id, edges, algorithm)
-            for index, node_ids in enumerate(partitions)
-            if node_ids
+            self.build(repo_id, community, node_by_id, edges, algorithm, parent_ids)
+            for community in communities
+            if community.node_ids
         ]
 
     def build(
         self,
         repo_id: str,
-        index: int,
-        node_ids: list[str],
+        community: DetectedCommunity,
         node_by_id: dict[str, CodeGraphNode],
         edges: list[CodeGraphEdge],
         algorithm: str,
+        parent_ids: dict[str, str] | None = None,
     ) -> GraphCommunityRecord:
-        name = self.name(index, node_ids, node_by_id)
-        summary = self.summary(name, node_ids, node_by_id, edges, algorithm)
-        digest = sha1("|".join(sorted(node_ids)).encode("utf-8")).hexdigest()[:16]
+        node_ids = community.node_ids
+        name = self.name(community.rank, node_ids, node_by_id)
+        summary = self.summary(
+            name,
+            node_ids,
+            node_by_id,
+            edges,
+            algorithm,
+            level=community.level,
+        )
         return GraphCommunityRecord(
-            id=f"{repo_id}:community:0:{digest}",
+            id=self._community_id(repo_id, community),
             repo_id=repo_id,
             name=name,
-            level=0,
+            level=community.level,
+            parent_id=(parent_ids or {}).get(community.parent_key or ""),
+            rank=community.rank,
             node_ids=sorted(node_ids),
             summary=summary,
             summary_hash=sha256(summary.encode("utf-8")).hexdigest(),
@@ -66,6 +80,8 @@ class CommunityRecordBuilder:
         node_by_id: dict[str, CodeGraphNode],
         edges: list[CodeGraphEdge],
         algorithm: str,
+        *,
+        level: int = 0,
     ) -> str:
         node_id_set = set(node_ids)
         files = self._community_files(node_ids, node_by_id)
@@ -81,9 +97,14 @@ class CommunityRecordBuilder:
             if (edge.source_id in node_id_set) ^ (edge.target_id in node_id_set)
         ]
 
-        lines = [
-            f"{name} was detected by {algorithm} and contains {len(node_ids)} graph nodes.",
-        ]
+        if level == 0:
+            lines = [
+                f"{name} is a parent community detected by {algorithm} and contains {len(node_ids)} graph nodes.",
+            ]
+        else:
+            lines = [
+                f"{name} is an implementation community detected by {algorithm} and contains {len(node_ids)} graph nodes.",
+            ]
         if files:
             lines.append(f"Key files: {', '.join(files[:MAX_SUMMARY_FILES])}.")
         if symbols:
@@ -218,3 +239,16 @@ class CommunityRecordBuilder:
                 continue
             deduped.append(word)
         return " ".join(deduped)
+
+    @staticmethod
+    def _community_id(repo_id: str, community: DetectedCommunity) -> str:
+        digest = sha1(
+            "|".join(
+                [
+                    str(community.level),
+                    community.parent_key or "",
+                    *sorted(community.node_ids),
+                ]
+            ).encode("utf-8")
+        ).hexdigest()[:16]
+        return f"{repo_id}:community:{community.level}:{digest}"

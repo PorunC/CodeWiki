@@ -5,6 +5,7 @@ from backend.app.models import (
     CodeChunkSearchHit,
     DocCatalogRecord,
     DocPageRecord,
+    GraphCommunityEdgeRecord,
     GraphCommunityRecord,
     LLMRunRecord,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "CodeChunkSearchHit",
     "DocCatalogRecord",
     "DocPageRecord",
+    "GraphCommunityEdgeRecord",
     "GraphCommunityRecord",
     "LLMRunRecord",
     "SQLiteStore",
