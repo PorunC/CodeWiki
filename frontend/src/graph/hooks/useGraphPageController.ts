@@ -15,8 +15,11 @@ import {
   filterKey,
   filterRawGraph,
   isFileLikeNode,
+  hasDetailedCommunities,
+  hasHierarchicalCommunities,
   summarizeVisualGraph,
   toggleSetValue,
+  type CommunityLevelMode,
   type DrilldownContainerSelection,
   type FlowNode,
   type GraphDensityMode,
@@ -66,6 +69,7 @@ export function useGraphPageController({
   const [selectedEdgeTypes, setSelectedEdgeTypes] = useState<Set<string>>(new Set());
   const [showInferredCalls, setShowInferredCalls] = useState(false);
   const [showIsolatedCommunities, setShowIsolatedCommunities] = useState(false);
+  const [communityLevelMode, setCommunityLevelMode] = useState<CommunityLevelMode>("parents");
   const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
   const [highlightedRawNodeIds, setHighlightedRawNodeIds] = useState<Set<string>>(new Set());
   const [highlightLabel, setHighlightLabel] = useState("Ask-related");
@@ -153,6 +157,7 @@ export function useGraphPageController({
       setSelectedEdgeTypes(defaultReadableEdgeTypes(collectEdgeTypes(repoGraph.edges)));
       setShowInferredCalls(false);
       setShowIsolatedCommunities(false);
+      setCommunityLevelMode("parents");
       setDensityMode("readable");
       setSelectedNodeId(firstFile?.id ?? null);
       setSelectedVisualId(null);
@@ -191,8 +196,16 @@ export function useGraphPageController({
     [graph, selectedEdgeTypes, selectedNodeTypes, showInferredCalls]
   );
   const hiddenIsolatedCommunityCount = useMemo(
-    () => countDefaultHiddenIsolatedCommunities(graph?.communities ?? [], filteredGraph, containment),
-    [containment, filteredGraph, graph?.communities]
+    () => countDefaultHiddenIsolatedCommunities(graph?.communities ?? [], filteredGraph, containment, communityLevelMode),
+    [communityLevelMode, containment, filteredGraph, graph?.communities]
+  );
+  const communityHierarchyAvailable = useMemo(
+    () => hasHierarchicalCommunities(graph?.communities ?? []),
+    [graph?.communities]
+  );
+  const detailedCommunitiesAvailable = useMemo(
+    () => hasDetailedCommunities(graph?.communities ?? []),
+    [graph?.communities]
   );
 
   useEffect(() => {
@@ -229,7 +242,7 @@ export function useGraphPageController({
           : "stable";
   const requestedFlowKey = `${selectedRepoId}:${viewMode}:${viewLayoutKey}:${filterKey(
     selectedNodeTypes
-  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}:${showIsolatedCommunities}:${densityMode}`;
+  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}:${showIsolatedCommunities}:${densityMode}:${communityLevelMode}`;
 
   const { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading, activeFlowKey } = useVisualGraph({
     graph,
@@ -244,6 +257,7 @@ export function useGraphPageController({
     hiddenVisualIds,
     highlightedRawNodeIds,
     showIsolatedCommunities,
+    communityLevelMode,
     flowKey: requestedFlowKey
   });
 
@@ -375,6 +389,7 @@ export function useGraphPageController({
     setSelectedEdgeTypes(densityMode === "readable" ? defaultReadableEdgeTypes(edgeTypes) : defaultFullEdgeTypes(edgeTypes));
     setShowInferredCalls(densityMode === "full");
     setShowIsolatedCommunities(false);
+    setCommunityLevelMode("parents");
   }, [densityMode, edgeTypes, nodeTypes]);
 
   const toggleDensityMode = useCallback(() => {
@@ -675,6 +690,9 @@ export function useGraphPageController({
     selectedEdgeTypes,
     showInferredCalls,
     showIsolatedCommunities,
+    communityLevelMode,
+    communityHierarchyAvailable,
+    detailedCommunitiesAvailable,
     hiddenIsolatedCommunityCount,
     highlightedRawNodeIds,
     highlightLabel,
@@ -696,6 +714,7 @@ export function useGraphPageController({
       toggleDensityMode,
       setShowInferredCalls,
       setShowIsolatedCommunities,
+      setCommunityLevelMode,
       resetFilters,
       showHiddenNode,
       showAllHiddenNodes,

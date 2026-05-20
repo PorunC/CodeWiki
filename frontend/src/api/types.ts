@@ -114,8 +114,21 @@ export type GraphCommunity = {
   id: string;
   name: string;
   level: number;
+  parent_id?: string | null;
+  rank?: number;
   node_ids: string[];
   summary: string;
+};
+
+export type GraphCommunityEdge = {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+  weight: number;
+  confidence: number;
+  reason?: string | null;
+  evidence_edge_ids: string[];
 };
 
 export type GraphResponse = {
@@ -123,6 +136,7 @@ export type GraphResponse = {
   nodes: CodeNode[];
   edges: CodeEdge[];
   communities?: GraphCommunity[];
+  community_edges?: GraphCommunityEdge[];
 };
 
 export type SourceRef = {

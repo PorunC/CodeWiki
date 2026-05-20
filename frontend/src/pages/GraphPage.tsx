@@ -76,6 +76,9 @@ export function GraphPage({
     selectedEdgeTypes,
     showInferredCalls,
     showIsolatedCommunities,
+    communityLevelMode,
+    communityHierarchyAvailable,
+    detailedCommunitiesAvailable,
     hiddenIsolatedCommunityCount,
     highlightedRawNodeIds,
     highlightLabel,
@@ -247,6 +250,9 @@ export function GraphPage({
           selectedEdgeTypes={selectedEdgeTypes}
           showInferredCalls={showInferredCalls}
           showIsolatedCommunities={showIsolatedCommunities}
+          communityLevelMode={communityLevelMode}
+          communityHierarchyAvailable={communityHierarchyAvailable}
+          detailedCommunitiesAvailable={detailedCommunitiesAvailable}
           hiddenIsolatedCommunityCount={hiddenIsolatedCommunityCount}
           graphLoaded={graphLoaded}
           hiddenNodes={hiddenNodes}
@@ -254,6 +260,7 @@ export function GraphPage({
           onEdgeTypeToggle={actions.toggleEdgeType}
           onShowInferredCallsChange={actions.setShowInferredCalls}
           onShowIsolatedCommunitiesChange={actions.setShowIsolatedCommunities}
+          onCommunityLevelModeChange={actions.setCommunityLevelMode}
           onResetFilters={actions.resetFilters}
           onShowHiddenNode={actions.showHiddenNode}
           onShowAllHiddenNodes={actions.showAllHiddenNodes}

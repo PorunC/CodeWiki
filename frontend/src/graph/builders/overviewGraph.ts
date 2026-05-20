@@ -72,7 +72,10 @@ type CommunityCandidate = {
 export type OverviewCommunityOptions = {
   densityMode?: GraphDensityMode;
   showIsolatedCommunities?: boolean;
+  communityLevelMode?: CommunityLevelMode;
 };
+
+export type CommunityLevelMode = "parents" | "children" | "details";
 
 export async function buildOverviewGraph(
   graph: GraphResponse,
@@ -97,7 +100,9 @@ async function buildCommunityOverviewGraph(
 ): Promise<VisualGraph> {
   const densityMode = options.densityMode ?? "readable";
   const showIsolatedCommunities = options.showIsolatedCommunities ?? false;
-  const ranked = rankCommunities(graph.communities ?? [], filtered, containment);
+  const communityLevelMode = options.communityLevelMode ?? "parents";
+  const communitiesForLevel = overviewCommunities(graph.communities ?? [], communityLevelMode);
+  const ranked = rankCommunities(communitiesForLevel, filtered, containment);
   const aggregatedIsolatedCommunities = showIsolatedCommunities
     ? []
     : ranked.filter((candidate) => candidate.isIsolated && !candidate.isOverviewImportant);
@@ -143,7 +148,7 @@ async function buildCommunityOverviewGraph(
     topLevelNodes.push({ id: DEPENDENCY_NODE_ID, width: 300, height: 170 });
   }
 
-  const positions = await layoutBoxesCached(`overview:communities:${densityMode}`, topLevelNodes, edgeBuckets, "LR", {
+  const positions = await layoutBoxesCached(`overview:communities:${densityMode}:${communityLevelMode}`, topLevelNodes, edgeBuckets, "LR", {
     edgesep: 24,
     marginx: 48,
     marginy: 48,
@@ -385,11 +390,33 @@ async function buildDirectoryOverviewGraph(
 export function countDefaultHiddenIsolatedCommunities(
   communities: GraphCommunity[],
   filtered: FilteredGraph,
-  containment: ContainmentIndex
+  containment: ContainmentIndex,
+  communityLevelMode: CommunityLevelMode = "parents"
 ): number {
-  return rankCommunities(communities, filtered, containment).filter(
+  return rankCommunities(overviewCommunities(communities, communityLevelMode), filtered, containment).filter(
     (candidate) => candidate.isIsolated && !candidate.isOverviewImportant
   ).length;
+}
+
+export function hasHierarchicalCommunities(communities: GraphCommunity[]): boolean {
+  return communities.some((community) => community.parent_id);
+}
+
+export function hasDetailedCommunities(communities: GraphCommunity[]): boolean {
+  return communities.some((community) => community.level >= 2);
+}
+
+function overviewCommunities(
+  communities: GraphCommunity[],
+  communityLevelMode: CommunityLevelMode
+): GraphCommunity[] {
+  const hasHierarchy = communities.some((community) => community.parent_id);
+  if (!hasHierarchy) {
+    return communities;
+  }
+  const level = communityLevelMode === "details" ? 2 : communityLevelMode === "children" ? 1 : 0;
+  const selected = communities.filter((community) => community.level === level);
+  return selected.length > 0 ? selected : communities;
 }
 
 function rankCommunities(

@@ -14,6 +14,7 @@ import {
   type FilteredGraph,
   type FlowEdge,
   type FlowNode,
+  type CommunityLevelMode,
   type GraphDensityMode,
   type GraphViewMode
 } from "./graphModel";
@@ -31,6 +32,7 @@ export function useVisualGraph({
   hiddenVisualIds,
   highlightedRawNodeIds,
   showIsolatedCommunities,
+  communityLevelMode,
   flowKey
 }: {
   graph: GraphResponse | null;
@@ -45,6 +47,7 @@ export function useVisualGraph({
   hiddenVisualIds: Set<string>;
   highlightedRawNodeIds: Set<string>;
   showIsolatedCommunities: boolean;
+  communityLevelMode: CommunityLevelMode;
   flowKey: string;
 }) {
   const [baseVisualGraph, setBaseVisualGraph] = useState<{ nodes: FlowNode[]; edges: FlowEdge[] }>({
@@ -94,7 +97,8 @@ export function useVisualGraph({
         } else {
           nextGraph = await buildOverviewGraph(graph, filteredGraph, containment, null, {
             densityMode,
-            showIsolatedCommunities
+            showIsolatedCommunities,
+            communityLevelMode
           });
         }
 
@@ -120,6 +124,7 @@ export function useVisualGraph({
     };
   }, [
     containment,
+    communityLevelMode,
     densityMode,
     filteredGraph,
     flowKey,
