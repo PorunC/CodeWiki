@@ -70,6 +70,7 @@ export function useGraphPageController({
   const [showInferredCalls, setShowInferredCalls] = useState(false);
   const [showIsolatedCommunities, setShowIsolatedCommunities] = useState(false);
   const [communityLevelMode, setCommunityLevelMode] = useState<CommunityLevelMode>("parents");
+  const [communityScopeParentId, setCommunityScopeParentId] = useState<string | null>(null);
   const [hiddenVisualIds, setHiddenVisualIds] = useState<Set<string>>(new Set());
   const [highlightedRawNodeIds, setHighlightedRawNodeIds] = useState<Set<string>>(new Set());
   const [highlightLabel, setHighlightLabel] = useState("Ask-related");
@@ -157,7 +158,8 @@ export function useGraphPageController({
       setSelectedEdgeTypes(defaultReadableEdgeTypes(collectEdgeTypes(repoGraph.edges)));
       setShowInferredCalls(false);
       setShowIsolatedCommunities(false);
-      setCommunityLevelMode("parents");
+      setCommunityLevelMode(defaultCommunityLevelMode());
+      setCommunityScopeParentId(null);
       setDensityMode("readable");
       setSelectedNodeId(firstFile?.id ?? null);
       setSelectedVisualId(null);
@@ -196,8 +198,15 @@ export function useGraphPageController({
     [graph, selectedEdgeTypes, selectedNodeTypes, showInferredCalls]
   );
   const hiddenIsolatedCommunityCount = useMemo(
-    () => countDefaultHiddenIsolatedCommunities(graph?.communities ?? [], filteredGraph, containment, communityLevelMode),
-    [communityLevelMode, containment, filteredGraph, graph?.communities]
+    () =>
+      countDefaultHiddenIsolatedCommunities(
+        graph?.communities ?? [],
+        filteredGraph,
+        containment,
+        communityLevelMode,
+        communityScopeParentId
+      ),
+    [communityLevelMode, communityScopeParentId, containment, filteredGraph, graph?.communities]
   );
   const communityHierarchyAvailable = useMemo(
     () => hasHierarchicalCommunities(graph?.communities ?? []),
@@ -242,7 +251,7 @@ export function useGraphPageController({
           : "stable";
   const requestedFlowKey = `${selectedRepoId}:${viewMode}:${viewLayoutKey}:${filterKey(
     selectedNodeTypes
-  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}:${showIsolatedCommunities}:${densityMode}:${communityLevelMode}`;
+  )}:${filterKey(selectedEdgeTypes)}:${showInferredCalls}:${showIsolatedCommunities}:${densityMode}:${communityLevelMode}:${communityScopeParentId ?? "all"}`;
 
   const { baseVisualGraph, visualGraph, selectedVisualData, layoutLoading, activeFlowKey } = useVisualGraph({
     graph,
@@ -258,6 +267,7 @@ export function useGraphPageController({
     highlightedRawNodeIds,
     showIsolatedCommunities,
     communityLevelMode,
+    communityScopeParentId,
     flowKey: requestedFlowKey
   });
 
@@ -389,8 +399,14 @@ export function useGraphPageController({
     setSelectedEdgeTypes(densityMode === "readable" ? defaultReadableEdgeTypes(edgeTypes) : defaultFullEdgeTypes(edgeTypes));
     setShowInferredCalls(densityMode === "full");
     setShowIsolatedCommunities(false);
-    setCommunityLevelMode("parents");
+    setCommunityLevelMode(defaultCommunityLevelMode());
+    setCommunityScopeParentId(null);
   }, [densityMode, edgeTypes, nodeTypes]);
+
+  const selectCommunityLevelMode = useCallback((mode: CommunityLevelMode) => {
+    setCommunityLevelMode(mode);
+    setCommunityScopeParentId(null);
+  }, []);
 
   const toggleDensityMode = useCallback(() => {
     setDensityMode((current) => {
@@ -419,6 +435,8 @@ export function useGraphPageController({
 
   const openOverview = useCallback(() => {
     setViewMode("overview");
+    setCommunityLevelMode(defaultCommunityLevelMode());
+    setCommunityScopeParentId(null);
     setSelectedVisualId(null);
     setSelectedNodeId(null);
     setSelectedFileId(null);
@@ -634,6 +652,27 @@ export function useGraphPageController({
         openFileDetail(data.fileId);
         return;
       }
+      if (viewMode === "overview" && data.kind === "container" && data.containerType === "community") {
+        const nextMode = nextCommunityLevelMode(graph, data.communityId, data.communityLevel);
+        if (nextMode && data.communityId) {
+          setCommunityLevelMode(nextMode);
+          setCommunityScopeParentId(data.communityId);
+          setSelectedVisualId(null);
+          setSelectedNodeId(null);
+          setSelectedFileId(null);
+          setDrilldownContainer(null);
+          setViewMode("overview");
+          return;
+        }
+        openContainerDrilldown({
+          id: node.id,
+          title: data.title,
+          pathLabel: data.pathLabel,
+          containerType: "community",
+          rawNodeIds: data.rawNodeIds
+        });
+        return;
+      }
       const primaryNodeId = data.kind === "container" ? data.primaryNodeId ?? null : data.codeNode.id;
       if (viewMode === "focus" && primaryNodeId) {
         setFocusNodeId(primaryNodeId);
@@ -641,7 +680,7 @@ export function useGraphPageController({
         setSelectedVisualId(primaryNodeId);
       }
     },
-    [openFileDetail, viewMode]
+    [graph, openContainerDrilldown, openFileDetail, viewMode]
   );
 
   const selectMode = useCallback(
@@ -655,9 +694,13 @@ export function useGraphPageController({
         setSelectedVisualId(`file-detail:${selectedFileId}`);
         setSelectedNodeId(selectedFileId);
       }
-      if (mode === "overview" && selectedFileId) {
-        setSelectedVisualId(selectedFileId);
-        setSelectedNodeId(selectedFileId);
+      if (mode === "overview") {
+        setCommunityLevelMode(defaultCommunityLevelMode());
+        setCommunityScopeParentId(null);
+        if (selectedFileId) {
+          setSelectedVisualId(selectedFileId);
+          setSelectedNodeId(selectedFileId);
+        }
       }
       if (mode === "focus" && selectedNodeId) {
         setFocusNodeId(selectedNodeId);
@@ -714,7 +757,7 @@ export function useGraphPageController({
       toggleDensityMode,
       setShowInferredCalls,
       setShowIsolatedCommunities,
-      setCommunityLevelMode,
+      setCommunityLevelMode: selectCommunityLevelMode,
       resetFilters,
       showHiddenNode,
       showAllHiddenNodes,
@@ -728,4 +771,26 @@ export function useGraphPageController({
       handleNavigateToNode
     }
   };
+}
+
+function defaultCommunityLevelMode(): CommunityLevelMode {
+  return "parents";
+}
+
+function nextCommunityLevelMode(
+  graph: GraphResponse | null,
+  communityId?: string,
+  communityLevel?: number
+): CommunityLevelMode | null {
+  if (!graph || !communityId) {
+    return null;
+  }
+  const communities = graph.communities ?? [];
+  if (communityLevel === 0 && communities.some((community) => community.parent_id === communityId && community.level === 1)) {
+    return "children";
+  }
+  if (communityLevel === 1 && communities.some((community) => community.parent_id === communityId && community.level === 2)) {
+    return "details";
+  }
+  return null;
 }

@@ -1,6 +1,7 @@
 import json
 
 from backend.app.database import SQLiteStore, get_store
+from backend.app.services.community_edges import CommunityEdgeBuilder
 from backend.app.services.community_naming import (
     COMMUNITIES_PER_BATCH,
     MAX_COMMUNITIES_PER_LLM_CALL,
@@ -121,6 +122,10 @@ class CommunityNamer:
             llm_run_ids.append(llm_run.id)
 
         self.store.replace_graph_communities(repo_id, renamed)
+        self.store.replace_graph_community_edges(
+            repo_id,
+            CommunityEdgeBuilder().build(repo_id, renamed, edges),
+        )
         renamed_total = renamed_count(communities, renamed)
         return CommunityNamingResult(
             repo_id=repo_id,

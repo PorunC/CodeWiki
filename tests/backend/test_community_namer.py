@@ -5,8 +5,10 @@ import pytest
 
 from backend.app.database import GraphCommunityRecord, SQLiteStore
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.community_edges import CommunityEdgeBuilder
 from backend.app.services.community_namer import CommunityNamer, _select_naming_targets
 from backend.app.services.community_naming import apply_llm_names, fallback_name_from_payload, naming_payload
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 
@@ -63,6 +65,34 @@ async def test_community_namer_rejects_generic_llm_names(tmp_path: Path) -> None
 
     assert renamed.name != "backend subsystem"
     assert "Community Detector" in renamed.name
+
+
+@pytest.mark.asyncio
+async def test_community_namer_rebuilds_community_edges_after_renaming(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    nodes = [
+        CodeGraphNode(id="node-a", repo_id=repo.id, type="function", name="alpha", file_path="a.py"),
+        CodeGraphNode(id="node-b", repo_id=repo.id, type="function", name="beta", file_path="b.py"),
+    ]
+    edges = [
+        CodeGraphEdge(id="edge-a-b", repo_id=repo.id, source_id="node-a", target_id="node-b", type="calls")
+    ]
+    communities = [
+        _community("parent", repo_id=repo.id, level=0, node_ids=["node-a", "node-b"]),
+        _community("child-a", repo_id=repo.id, level=1, parent_id="parent", node_ids=["node-a"]),
+        _community("child-b", repo_id=repo.id, level=1, parent_id="parent", node_ids=["node-b"]),
+    ]
+    store.replace_graph(repo.id, nodes=nodes, edges=edges)
+    store.replace_graph_communities(repo.id, communities)
+    store.replace_graph_community_edges(repo.id, CommunityEdgeBuilder().build(repo.id, communities, edges))
+    assert {edge.type for edge in store.list_graph_community_edges(repo.id)} == {"calls_into", "contains"}
+
+    await CommunityNamer(_FakeCommunityLLM("parent"), store=store).name_communities(repo.id)
+
+    assert {edge.type for edge in store.list_graph_community_edges(repo.id)} == {"calls_into", "contains"}
 
 
 def test_community_namer_rejects_cluster_number_names() -> None:
@@ -188,6 +218,7 @@ class _FakeGenericCommunityLLM:
 def _community(
     community_id: str,
     *,
+    repo_id: str = "repo",
     name: str | None = None,
     level: int = 0,
     parent_id: str | None = None,
@@ -196,7 +227,7 @@ def _community(
 ) -> GraphCommunityRecord:
     return GraphCommunityRecord(
         id=community_id,
-        repo_id="repo",
+        repo_id=repo_id,
         name=name or community_id.title(),
         level=level,
         parent_id=parent_id,

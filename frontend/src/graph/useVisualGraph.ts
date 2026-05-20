@@ -33,6 +33,7 @@ export function useVisualGraph({
   highlightedRawNodeIds,
   showIsolatedCommunities,
   communityLevelMode,
+  communityScopeParentId,
   flowKey
 }: {
   graph: GraphResponse | null;
@@ -48,6 +49,7 @@ export function useVisualGraph({
   highlightedRawNodeIds: Set<string>;
   showIsolatedCommunities: boolean;
   communityLevelMode: CommunityLevelMode;
+  communityScopeParentId: string | null;
   flowKey: string;
 }) {
   const [baseVisualGraph, setBaseVisualGraph] = useState<{ nodes: FlowNode[]; edges: FlowEdge[] }>({
@@ -98,7 +100,8 @@ export function useVisualGraph({
           nextGraph = await buildOverviewGraph(graph, filteredGraph, containment, null, {
             densityMode,
             showIsolatedCommunities,
-            communityLevelMode
+            communityLevelMode,
+            communityScopeParentId
           });
         }
 
@@ -125,6 +128,7 @@ export function useVisualGraph({
   }, [
     containment,
     communityLevelMode,
+    communityScopeParentId,
     densityMode,
     filteredGraph,
     flowKey,

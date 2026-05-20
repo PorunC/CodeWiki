@@ -73,6 +73,7 @@ export type OverviewCommunityOptions = {
   densityMode?: GraphDensityMode;
   showIsolatedCommunities?: boolean;
   communityLevelMode?: CommunityLevelMode;
+  communityScopeParentId?: string | null;
 };
 
 export type CommunityLevelMode = "parents" | "children" | "details";
@@ -101,7 +102,11 @@ async function buildCommunityOverviewGraph(
   const densityMode = options.densityMode ?? "readable";
   const showIsolatedCommunities = options.showIsolatedCommunities ?? false;
   const communityLevelMode = options.communityLevelMode ?? "parents";
-  const communitiesForLevel = overviewCommunities(graph.communities ?? [], communityLevelMode);
+  const communitiesForLevel = overviewCommunities(
+    graph.communities ?? [],
+    communityLevelMode,
+    options.communityScopeParentId ?? null
+  );
   const ranked = rankCommunities(communitiesForLevel, filtered, containment);
   const aggregatedIsolatedCommunities = showIsolatedCommunities
     ? []
@@ -171,6 +176,9 @@ async function buildCommunityOverviewGraph(
         statsLabel: `${stats.incoming} in / ${stats.outgoing} out`,
         accentColor: nodeTone("directory").border,
         primaryNodeId: candidate.primaryNodeId,
+        communityId: candidate.community?.id,
+        communityLevel: candidate.community?.level,
+        parentCommunityId: candidate.community?.parent_id ?? null,
         rawNodeIds: candidate.rawNodeIds,
         isSelected: false,
         isNeighbor: false,
@@ -391,9 +399,10 @@ export function countDefaultHiddenIsolatedCommunities(
   communities: GraphCommunity[],
   filtered: FilteredGraph,
   containment: ContainmentIndex,
-  communityLevelMode: CommunityLevelMode = "parents"
+  communityLevelMode: CommunityLevelMode = "parents",
+  communityScopeParentId: string | null = null
 ): number {
-  return rankCommunities(overviewCommunities(communities, communityLevelMode), filtered, containment).filter(
+  return rankCommunities(overviewCommunities(communities, communityLevelMode, communityScopeParentId), filtered, containment).filter(
     (candidate) => candidate.isIsolated && !candidate.isOverviewImportant
   ).length;
 }
@@ -408,14 +417,19 @@ export function hasDetailedCommunities(communities: GraphCommunity[]): boolean {
 
 function overviewCommunities(
   communities: GraphCommunity[],
-  communityLevelMode: CommunityLevelMode
+  communityLevelMode: CommunityLevelMode,
+  communityScopeParentId: string | null
 ): GraphCommunity[] {
   const hasHierarchy = communities.some((community) => community.parent_id);
   if (!hasHierarchy) {
     return communities;
   }
   const level = communityLevelMode === "details" ? 2 : communityLevelMode === "children" ? 1 : 0;
-  const selected = communities.filter((community) => community.level === level);
+  const selected = communities.filter(
+    (community) =>
+      community.level === level &&
+      (!communityScopeParentId || community.parent_id === communityScopeParentId)
+  );
   return selected.length > 0 ? selected : communities;
 }
 

@@ -63,6 +63,9 @@ export type ContainerVisualData = {
   accentColor: string;
   fileId?: string;
   primaryNodeId?: string;
+  communityId?: string;
+  communityLevel?: number;
+  parentCommunityId?: string | null;
   rawNodeIds: string[];
   isSelected: boolean;
   isNeighbor: boolean;
