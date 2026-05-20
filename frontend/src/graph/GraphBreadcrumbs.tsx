@@ -1,12 +1,13 @@
-import { ChevronRight, FileCode2, Focus, FolderOpen, Network } from "lucide-react";
+import { ChevronRight, FileCode2, Focus, FolderOpen, Layers2, Network } from "lucide-react";
 import type { ReactNode } from "react";
 
-import type { CodeNode, GraphResponse, RepoSummary } from "../api/types";
+import type { CodeNode, GraphCommunity, GraphResponse, RepoSummary } from "../api/types";
 import {
   compactFilePath,
   fileDisplayName,
   graphTypeLabel,
   isFileLikeNode,
+  type CommunityLevelMode,
   type DrilldownContainerSelection,
   type GraphViewMode,
   type VisualNodeData
@@ -30,8 +31,14 @@ export function GraphBreadcrumbs({
   selectedFileId,
   selectedNode,
   selectedVisualData,
+  communityLevelMode,
+  communityScopeParentId,
+  communityHierarchyAvailable,
+  detailedCommunitiesAvailable,
+  graphLoaded,
   onModeSelect,
-  onOverviewSelect
+  onOverviewSelect,
+  onCommunityLevelSelect
 }: {
   selectedRepo: RepoSummary | null;
   graph: GraphResponse | null;
@@ -40,21 +47,49 @@ export function GraphBreadcrumbs({
   selectedFileId: string | null;
   selectedNode: CodeNode | null;
   selectedVisualData: VisualNodeData | null;
+  communityLevelMode: CommunityLevelMode;
+  communityScopeParentId: string | null;
+  communityHierarchyAvailable: boolean;
+  detailedCommunitiesAvailable: boolean;
+  graphLoaded: boolean;
   onModeSelect: (mode: GraphViewMode) => void;
   onOverviewSelect: () => void;
+  onCommunityLevelSelect: (mode: CommunityLevelMode, scopeParentId?: string | null) => void;
 }) {
   const selectedFile = selectedFileId ? graph?.nodes.find((node) => node.id === selectedFileId) ?? null : null;
   const overviewSelection = viewMode === "overview" ? selectedVisualData ?? selectedNode : null;
+  const showCommunityNavigation =
+    communityHierarchyAvailable &&
+    (viewMode === "overview" || (viewMode === "drilldown" && drilldownContainer?.containerType === "community"));
+  const communityNavigationItems =
+    showCommunityNavigation
+      ? communityBreadcrumbItems({
+          graph,
+          graphLoaded,
+          communityLevelMode,
+          communityScopeParentId,
+          detailedCommunitiesAvailable,
+          showCurrentLevel: viewMode === "overview" && !overviewSelection,
+          onCommunityLevelSelect
+        })
+      : [];
+  const overviewIsRoot =
+    viewMode === "overview" &&
+    !overviewSelection &&
+    communityLevelMode === "parents" &&
+    communityScopeParentId === null;
   const items: BreadcrumbItem[] = [
     {
       id: "overview",
       icon: <Network size={14} />,
       label: "Overview",
       meta: selectedRepo?.name,
-      active: viewMode === "overview" && !overviewSelection,
-      onClick: viewMode === "overview" && !overviewSelection ? undefined : onOverviewSelect
+      active: overviewIsRoot && communityNavigationItems.length === 0,
+      onClick: overviewIsRoot ? undefined : onOverviewSelect
     }
   ];
+
+  items.push(...communityNavigationItems);
 
   if (overviewSelection) {
     items.push(selectionBreadcrumb(overviewSelection));
@@ -105,9 +140,10 @@ export function GraphBreadcrumbs({
             ) : null}
             {item.onClick ? (
               <button
-                className="graph-breadcrumb-button"
+                className={`graph-breadcrumb-button${item.active ? " is-active" : ""}`}
                 type="button"
                 title={item.title ?? item.label}
+                aria-current={item.active ? "page" : undefined}
                 onClick={item.onClick}
               >
                 {item.icon}
@@ -130,6 +166,18 @@ export function GraphBreadcrumbs({
   );
 }
 
+const COMMUNITY_LEVEL_LABELS: Record<CommunityLevelMode, string> = {
+  parents: "Architecture areas",
+  children: "Implementation areas",
+  details: "Detailed areas"
+};
+
+const COMMUNITY_LEVEL_META: Record<CommunityLevelMode, string> = {
+  parents: "community level",
+  children: "community level",
+  details: "community level"
+};
+
 function BreadcrumbText({ item }: { item: BreadcrumbItem }) {
   return (
     <span className="graph-breadcrumb-text">
@@ -137,6 +185,103 @@ function BreadcrumbText({ item }: { item: BreadcrumbItem }) {
       {item.meta ? <span className="graph-breadcrumb-meta">{item.meta}</span> : null}
     </span>
   );
+}
+
+function communityBreadcrumbItems({
+  graph,
+  graphLoaded,
+  communityLevelMode,
+  communityScopeParentId,
+  detailedCommunitiesAvailable,
+  showCurrentLevel,
+  onCommunityLevelSelect
+}: {
+  graph: GraphResponse | null;
+  graphLoaded: boolean;
+  communityLevelMode: CommunityLevelMode;
+  communityScopeParentId: string | null;
+  detailedCommunitiesAvailable: boolean;
+  showCurrentLevel: boolean;
+  onCommunityLevelSelect: (mode: CommunityLevelMode, scopeParentId?: string | null) => void;
+}): BreadcrumbItem[] {
+  const communitiesById = new Map((graph?.communities ?? []).map((community) => [community.id, community]));
+  const scopeChain = communityScopeParentId ? communityAncestorChain(communitiesById, communityScopeParentId) : [];
+  const architectureScope = scopeChain.find((community) => community.level === 0) ?? null;
+  const implementationScope = scopeChain.find((community) => community.level === 1) ?? null;
+  const items: BreadcrumbItem[] = [];
+
+  const addLevelItem = (mode: CommunityLevelMode, scopeParentId: string | null = null) => {
+    const isCurrent = communityLevelMode === mode && communityScopeParentId === scopeParentId;
+    const isActive = showCurrentLevel && communityLevelMode === mode;
+    items.push({
+      id: `community-level:${mode}:${scopeParentId ?? "all"}`,
+      icon: <Layers2 size={14} />,
+      label: COMMUNITY_LEVEL_LABELS[mode],
+      meta: COMMUNITY_LEVEL_META[mode],
+      active: isActive,
+      onClick:
+        graphLoaded && (!isCurrent || !showCurrentLevel)
+          ? () => onCommunityLevelSelect(mode, scopeParentId)
+          : undefined
+    });
+  };
+
+  const addScopeItem = (community: GraphCommunity, mode: CommunityLevelMode, scopeParentId: string) => {
+    const isCurrent = communityLevelMode === mode && communityScopeParentId === scopeParentId;
+    items.push({
+      id: `community-scope:${community.id}`,
+      icon: <FolderOpen size={14} />,
+      label: community.name,
+      meta: communityRoleLabel(community.level),
+      title: community.summary || community.name,
+      onClick:
+        graphLoaded && (!isCurrent || !showCurrentLevel)
+          ? () => onCommunityLevelSelect(mode, scopeParentId)
+          : undefined
+    });
+  };
+
+  addLevelItem("parents");
+  if (architectureScope) {
+    addScopeItem(architectureScope, "children", architectureScope.id);
+  }
+
+  addLevelItem("children", architectureScope?.id ?? null);
+  if (detailedCommunitiesAvailable) {
+    if (implementationScope) {
+      addScopeItem(implementationScope, "details", implementationScope.id);
+    }
+    addLevelItem("details", implementationScope?.id ?? null);
+  }
+
+  return items;
+}
+
+function communityAncestorChain(
+  communitiesById: Map<string, GraphCommunity>,
+  communityId: string
+): GraphCommunity[] {
+  const chain: GraphCommunity[] = [];
+  const seen = new Set<string>();
+  let current = communitiesById.get(communityId);
+
+  while (current && !seen.has(current.id)) {
+    chain.unshift(current);
+    seen.add(current.id);
+    current = current.parent_id ? communitiesById.get(current.parent_id) : undefined;
+  }
+
+  return chain;
+}
+
+function communityRoleLabel(level: number): string {
+  if (level === 0) {
+    return "architecture area";
+  }
+  if (level === 1) {
+    return "implementation area";
+  }
+  return "detailed area";
 }
 
 function selectionBreadcrumb(selection: VisualNodeData | CodeNode): BreadcrumbItem {

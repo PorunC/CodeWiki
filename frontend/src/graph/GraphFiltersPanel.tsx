@@ -2,7 +2,7 @@ import { Eye, FolderTree } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { FilterGroup } from "./GraphControls";
-import { modeHint, type CommunityLevelMode, type GraphViewMode } from "./graphModel";
+import { modeHint, type GraphViewMode } from "./graphModel";
 
 export type HiddenVisualNodeOption = {
   id: string;
@@ -19,9 +19,6 @@ export function GraphFiltersPanel({
   selectedEdgeTypes,
   showInferredCalls,
   showIsolatedCommunities,
-  communityLevelMode,
-  communityHierarchyAvailable,
-  detailedCommunitiesAvailable,
   hiddenIsolatedCommunityCount,
   graphLoaded,
   hiddenNodes,
@@ -29,7 +26,6 @@ export function GraphFiltersPanel({
   onEdgeTypeToggle,
   onShowInferredCallsChange,
   onShowIsolatedCommunitiesChange,
-  onCommunityLevelModeChange,
   onResetFilters,
   onShowHiddenNode,
   onShowAllHiddenNodes,
@@ -42,9 +38,6 @@ export function GraphFiltersPanel({
   selectedEdgeTypes: Set<string>;
   showInferredCalls: boolean;
   showIsolatedCommunities: boolean;
-  communityLevelMode: CommunityLevelMode;
-  communityHierarchyAvailable: boolean;
-  detailedCommunitiesAvailable: boolean;
   hiddenIsolatedCommunityCount: number;
   graphLoaded: boolean;
   hiddenNodes: HiddenVisualNodeOption[];
@@ -52,7 +45,6 @@ export function GraphFiltersPanel({
   onEdgeTypeToggle: (type: string) => void;
   onShowInferredCallsChange: (show: boolean) => void;
   onShowIsolatedCommunitiesChange: (show: boolean) => void;
-  onCommunityLevelModeChange: (mode: CommunityLevelMode) => void;
   onResetFilters: () => void;
   onShowHiddenNode: (nodeId: string) => void;
   onShowAllHiddenNodes: () => void;
@@ -88,43 +80,6 @@ export function GraphFiltersPanel({
         </label>
         {viewMode === "overview" ? (
           <>
-            {communityHierarchyAvailable ? (
-              <section className="filter-subsection" aria-label="Community level">
-                <div className="filter-title">Community level</div>
-                <label className="check-row">
-                  <input
-                    type="radio"
-                    name="community-level"
-                    checked={communityLevelMode === "parents"}
-                    disabled={!graphLoaded}
-                    onChange={() => onCommunityLevelModeChange("parents")}
-                  />
-                  <span>Architecture areas</span>
-                </label>
-                <label className="check-row">
-                  <input
-                    type="radio"
-                    name="community-level"
-                    checked={communityLevelMode === "children"}
-                    disabled={!graphLoaded}
-                    onChange={() => onCommunityLevelModeChange("children")}
-                  />
-                  <span>Implementation areas</span>
-                </label>
-                {detailedCommunitiesAvailable ? (
-                  <label className="check-row">
-                    <input
-                      type="radio"
-                      name="community-level"
-                      checked={communityLevelMode === "details"}
-                      disabled={!graphLoaded}
-                      onChange={() => onCommunityLevelModeChange("details")}
-                    />
-                    <span>Detailed areas</span>
-                  </label>
-                ) : null}
-              </section>
-            ) : null}
             <label className="check-row">
               <input
                 type="checkbox"

@@ -403,9 +403,15 @@ export function useGraphPageController({
     setCommunityScopeParentId(null);
   }, [densityMode, edgeTypes, nodeTypes]);
 
-  const selectCommunityLevelMode = useCallback((mode: CommunityLevelMode) => {
+  const selectCommunityLevelMode = useCallback((mode: CommunityLevelMode, scopeParentId: string | null = null) => {
     setCommunityLevelMode(mode);
-    setCommunityScopeParentId(null);
+    setCommunityScopeParentId(scopeParentId);
+    setSelectedVisualId(null);
+    setSelectedNodeId(null);
+    setSelectedFileId(null);
+    setFocusNodeId(null);
+    setDrilldownContainer(null);
+    setViewMode("overview");
   }, []);
 
   const toggleDensityMode = useCallback(() => {
@@ -768,6 +774,7 @@ export function useGraphPageController({
     showInferredCalls,
     showIsolatedCommunities,
     communityLevelMode,
+    communityScopeParentId,
     communityHierarchyAvailable,
     detailedCommunitiesAvailable,
     hiddenIsolatedCommunityCount,

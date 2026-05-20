@@ -242,6 +242,7 @@ select:disabled {
   outline-offset: 2px;
 }
 
+.graph-breadcrumb-button.is-active,
 .graph-breadcrumb-current.is-active {
   background: rgba(212, 165, 116, 0.08);
   border-color: rgba(212, 165, 116, 0.16);

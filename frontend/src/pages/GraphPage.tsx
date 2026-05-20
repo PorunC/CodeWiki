@@ -77,6 +77,7 @@ export function GraphPage({
     showInferredCalls,
     showIsolatedCommunities,
     communityLevelMode,
+    communityScopeParentId,
     communityHierarchyAvailable,
     detailedCommunitiesAvailable,
     hiddenIsolatedCommunityCount,
@@ -216,8 +217,14 @@ export function GraphPage({
         selectedFileId={selectedFileId}
         selectedNode={selectedNode}
         selectedVisualData={selectedVisualData}
+        communityLevelMode={communityLevelMode}
+        communityScopeParentId={communityScopeParentId}
+        communityHierarchyAvailable={communityHierarchyAvailable}
+        detailedCommunitiesAvailable={detailedCommunitiesAvailable}
+        graphLoaded={graphLoaded}
         onModeSelect={actions.selectMode}
         onOverviewSelect={actions.openOverview}
+        onCommunityLevelSelect={actions.setCommunityLevelMode}
       />
 
       {repoError || error ? <div className="state-banner error-banner">{repoError ?? error}</div> : null}
@@ -250,9 +257,6 @@ export function GraphPage({
           selectedEdgeTypes={selectedEdgeTypes}
           showInferredCalls={showInferredCalls}
           showIsolatedCommunities={showIsolatedCommunities}
-          communityLevelMode={communityLevelMode}
-          communityHierarchyAvailable={communityHierarchyAvailable}
-          detailedCommunitiesAvailable={detailedCommunitiesAvailable}
           hiddenIsolatedCommunityCount={hiddenIsolatedCommunityCount}
           graphLoaded={graphLoaded}
           hiddenNodes={hiddenNodes}
@@ -260,7 +264,6 @@ export function GraphPage({
           onEdgeTypeToggle={actions.toggleEdgeType}
           onShowInferredCallsChange={actions.setShowInferredCalls}
           onShowIsolatedCommunitiesChange={actions.setShowIsolatedCommunities}
-          onCommunityLevelModeChange={actions.setCommunityLevelMode}
           onResetFilters={actions.resetFilters}
           onShowHiddenNode={actions.showHiddenNode}
           onShowAllHiddenNodes={actions.showAllHiddenNodes}
