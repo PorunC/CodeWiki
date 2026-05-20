@@ -30,11 +30,14 @@ Organization goals:
 - Start with top-level "Overview", "Architecture", "Reading Guide", and
   "Dependencies" pages, then group pages by real systems, layers, workflows, data
   models, APIs, services, and frontend surfaces that appear in the provided graph.
-- Prefer 6-10 top-level sections. Use children aggressively when a subsystem has
-  enough retrieved evidence to justify drill-down pages. Medium repositories should
-  usually have 16-32 total pages across the tree rather than a small flat catalog.
-- Use 2-3 levels for complex areas. A parent can contain category children when a
-  layer has several distinct workflows or surfaces, but do not exceed 4 levels.
+- Use the top-level section, total page, and depth ranges from `granularity_contract`.
+  Use children aggressively when a subsystem has enough retrieved evidence to justify
+  drill-down pages.
+- A parent can contain category children when a layer has several distinct workflows
+  or surfaces, but do not exceed the configured `catalog_scale.hard_limits.max_depth`.
+- Follow the `catalog_scale` and `granularity_contract` values in the payload. Treat
+  `catalog_scale.hard_limits.max_total_items` as the maximum total catalog items,
+  counting both pages and categories.
 - Use `kind: "category"` for parent section pages that should receive lightweight
   overview content and point readers to child pages. Use `kind: "page"` for focused
   documents that carry implementation detail.

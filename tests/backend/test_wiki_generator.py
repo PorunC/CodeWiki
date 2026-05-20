@@ -9,7 +9,9 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.llm_gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.wiki.catalog import _normalize_catalog_payload
+from backend.app.services.wiki.catalog_limits import CatalogScaleLimits, catalog_limits_for_repo
 from backend.app.services.wiki.diagrams import MermaidDiagram
 from backend.app.services.wiki.generator import WikiGenerator
 from backend.app.services.wiki.sources import (
@@ -613,6 +615,158 @@ async def test_wiki_generator_repairs_translation_json_for_requested_language(
 
 
 @pytest.mark.asyncio
+async def test_wiki_translation_failure_saves_draft_and_continues(tmp_path: Path) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    _save_source_catalog_and_pages(
+        store,
+        repo.id,
+        {
+            "broken": "# Broken\n\n## Purpose and Scope\n\nThis page will fail translation.",
+            "stable": "# Stable\n\n## Purpose and Scope\n\nThis page translates successfully.",
+        },
+    )
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Unused",
+            "markdown": "# Unused\n\n## Purpose and Scope\n\nUnused.",
+            "source_refs": [],
+        },
+        translation_payloads={
+            "catalog": {
+                "title": "中文 Wiki",
+                "items": [
+                    {"path": "broken", "title": "失败页面"},
+                    {"path": "stable", "title": "稳定页面"},
+                ],
+            },
+            "page": [
+                "not json",
+                "still not json",
+                "not json either",
+                {
+                    "title": "稳定页面",
+                    "markdown": "# 稳定页面\n\n## Purpose and Scope\n\n翻译成功。",
+                },
+            ],
+        },
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    result = await generator.translate_wiki(repo.id, source_language="en", target_language="zh")
+
+    broken = next(page for page in result.pages if page.slug == "broken")
+    stable = next(page for page in result.pages if page.slug == "stable")
+    assert broken.status == "draft"
+    assert "Translation failed after repair attempts" in broken.markdown
+    assert "This page will fail translation." in broken.markdown
+    assert stable.status == "generated"
+    assert stable.title == "稳定页面"
+    assert store.get_doc_page(repo.id, "broken", language_code="zh") == broken
+    assert store.get_doc_page(repo.id, "stable", language_code="zh") == stable
+
+
+@pytest.mark.asyncio
+async def test_wiki_translation_splits_long_markdown_into_chunks(tmp_path: Path) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    long_markdown = "\n\n".join(
+        [
+            "# Long Page",
+            "## Section 1\n\n" + "Alpha sentence. " * 500,
+            "## Section 2\n\n" + "Beta sentence. " * 500,
+            "## Section 3\n\n" + "Gamma sentence. " * 500,
+        ]
+    )
+    _save_source_catalog_and_pages(store, repo.id, {"long": long_markdown})
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Unused",
+            "markdown": "# Unused\n\n## Purpose and Scope\n\nUnused.",
+            "source_refs": [],
+        },
+        translation_payloads={
+            "catalog": {
+                "title": "中文 Wiki",
+                "items": [{"path": "long", "title": "长页面"}],
+            },
+            "page": {
+                "title": "长页面",
+                "markdown": "# 已翻译块\n\n翻译后的内容。",
+            },
+        },
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    await generator.translate_wiki(repo.id, source_language="en", target_language="zh")
+
+    page_requests = [
+        request for request in llm.translation_requests if request["content_type"] == "page"
+    ]
+    assert len(page_requests) > 1
+    assert all("translation_chunk" in request for request in page_requests)
+    assert all(len(str(request["markdown"])) < len(long_markdown) for request in page_requests)
+
+
+@pytest.mark.asyncio
+async def test_regenerate_translated_page_only_translates_requested_slug(tmp_path: Path) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    _save_source_catalog_and_pages(
+        store,
+        repo.id,
+        {
+            "stable": "# Stable\n\n## Purpose and Scope\n\nAlready translated.",
+            "target": "# Target\n\n## Purpose and Scope\n\nNeeds regeneration.",
+        },
+    )
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Target",
+            "markdown": "# Target\n\n## Purpose and Scope\n\nRegenerated target. [[S1]]",
+            "source_refs": [{"citation_id": "S1", "file_path": "api.py", "start_line": 3, "end_line": 4}],
+        },
+        translation_payloads={
+            "catalog": {
+                "title": "中文 Wiki",
+                "items": [
+                    {"path": "stable", "title": "稳定页面"},
+                    {"path": "target", "title": "目标页面"},
+                ],
+            },
+            "page": {
+                "title": "目标页面",
+                "markdown": "# 目标页面\n\n## Purpose and Scope\n\n只翻译目标页面。",
+            },
+        },
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    result = await generator.regenerate_page(repo.id, "target", language_code="zh")
+
+    page_requests = [
+        request for request in llm.translation_requests if request["content_type"] == "page"
+    ]
+    assert result.page.slug == "target"
+    assert result.page.language_code == "zh"
+    assert len(page_requests) == 1
+    assert page_requests[0]["title"] == "Target"
+    assert store.get_doc_page(repo.id, "stable", language_code="zh") is None
+
+
+@pytest.mark.asyncio
 async def test_wiki_generator_auto_translates_configured_languages_after_base_generation(
     tmp_path: Path,
 ) -> None:
@@ -772,6 +926,64 @@ def test_catalog_normalization_preserves_deeper_drilldown_children() -> None:
     assert backend["children"][0]["children"][0]["slug"] == "workflow-detail-0"
 
 
+def test_catalog_limits_scale_with_repo_size() -> None:
+    tiny_nodes = _graph_nodes(6)
+    large_nodes = _graph_nodes(350)
+    large_edges = [
+        CodeGraphEdge(
+            id=f"edge-{index}",
+            repo_id="repo",
+            source_id=large_nodes[index % len(large_nodes)].id,
+            target_id=large_nodes[(index + 1) % len(large_nodes)].id,
+            type="calls",
+        )
+        for index in range(2000)
+    ]
+
+    tiny = catalog_limits_for_repo(tiny_nodes, [], chunk_count=8, community_count=1)
+    large = catalog_limits_for_repo(large_nodes, large_edges, chunk_count=1200, community_count=90)
+
+    assert tiny.label == "tiny"
+    assert large.label == "xlarge"
+    assert tiny.max_total_items < large.max_total_items
+    assert tiny.max_depth < large.max_depth
+
+
+def test_catalog_normalization_applies_adaptive_total_budget() -> None:
+    payload = {
+        "title": "Budgeted Wiki",
+        "items": [
+            {
+                "title": f"Feature {index}",
+                "slug": f"feature-{index}",
+                "kind": "page",
+                "children": [],
+            }
+            for index in range(20)
+        ],
+    }
+    limits = CatalogScaleLimits(
+        label="test",
+        target_top_level_sections="test",
+        target_total_pages="test",
+        target_depth="test",
+        max_top_level_items=20,
+        max_total_items=6,
+        max_children_per_item=3,
+        max_depth=3,
+    )
+
+    _title, items = _normalize_catalog_payload(payload, "repo", limits=limits)
+
+    assert _catalog_item_count(items) == 6
+    assert [item["slug"] for item in items[:4]] == [
+        "overview",
+        "architecture",
+        "reading-guide",
+        "dependencies",
+    ]
+
+
 def test_source_refs_force_allowed_range_and_auto_include_markers(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -815,6 +1027,69 @@ def test_source_urls_normalize_git_remotes_and_quote_paths() -> None:
 
     assert base == "https://github.com/owner/repo/blob/abc123"
     assert _source_url(base, "src/has space.py", 4, 6).endswith("src/has%20space.py#L4-L6")
+
+
+def _graph_nodes(count: int) -> list[CodeGraphNode]:
+    return [
+        CodeGraphNode(
+            id=f"node-{index}",
+            repo_id="repo",
+            type="file",
+            name=f"module_{index}.py",
+            file_path=f"module_{index}.py",
+        )
+        for index in range(count)
+    ]
+
+
+def _catalog_item_count(items: list[dict[str, object]]) -> int:
+    total = 0
+    for item in items:
+        children = item.get("children")
+        total += 1
+        if isinstance(children, list):
+            total += _catalog_item_count(
+                [child for child in children if isinstance(child, dict)]
+            )
+    return total
+
+
+def _save_source_catalog_and_pages(
+    store: SQLiteStore,
+    repo_id: str,
+    pages: dict[str, str],
+) -> None:
+    store.save_doc_catalog(
+        repo_id,
+        title="Repo Wiki",
+        structure={
+            "items": [
+                {
+                    "title": slug.replace("-", " ").title(),
+                    "slug": slug,
+                    "path": slug,
+                    "topic": slug,
+                    "children": [],
+                }
+                for slug in pages
+            ]
+        },
+    )
+    for slug, markdown in pages.items():
+        store.upsert_doc_page(
+            DocPageRecord(
+                id=f"{slug}-en",
+                repo_id=repo_id,
+                slug=slug,
+                title=slug.replace("-", " ").title(),
+                parent_slug=None,
+                markdown=markdown,
+                source_refs=[],
+                graph_refs=[],
+                status="generated",
+                updated_at=None,
+            )
+        )
 
 
 def _analyzed_repo(tmp_path: Path):
@@ -906,6 +1181,7 @@ class _FakeWikiLLM:
         message_text = "\n".join(message["content"] for message in messages)
         if task_type == "catalog":
             assert "catalog_design_requirements" in message_text
+            assert "catalog_scale" in message_text
             assert "granularity_contract" in message_text
             assert "module_candidates" in message_text
             assert "leaf pages for implementation detail" in message_text

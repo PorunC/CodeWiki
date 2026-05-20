@@ -1,4 +1,4 @@
-from backend.app.database import DocCatalogRecord, SQLiteStore
+from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore
 from backend.app.services.wiki.incremental_strategy import (
     WikiIncrementalStrategy,
     WikiUpdateResult,
@@ -64,7 +64,7 @@ class WikiTranslationOrchestrator:
                 target_language=language_code,
             )
             return [
-                PageGenerationResult(page=page, validation_errors=[])
+                PageGenerationResult(page=page, validation_errors=_translation_validation_errors(page))
                 for page in translated.pages
             ]
 
@@ -112,15 +112,21 @@ class WikiTranslationOrchestrator:
                 slug,
                 language_code=base_language,
             )
-            translated = await self.translate_wiki(
+            await self.translator.ensure_translated_catalog(
                 repo_id,
                 source_language=base_language,
                 target_language=language_code,
             )
-            page = next((page for page in translated.pages if page.slug == slug), None)
+            translated_pages = await self.translator.translate_page_slugs(
+                repo_id,
+                source_language=base_language,
+                target_language=language_code,
+                slugs=[slug],
+            )
+            page = next((page for page in translated_pages if page.slug == slug), None)
             if page is None:
                 raise ValueError(f"Translated catalog page not found: {slug}")
-            return PageGenerationResult(page=page, validation_errors=[])
+            return PageGenerationResult(page=page, validation_errors=_translation_validation_errors(page))
 
         result = await self.page_orchestrator.regenerate_page(
             repo_id,
@@ -237,7 +243,7 @@ class WikiTranslationOrchestrator:
             language_code=target_language,
         )
         results = [
-            PageGenerationResult(page=page, validation_errors=[])
+            PageGenerationResult(page=page, validation_errors=_translation_validation_errors(page))
             for page in translated_pages
         ]
         dirty_set = set(target_dirty_slugs)
@@ -262,3 +268,8 @@ class WikiTranslationOrchestrator:
             deleted_page_count=deleted_page_count,
         )
 
+
+def _translation_validation_errors(page: DocPageRecord) -> list[str]:
+    if page.status != "draft":
+        return []
+    return ["Translation failed; page was saved as a draft."]

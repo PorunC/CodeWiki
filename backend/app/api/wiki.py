@@ -122,6 +122,7 @@ async def translate_wiki(
         "repo_id": repo_id,
         "source_language": result.source_language,
         "target_language": result.target_language,
+        "status": "partial" if any(page.status != "generated" for page in result.pages) else "translated",
         "catalog": _catalog_payload(result.catalog),
         "page_count": len(result.pages),
         "pages": [_page_payload(page) for page in result.pages],
@@ -189,10 +190,12 @@ def _wiki_update_payload(
     incremental_update: IncrementalUpdateResult,
 ) -> dict[str, object]:
     generated_count = len(update.results)
+    has_validation_errors = any(result.validation_errors for result in update.results)
+    status = "partial" if has_validation_errors else "updated" if generated_count or update.deleted_page_count else "up_to_date"
     return {
         "repo_id": repo_id,
         "language_code": update.language_code,
-        "status": "updated" if generated_count or update.deleted_page_count else "up_to_date",
+        "status": status,
         "page_count": generated_count + len(update.reused_pages),
         "generated_count": generated_count,
         "reused_count": len(update.reused_pages),

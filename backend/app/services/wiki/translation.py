@@ -4,6 +4,7 @@ from typing import Any
 
 from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore
 from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm_run_recorder import LLMCallError
 from backend.app.services.llm_operations import CachedLLMService, LLMOperation
 from backend.app.services.wiki.catalog import _validate_catalog_payload
 from backend.app.services.wiki.language import normalize_language
@@ -18,6 +19,7 @@ from backend.app.services.wiki.utils import ordered_unique
 
 TRANSLATION_ATTEMPTS = 3
 TRANSLATION_PROMPT_VERSION = "translation:wiki:v3"
+TRANSLATION_MARKDOWN_CHUNK_CHARS = 8000
 
 
 @dataclass(frozen=True)
@@ -183,29 +185,19 @@ class WikiTranslator:
         source_language: str,
         target_language: str,
     ) -> DocPageRecord:
-        payload = {
-            "content_type": "page",
-            "source_language": source_language,
-            "target_language": target_language,
-            "title": page.title,
-            "markdown": page.markdown,
-            "source_refs": page.source_refs,
-            "style_guide": self.style_guide.for_language(target_language),
-            "rules": [
-                "Translate prose and headings to the target language with natural local writing.",
-                "For Chinese targets, rewrite awkward literal phrasing into fluent Chinese technical prose.",
-                "Keep code blocks, inline code, file paths, URLs, anchors, and identifiers unchanged.",
-                "Keep Markdown structure and links valid.",
-                "Do not remove source citations or source sections.",
-                "Return JSON with title and markdown.",
-            ],
-        }
-        response = await self._complete_translation_json(
-            page.repo_id,
-            payload,
-            cache_parts=("page", page.id, source_language, target_language),
-            content_type="page",
-        )
+        try:
+            response = await self._translate_page_response(
+                page,
+                source_language=source_language,
+                target_language=target_language,
+            )
+        except (LLMCallError, ValueError) as exc:
+            return self._save_translation_draft(
+                page,
+                target_language=target_language,
+                error=str(exc),
+            )
+
         translated_page = DocPageRecord(
             id=uuid.uuid4().hex,
             repo_id=page.repo_id,
@@ -220,6 +212,126 @@ class WikiTranslator:
             updated_at=None,
         )
         return self.store.upsert_doc_page(translated_page)
+
+    async def _translate_page_response(
+        self,
+        page: DocPageRecord,
+        *,
+        source_language: str,
+        target_language: str,
+    ) -> dict[str, Any]:
+        chunks = _markdown_translation_chunks(page.markdown)
+        if len(chunks) <= 1:
+            return await self._complete_translation_json(
+                page.repo_id,
+                self._page_translation_payload(
+                    page,
+                    source_language=source_language,
+                    target_language=target_language,
+                    markdown=page.markdown,
+                ),
+                cache_parts=("page", page.id, source_language, target_language),
+                content_type="page",
+            )
+
+        translated_chunks: list[str] = []
+        translated_title = page.title
+        for index, chunk in enumerate(chunks):
+            response = await self._complete_translation_json(
+                page.repo_id,
+                self._page_translation_payload(
+                    page,
+                    source_language=source_language,
+                    target_language=target_language,
+                    markdown=chunk,
+                    chunk_index=index + 1,
+                    chunk_count=len(chunks),
+                ),
+                cache_parts=(
+                    "page",
+                    page.id,
+                    source_language,
+                    target_language,
+                    "chunk",
+                    index + 1,
+                    len(chunks),
+                ),
+                content_type="page",
+            )
+            if index == 0:
+                translated_title = str(response.get("title") or translated_title)
+            translated_chunks.append(str(response.get("markdown") or chunk))
+
+        return {
+            "title": translated_title,
+            "markdown": "\n\n".join(chunk.strip() for chunk in translated_chunks if chunk.strip()),
+        }
+
+    def _page_translation_payload(
+        self,
+        page: DocPageRecord,
+        *,
+        source_language: str,
+        target_language: str,
+        markdown: str,
+        chunk_index: int | None = None,
+        chunk_count: int | None = None,
+    ) -> dict[str, Any]:
+        rules = [
+            "Translate prose and headings to the target language with natural local writing.",
+            "For Chinese targets, rewrite awkward literal phrasing into fluent Chinese technical prose.",
+            "Keep code blocks, inline code, file paths, URLs, anchors, and identifiers unchanged.",
+            "Keep Markdown structure and links valid.",
+            "Do not remove source citations or source sections.",
+            "Return JSON with title and markdown.",
+        ]
+        payload: dict[str, Any] = {
+            "content_type": "page",
+            "source_language": source_language,
+            "target_language": target_language,
+            "title": page.title,
+            "markdown": markdown,
+            "source_refs": page.source_refs,
+            "style_guide": self.style_guide.for_language(target_language),
+            "rules": rules,
+        }
+        if chunk_index is not None and chunk_count is not None:
+            payload["translation_chunk"] = {
+                "index": chunk_index,
+                "count": chunk_count,
+                "scope": (
+                    "Translate only this Markdown chunk. Return the translated chunk as markdown; "
+                    "do not summarize missing chunks or add cross-chunk framing."
+                ),
+            }
+            payload["rules"] = [
+                *rules,
+                "This is one chunk of a longer page; preserve local Markdown structure only for this chunk.",
+                "Do not add an extra page title unless the chunk already contains that heading.",
+            ]
+        return payload
+
+    def _save_translation_draft(
+        self,
+        page: DocPageRecord,
+        *,
+        target_language: str,
+        error: str,
+    ) -> DocPageRecord:
+        draft = DocPageRecord(
+            id=uuid.uuid4().hex,
+            repo_id=page.repo_id,
+            language_code=target_language,
+            slug=page.slug,
+            title=page.title,
+            parent_slug=page.parent_slug,
+            markdown=_translation_draft_markdown(page, error),
+            source_refs=page.source_refs,
+            graph_refs=page.graph_refs,
+            status="draft",
+            updated_at=None,
+        )
+        return self.store.upsert_doc_page(draft)
 
     async def _complete_translation_json(
         self,
@@ -267,3 +379,95 @@ class WikiTranslator:
             "after repair attempts: "
             + "; ".join(validation_errors)
         )
+
+
+def _markdown_translation_chunks(
+    markdown: str,
+    *,
+    max_chars: int = TRANSLATION_MARKDOWN_CHUNK_CHARS,
+) -> list[str]:
+    if len(markdown) <= max_chars:
+        return [markdown]
+    blocks = _markdown_blocks(markdown)
+    chunks: list[str] = []
+    current = ""
+    for block in blocks:
+        if not block:
+            continue
+        if len(block) > max_chars:
+            if current.strip():
+                chunks.append(current.strip())
+                current = ""
+            chunks.extend(_split_large_markdown_block(block, max_chars=max_chars))
+            continue
+        separator = "\n\n" if current and not current.endswith("\n\n") else ""
+        candidate = f"{current}{separator}{block}" if current else block
+        if len(candidate) > max_chars and current.strip():
+            chunks.append(current.strip())
+            current = block
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks or [markdown]
+
+
+def _markdown_blocks(markdown: str) -> list[str]:
+    lines = markdown.splitlines()
+    blocks: list[str] = []
+    current: list[str] = []
+    in_fence = False
+
+    def flush() -> None:
+        if current:
+            blocks.append("\n".join(current).strip())
+            current.clear()
+
+    for line in lines:
+        stripped = line.lstrip()
+        is_fence = stripped.startswith("```")
+        is_heading = stripped.startswith("#") and not in_fence
+        if is_heading:
+            flush()
+        current.append(line)
+        if is_fence:
+            in_fence = not in_fence
+    flush()
+    return blocks
+
+
+def _split_large_markdown_block(block: str, *, max_chars: int) -> list[str]:
+    chunks: list[str] = []
+    current: list[str] = []
+    current_size = 0
+    in_fence = False
+    for line in block.splitlines():
+        line_size = len(line) + 1
+        if current and not in_fence and current_size + line_size > max_chars:
+            chunks.append("\n".join(current).strip())
+            current = []
+            current_size = 0
+        current.append(line)
+        current_size += line_size
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+    if current:
+        chunks.append("\n".join(current).strip())
+    return [chunk for chunk in chunks if chunk]
+
+
+def _translation_draft_markdown(page: DocPageRecord, error: str) -> str:
+    safe_error = error.replace("\x00", "").strip()
+    if len(safe_error) > 1200:
+        safe_error = f"{safe_error[:1200]}..."
+    return "\n\n".join(
+        [
+            f"# {page.title}",
+            (
+                "> Translation failed after repair attempts. This draft keeps the source "
+                "content so wiki generation can continue."
+            ),
+            f"> Error: {safe_error}" if safe_error else "> Error: translation failed.",
+            page.markdown,
+        ]
+    )

@@ -2,6 +2,7 @@ from typing import Any
 
 from backend.app.database import DocCatalogRecord, SQLiteStore
 from backend.app.services.graphrag import GraphRAGRetriever
+from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_operations import CachedLLMService, LLMOperation
 from backend.app.services.repo_context import RepositoryContextBuilder
@@ -9,6 +10,10 @@ from backend.app.services.wiki.catalog import (
     _normalize_catalog_payload,
     _source_chunk_summaries,
     _validate_catalog_payload,
+)
+from backend.app.services.wiki.catalog_limits import (
+    CatalogScaleLimits,
+    catalog_limits_for_repo,
 )
 from backend.app.services.wiki.catalog_planner import CatalogModuleCandidatePlanner
 from backend.app.services.wiki.page_payload_template import prompt_graph_facts
@@ -45,7 +50,21 @@ class WikiCatalogGenerator:
             raise ValueError(f"Repository not found: {repo_id}")
 
         trace = await self.retriever.retrieve(repo_id, "repository overview", max_hops=3)
-        user_payload = self._catalog_payload(repo, trace, language_code=language_code)
+        nodes, edges = self.store.get_graph(repo.id)
+        catalog_limits = catalog_limits_for_repo(
+            nodes,
+            edges,
+            chunk_count=len(self.store.list_code_chunks(repo.id)),
+            community_count=len(self.store.list_graph_communities(repo.id)),
+        )
+        user_payload = self._catalog_payload(
+            repo,
+            trace,
+            language_code=language_code,
+            nodes=nodes,
+            edges=edges,
+            catalog_limits=catalog_limits,
+        )
         prompt = _load_prompt("catalog.md")
         payload: dict[str, Any] | None = None
         validation_errors: list[str] = []
@@ -93,7 +112,7 @@ class WikiCatalogGenerator:
                 "LLM did not return a valid catalog JSON object after repair attempts: "
                 + "; ".join(validation_errors)
             )
-        title, items = _normalize_catalog_payload(payload, repo.name)
+        title, items = _normalize_catalog_payload(payload, repo.name, limits=catalog_limits)
         return self.store.save_doc_catalog(
             repo_id,
             title=title,
@@ -101,9 +120,17 @@ class WikiCatalogGenerator:
             language_code=language_code,
         )
 
-    def _catalog_payload(self, repo: Any, trace: Any, *, language_code: str) -> dict[str, Any]:
+    def _catalog_payload(
+        self,
+        repo: Any,
+        trace: Any,
+        *,
+        language_code: str,
+        nodes: list[CodeGraphNode],
+        edges: list[CodeGraphEdge],
+        catalog_limits: CatalogScaleLimits,
+    ) -> dict[str, Any]:
         repo_context = self.context_builder.build(repo.path)
-        nodes, edges = self.store.get_graph(repo.id)
         graph_facts = prompt_graph_facts(trace)
         return {
             "repo": {
@@ -148,13 +175,11 @@ class WikiCatalogGenerator:
                     "exclude tests/docs/generated output from core feature pages unless explicitly scoped",
                 ],
             },
+            "catalog_scale": catalog_limits.as_prompt_payload(),
             "granularity_contract": {
-                "target_top_level_sections": "6-10 high-signal sections including required special pages",
-                "target_total_pages": (
-                    "16-32 focused pages for medium repositories; use fewer only when the evidence "
-                    "is genuinely small, and more when distinct subsystems are visible"
-                ),
-                "target_depth": "2-3 levels for complex areas; never deeper than 4 levels",
+                "target_top_level_sections": catalog_limits.target_top_level_sections,
+                "target_total_pages": catalog_limits.target_total_pages,
+                "target_depth": catalog_limits.target_depth,
                 "split_triggers": [
                     "a directory or subsystem owns 3+ source files",
                     "a module mixes routes/controllers, services, models, configuration, and UI",

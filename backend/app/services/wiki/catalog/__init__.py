@@ -6,12 +6,11 @@ from backend.app.services.wiki.catalog.source_hints import (
     _source_hints_from_item,
     _trace_with_source_hint_chunks,
 )
+from backend.app.services.wiki.catalog_limits import (
+    DEFAULT_CATALOG_LIMITS,
+    CatalogScaleLimits,
+)
 from backend.app.services.wiki.utils import slugify
-
-MAX_CATALOG_ITEMS = 24
-MAX_LLM_CATALOG_ITEMS = 24
-MAX_CATALOG_CHILDREN = 14
-MAX_CATALOG_DEPTH = 4
 
 SPECIAL_CATALOG_PAGES: tuple[dict[str, Any], ...] = (
     {
@@ -57,18 +56,24 @@ SPECIAL_CATALOG_PAGES: tuple[dict[str, Any], ...] = (
 )
 
 
-def _normalize_catalog_payload(payload: dict[str, Any], repo_name: str) -> tuple[str, list[dict[str, Any]]]:
+def _normalize_catalog_payload(
+    payload: dict[str, Any],
+    repo_name: str,
+    *,
+    limits: CatalogScaleLimits = DEFAULT_CATALOG_LIMITS,
+) -> tuple[str, list[dict[str, Any]]]:
     root = payload.get("catalog") if isinstance(payload.get("catalog"), dict) else payload
     title = str(root.get("title") or f"{repo_name} Wiki")
     raw_items = root.get("items") or root.get("pages") or []
     if not isinstance(raw_items, list):
         raise ValueError("Catalog response must contain an items array.")
     used_slugs: set[str] = set()
+    top_level_limit = max(len(SPECIAL_CATALOG_PAGES), limits.max_top_level_items)
     items = [
         item
         for item in (
-            _normalize_catalog_item(raw_item, used_slugs, depth=0)
-            for raw_item in raw_items[:MAX_LLM_CATALOG_ITEMS]
+            _normalize_catalog_item(raw_item, used_slugs, depth=0, limits=limits)
+            for raw_item in raw_items[:top_level_limit]
         )
         if item is not None
     ]
@@ -76,7 +81,9 @@ def _normalize_catalog_payload(payload: dict[str, Any], repo_name: str) -> tuple
         items = []
     items = _ensure_special_catalog_pages(items)
     items = _sort_catalog_items(items)
-    return title, items[:MAX_CATALOG_ITEMS]
+    items = items[:top_level_limit]
+    items = _limit_catalog_items(items, max(len(SPECIAL_CATALOG_PAGES), limits.max_total_items))
+    return title, items
 
 
 def _validate_catalog_payload(payload: dict[str, Any]) -> None:
@@ -91,6 +98,7 @@ def _normalize_catalog_item(
     used_slugs: set[str],
     *,
     depth: int,
+    limits: CatalogScaleLimits,
 ) -> dict[str, Any] | None:
     if not isinstance(raw_item, dict):
         return None
@@ -107,12 +115,12 @@ def _normalize_catalog_item(
     source_hints = raw_item.get("source_hints") if isinstance(raw_item.get("source_hints"), list) else []
     raw_children = raw_item.get("children") or []
     children = []
-    if isinstance(raw_children, list) and depth < MAX_CATALOG_DEPTH - 1:
+    if isinstance(raw_children, list) and depth < limits.max_depth - 1:
         children = [
             child
             for child in (
-                _normalize_catalog_item(child, used_slugs, depth=depth + 1)
-                for child in raw_children[:MAX_CATALOG_CHILDREN]
+                _normalize_catalog_item(child, used_slugs, depth=depth + 1, limits=limits)
+                for child in raw_children[: limits.max_children_per_item]
             )
             if child is not None
         ]
@@ -147,6 +155,44 @@ def _ensure_special_catalog_pages(items: list[dict[str, Any]]) -> list[dict[str,
     for item in next_items:
         item["order"] = _special_order(str(item.get("slug") or ""), int(item.get("order") or 0))
     return next_items
+
+
+def _limit_catalog_items(items: list[dict[str, Any]], max_total_items: int) -> list[dict[str, Any]]:
+    limited: list[dict[str, Any]] = []
+    remaining = max_total_items
+    for item in items:
+        if remaining <= 0:
+            break
+        next_item, used = _catalog_item_with_budget(item, remaining)
+        if next_item is None:
+            break
+        limited.append(next_item)
+        remaining -= used
+    return limited
+
+
+def _catalog_item_with_budget(
+    item: dict[str, Any],
+    budget: int,
+) -> tuple[dict[str, Any] | None, int]:
+    if budget <= 0:
+        return None, 0
+    next_item = {**item, "children": []}
+    used = 1
+    remaining = budget - 1
+    children = item.get("children") or []
+    if not isinstance(children, list):
+        return next_item, used
+    for child in children:
+        if not isinstance(child, dict) or remaining <= 0:
+            break
+        next_child, child_used = _catalog_item_with_budget(child, remaining)
+        if next_child is None:
+            break
+        next_item["children"].append(next_child)
+        used += child_used
+        remaining -= child_used
+    return next_item, used
 
 
 def _flatten_catalog_item_dicts(items: list[Any]) -> list[dict[str, Any]]:
