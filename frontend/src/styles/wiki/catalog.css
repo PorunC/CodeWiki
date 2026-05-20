@@ -27,13 +27,47 @@
 }
 
 .wiki-catalog-level .wiki-catalog-level {
-  padding: 0 0 0 8px;
+  padding: 0;
 }
 
 .wiki-catalog-group {
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+
+.wiki-catalog-row {
+  align-items: center;
+  display: grid;
+  gap: 3px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  min-width: 0;
+  padding-left: calc(var(--wiki-catalog-depth, 0) * 18px);
+}
+
+.wiki-catalog-toggle,
+.wiki-catalog-toggle-placeholder {
+  align-items: center;
+  border-radius: 6px;
+  display: inline-flex;
+  height: 26px;
+  justify-content: center;
+  width: 24px;
+}
+
+.wiki-catalog-toggle {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.wiki-catalog-toggle:hover,
+.wiki-catalog-toggle:focus-visible {
+  background: rgba(212, 165, 116, 0.08);
+  border-color: var(--color-border-subtle);
+  color: var(--color-accent-strong);
+  outline: none;
 }
 
 .wiki-catalog-item {
@@ -47,6 +81,7 @@
   gap: 8px;
   min-height: 34px;
   min-width: 0;
+  padding-left: 7px;
   padding-bottom: 7px;
   padding-right: 7px;
   padding-top: 7px;
