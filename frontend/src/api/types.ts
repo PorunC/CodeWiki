@@ -45,9 +45,21 @@ export type AnalysisRunResponse = {
   parsed_file_count: number;
   node_count: number;
   edge_count: number;
+  chunk_count: number;
   community_count: number;
   errors: string[];
   community_naming?: Record<string, unknown>;
+};
+
+export type GraphStatusResponse = {
+  repo_id: string;
+  file_count: number;
+  node_count: number;
+  edge_count: number;
+  chunk_count: number;
+  nodes_by_type: Record<string, number>;
+  edges_by_type: Record<string, number>;
+  languages: Record<string, number>;
 };
 
 export type IncrementalUpdateResponse = {

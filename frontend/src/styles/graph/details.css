@@ -107,6 +107,8 @@ button.metadata-chip:disabled {
   color: #9cc2db;
   font-size: 13px;
   font-weight: 800;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
   padding: 10px 18px;
 }
 
@@ -117,9 +119,14 @@ button.metadata-chip:disabled {
 }
 
 .analysis-banner {
+  align-items: center;
   background: rgba(212, 165, 116, 0.1);
   border-color: rgba(212, 165, 116, 0.24);
   color: var(--color-accent-strong);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
 }
 
 .ask-highlight-banner {
@@ -140,4 +147,3 @@ button.metadata-chip:disabled {
   font-weight: 800;
   padding: 5px 9px;
 }
-

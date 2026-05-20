@@ -276,6 +276,7 @@ async def graph_status(repo_id: str) -> GraphStatusResponse:
         file_count=sum(1 for node in nodes if node.type in {"file", "config"}),
         node_count=len(nodes),
         edge_count=len(edges),
+        chunk_count=len(store.list_code_chunks(repo_id)),
         nodes_by_type=nodes_by_type,
         edges_by_type=edges_by_type,
         languages=languages,

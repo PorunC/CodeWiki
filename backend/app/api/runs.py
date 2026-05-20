@@ -49,6 +49,7 @@ async def analyze_repo(repo_id: str, payload: AnalyzeRepoRequest | None = None) 
         "parsed_file_count": result.parsed_file_count,
         "node_count": result.node_count,
         "edge_count": result.edge_count,
+        "chunk_count": len(store.list_code_chunks(repo_id)),
         "community_count": result.community_count,
         "community_count_by_level": result.community_count_by_level,
         "errors": result.errors,

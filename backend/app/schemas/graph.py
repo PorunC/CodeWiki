@@ -126,6 +126,7 @@ class GraphStatusResponse(BaseModel):
     file_count: int
     node_count: int
     edge_count: int
+    chunk_count: int
     nodes_by_type: dict[str, int]
     edges_by_type: dict[str, int]
     languages: dict[str, int]

@@ -246,12 +246,17 @@ function communityBreadcrumbItems({
     addScopeItem(architectureScope, "children", architectureScope.id);
   }
 
-  addLevelItem("children", architectureScope?.id ?? null);
+  if (communityLevelMode !== "parents" || architectureScope) {
+    addLevelItem("children", architectureScope?.id ?? null);
+  }
+
   if (detailedCommunitiesAvailable) {
     if (implementationScope) {
       addScopeItem(implementationScope, "details", implementationScope.id);
     }
-    addLevelItem("details", implementationScope?.id ?? null);
+    if (communityLevelMode === "details" || implementationScope) {
+      addLevelItem("details", implementationScope?.id ?? null);
+    }
   }
 
   return items;

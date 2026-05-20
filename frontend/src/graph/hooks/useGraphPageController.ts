@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import { analyzeRepo, updateRepo } from "../../api/runs";
-import type { GraphResponse } from "../../api/types";
+import { getRepoGraphStatus } from "../../api/graph";
+import type { GraphResponse, GraphStatusResponse } from "../../api/types";
 import { useRepos } from "../../hooks/useRepos";
 import type { HiddenVisualNodeOption } from "../GraphFiltersPanel";
 import {
@@ -439,6 +440,32 @@ export function useGraphPageController({
     setHighlightedRawNodeIds(new Set());
   }, []);
 
+  useEffect(() => {
+    if (!selectedRepoId || !analysisTask) {
+      return;
+    }
+
+    let cancelled = false;
+    const refreshProgress = async () => {
+      try {
+        const status = await getRepoGraphStatus(selectedRepoId);
+        if (cancelled) {
+          return;
+        }
+        setAnalysisMessage(runningAnalysisMessage(analysisTask, status));
+      } catch {
+        // Keep the existing running banner if progress polling is temporarily unavailable.
+      }
+    };
+
+    void refreshProgress();
+    const intervalId = window.setInterval(refreshProgress, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [analysisTask, selectedRepoId]);
+
   const openOverview = useCallback(() => {
     setViewMode("overview");
     setCommunityLevelMode(defaultCommunityLevelMode());
@@ -519,7 +546,7 @@ export function useGraphPageController({
     try {
       const result = await analyzeRepo(selectedRepoId);
       setAnalysisMessage(
-        `Analysis complete: ${result.node_count} nodes, ${result.edge_count} edges, ${result.community_count} communities.`
+        `Analysis complete: ${result.node_count} nodes, ${result.edge_count} edges, ${result.chunk_count} chunks, ${result.community_count} communities.`
       );
       setGraphReloadToken((value) => value + 1);
     } catch (apiError) {
@@ -816,6 +843,14 @@ export function useGraphPageController({
 
 function defaultCommunityLevelMode(): CommunityLevelMode {
   return "parents";
+}
+
+function runningAnalysisMessage(
+  task: "analyze" | "update",
+  status: GraphStatusResponse
+): string {
+  const prefix = task === "analyze" ? "Analyzing" : "Updating";
+  return `${prefix}... Nodes ${status.node_count} / Edges ${status.edge_count} / Chunks ${status.chunk_count}`;
 }
 
 function communityIdFromVisualId(value?: string): string | undefined {
