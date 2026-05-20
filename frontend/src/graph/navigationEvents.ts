@@ -17,6 +17,9 @@ export type OpenContainerDrilldownDetail = {
   title: string;
   pathLabel: string;
   containerType: "community" | "directory";
+  communityId?: string;
+  communityLevel?: number;
+  parentCommunityId?: string | null;
   rawNodeIds: string[];
 };
 

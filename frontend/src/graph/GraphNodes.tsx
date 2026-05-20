@@ -146,6 +146,9 @@ function ContainerFlowNode({ id, data, width, height }: NodeProps<Node<Container
       title: data.title,
       pathLabel: data.pathLabel,
       containerType: "community",
+      communityId: data.communityId,
+      communityLevel: data.communityLevel,
+      parentCommunityId: data.parentCommunityId,
       rawNodeIds: data.rawNodeIds
     });
   };

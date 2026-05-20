@@ -458,8 +458,36 @@ export function useGraphPageController({
     [graph?.nodes]
   );
 
+  const openCommunityChildren = useCallback(
+    (communityId?: string, communityLevel?: number): boolean => {
+      const resolvedCommunityId = communityIdFromVisualId(communityId);
+      const resolvedLevel =
+        communityLevel ??
+        graph?.communities?.find((community) => community.id === resolvedCommunityId)?.level;
+      const nextMode = nextCommunityLevelMode(graph, resolvedCommunityId, resolvedLevel);
+      if (!nextMode || !resolvedCommunityId) {
+        return false;
+      }
+      setCommunityLevelMode(nextMode);
+      setCommunityScopeParentId(resolvedCommunityId);
+      setSelectedVisualId(null);
+      setSelectedNodeId(null);
+      setSelectedFileId(null);
+      setDrilldownContainer(null);
+      setViewMode("overview");
+      return true;
+    },
+    [graph]
+  );
+
   const openContainerDrilldown = useCallback(
     (container: DrilldownContainerSelection) => {
+      if (
+        container.containerType === "community" &&
+        openCommunityChildren(container.communityId ?? container.id, container.communityLevel)
+      ) {
+        return;
+      }
       const firstFileId =
         container.rawNodeIds.find((rawNodeId) => {
           const rawNode = containment.nodeById.get(rawNodeId);
@@ -472,7 +500,7 @@ export function useGraphPageController({
       setFocusNodeId(firstFileId);
       setViewMode("drilldown");
     },
-    [containment.nodeById]
+    [containment.nodeById, openCommunityChildren]
   );
 
   const runFullAnalysis = useCallback(async () => {
@@ -546,6 +574,9 @@ export function useGraphPageController({
         title: detail.title,
         pathLabel: detail.pathLabel,
         containerType: detail.containerType,
+        communityId: detail.communityId,
+        communityLevel: detail.communityLevel,
+        parentCommunityId: detail.parentCommunityId,
         rawNodeIds: detail.rawNodeIds
       });
     });
@@ -613,6 +644,9 @@ export function useGraphPageController({
           title: data.title,
           pathLabel: data.pathLabel,
           containerType: data.containerType,
+          communityId: data.communityId,
+          communityLevel: data.communityLevel,
+          parentCommunityId: data.parentCommunityId,
           rawNodeIds: data.rawNodeIds
         });
         return;
@@ -623,6 +657,9 @@ export function useGraphPageController({
           title: data.title,
           pathLabel: data.pathLabel,
           containerType: data.containerType,
+          communityId: data.communityId,
+          communityLevel: data.communityLevel,
+          parentCommunityId: data.parentCommunityId,
           rawNodeIds: data.rawNodeIds
         });
         setSelectedVisualId(node.id);
@@ -653,22 +690,14 @@ export function useGraphPageController({
         return;
       }
       if (viewMode === "overview" && data.kind === "container" && data.containerType === "community") {
-        const nextMode = nextCommunityLevelMode(graph, data.communityId, data.communityLevel);
-        if (nextMode && data.communityId) {
-          setCommunityLevelMode(nextMode);
-          setCommunityScopeParentId(data.communityId);
-          setSelectedVisualId(null);
-          setSelectedNodeId(null);
-          setSelectedFileId(null);
-          setDrilldownContainer(null);
-          setViewMode("overview");
-          return;
-        }
         openContainerDrilldown({
           id: node.id,
           title: data.title,
           pathLabel: data.pathLabel,
           containerType: "community",
+          communityId: data.communityId,
+          communityLevel: data.communityLevel,
+          parentCommunityId: data.parentCommunityId,
           rawNodeIds: data.rawNodeIds
         });
         return;
@@ -680,16 +709,21 @@ export function useGraphPageController({
         setSelectedVisualId(primaryNodeId);
       }
     },
-    [graph, openContainerDrilldown, openFileDetail, viewMode]
+    [openContainerDrilldown, openFileDetail, viewMode]
   );
 
   const selectMode = useCallback(
     (mode: GraphViewMode) => {
-      setViewMode(mode);
       if (mode === "drilldown" && drilldownContainer) {
+        if (openCommunityChildren(drilldownContainer.communityId ?? drilldownContainer.id, drilldownContainer.communityLevel)) {
+          return;
+        }
+        setViewMode(mode);
         setSelectedVisualId(drilldownRootVisualId(drilldownContainer.id));
         setSelectedNodeId(null);
+        return;
       }
+      setViewMode(mode);
       if (mode === "file" && selectedFileId) {
         setSelectedVisualId(`file-detail:${selectedFileId}`);
         setSelectedNodeId(selectedFileId);
@@ -707,7 +741,7 @@ export function useGraphPageController({
         setSelectedVisualId(selectedNodeId);
       }
     },
-    [drilldownContainer, selectedFileId, selectedNodeId]
+    [drilldownContainer, openCommunityChildren, selectedFileId, selectedNodeId]
   );
 
   const hasRenderedGraph = baseVisualGraph.nodes.length > 0;
@@ -775,6 +809,10 @@ export function useGraphPageController({
 
 function defaultCommunityLevelMode(): CommunityLevelMode {
   return "parents";
+}
+
+function communityIdFromVisualId(value?: string): string | undefined {
+  return value?.startsWith("community:") ? value.slice("community:".length) : value;
 }
 
 function nextCommunityLevelMode(
