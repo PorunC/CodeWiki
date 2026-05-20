@@ -6,10 +6,12 @@ def prompt_graph_facts(trace: RetrievalTrace) -> dict[str, object]:
         "seed_nodes": [_prompt_node(node) for node in trace.seed_nodes],
         "expanded_nodes": [_prompt_node(node) for node in trace.expanded_nodes],
         "related_edges": [_prompt_edge(edge) for edge in trace.related_edges],
+        "community_edges": [_prompt_edge(edge) for edge in trace.community_edges],
         "community_summaries": [
             _prompt_community_summary(community)
             for community in trace.community_summaries
         ],
+        "community_hierarchy": _prompt_community_hierarchy(trace.community_summaries),
     }
 
 
@@ -213,12 +215,30 @@ def _prompt_community_summary(community: dict[str, object]) -> dict[str, object]
             "id": community.get("id"),
             "name": community.get("name"),
             "level": community.get("level"),
+            "parent_id": community.get("parent_id"),
             "summary": community.get("summary"),
             "node_count": community.get("node_count"),
             "matched_node_ids": community.get("matched_node_ids"),
         }.items()
         if value not in (None, [], "")
     }
+
+
+def _prompt_community_hierarchy(communities: list[dict[str, object]]) -> list[dict[str, object]]:
+    by_id = {str(community.get("id")): _prompt_community_summary(community) for community in communities}
+    roots: list[dict[str, object]] = []
+    for community in communities:
+        community_id = str(community.get("id") or "")
+        if not community_id:
+            continue
+        item = by_id[community_id]
+        parent_id = community.get("parent_id")
+        if isinstance(parent_id, str) and parent_id in by_id:
+            parent = by_id[parent_id]
+            parent.setdefault("children", []).append(item)
+        else:
+            roots.append(item)
+    return roots
 
 
 def _line_range(item: dict[str, object]) -> str | None:

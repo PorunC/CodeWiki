@@ -23,6 +23,7 @@ class RetrievalTrace:
     source_chunks: list[dict[str, object]] = field(default_factory=list)
     related_edges: list[dict[str, object]] = field(default_factory=list)
     community_summaries: list[dict[str, object]] = field(default_factory=list)
+    community_edges: list[dict[str, object]] = field(default_factory=list)
     context_pack: dict[str, object] = field(default_factory=dict)
 
 

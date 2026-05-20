@@ -79,8 +79,8 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
     assert "### Request Handler interaction sequence" in page.markdown
     assert "```mermaid" in page.markdown
     assert "-->|calls / imports|" in page.markdown
-    assert 'C0["Api"]' in page.markdown
-    assert 'C1["Service"]' in page.markdown
+    assert 'C0["api.py"]' in page.markdown
+    assert 'C1["service.py"]' in page.markdown
     assert "handler (function)" in page.markdown
     assert "answer (function)" in page.markdown
     assert "Sources:" not in page.markdown
@@ -106,6 +106,11 @@ async def test_wiki_generator_saves_catalog_and_grounded_page(tmp_path: Path) ->
         and "metadata" not in edge
         and "provenance" not in edge
         for edge in graph_facts["related_edges"]
+    )
+    assert "community_edges" in graph_facts
+    assert all(
+        {"id", "source", "target", "type", "confidence", "reason"} >= set(edge)
+        for edge in graph_facts["community_edges"]
     )
     assert store.get_latest_doc_catalog(repo.id) is not None
     assert store.get_doc_page(repo.id, "request-handler") == page

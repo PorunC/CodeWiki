@@ -8,6 +8,7 @@ from backend.app.services.graphrag.constants import (
 )
 from backend.app.services.graphrag.context import (
     chunk_payload,
+    community_edge_payloads,
     community_summaries,
     context_pack,
     edge_payload,
@@ -117,6 +118,8 @@ class GraphRAGRetriever:
             context_token_budget=self._context_token_budget(),
         )
         communities = community_summaries(self.store, repo_id, selected_ids)
+        selected_community_ids = {str(community["id"]) for community in communities}
+        community_edges = community_edge_payloads(self.store, repo_id, selected_community_ids)
 
         seed_nodes = [
             node_payload(node_by_id[node_id], hit.score, sorted(hit.reasons), hop=0)
@@ -141,6 +144,7 @@ class GraphRAGRetriever:
             related_edges=edge_payloads,
             nodes=seed_nodes + expanded_nodes,
             communities=communities,
+            community_edges=community_edges,
         )
         trace_id = self._trace_id(repo_id, query, seed_hits.keys(), [hit.chunk.id for hit in source_chunks])
 
@@ -154,6 +158,7 @@ class GraphRAGRetriever:
             source_chunks=chunk_payloads,
             related_edges=edge_payloads,
             community_summaries=communities,
+            community_edges=community_edges,
             context_pack=packed_context,
         )
 

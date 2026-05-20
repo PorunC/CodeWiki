@@ -198,7 +198,9 @@ class WikiCatalogGenerator:
             "context_pack": _catalog_context_pack(trace.context_pack),
             "seed_nodes": graph_facts["seed_nodes"],
             "expanded_nodes": graph_facts["expanded_nodes"][:80],
+            "community_edges": graph_facts.get("community_edges", []),
             "community_summaries": graph_facts["community_summaries"],
+            "community_hierarchy": graph_facts.get("community_hierarchy", []),
             "source_chunks": _source_chunk_summaries(trace.source_chunks),
             "required_json_shape": {
                 "title": "Code Wiki",

@@ -19,9 +19,14 @@ def _graph_refs_from_trace(trace: RetrievalTrace) -> set[str]:
     return refs
 
 
-def _community_index(communities: list[dict[str, object]]) -> dict[str, _MermaidGroup]:
+def _community_index(
+    communities: list[dict[str, object]],
+    *,
+    preferred_level: int | None = None,
+) -> dict[str, _MermaidGroup]:
     index: dict[str, _MermaidGroup] = {}
-    for rank, community in enumerate(communities):
+    visible = _communities_for_level(communities, preferred_level=preferred_level)
+    for rank, community in enumerate(visible):
         community_id = str(community.get("id") or "")
         if not community_id:
             continue
@@ -40,6 +45,26 @@ def _community_index(communities: list[dict[str, object]]) -> dict[str, _Mermaid
             if node_id:
                 index.setdefault(node_id, group)
     return index
+
+
+def _communities_for_level(
+    communities: list[dict[str, object]],
+    *,
+    preferred_level: int | None,
+) -> list[dict[str, object]]:
+    if preferred_level is not None:
+        return [
+            community
+            for community in communities
+            if int(community.get("level") or 0) == preferred_level
+        ]
+    level = max((int(community.get("level") or 0) for community in communities), default=0)
+    selected = [
+        community
+        for community in communities
+        if int(community.get("level") or 0) == level
+    ]
+    return selected or communities
 
 
 def _string_list(value: object) -> list[str]:
