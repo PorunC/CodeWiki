@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 
 from backend.app.database import GraphCommunityEdgeRecord, GraphCommunityRecord, SQLiteStore
 from backend.app.services.ast_parser import AstParser, AstSymbol, parse_scanned_files
@@ -45,8 +46,22 @@ class AnalysisPipeline:
         self.community_record_builder = community_record_builder or CommunityRecordBuilder()
         self.community_edge_builder = community_edge_builder or CommunityEdgeBuilder()
 
-    def scan_repo(self, repo: RepoDescriptor) -> RepoScanResult:
-        return self.scanner.scan(repo.path, name=repo.name, source_type=repo.source_type)
+    def scan_repo(
+        self,
+        repo: RepoDescriptor,
+        *,
+        known_hashes: Mapping[str, str] | None = None,
+        known_file_metadata: Mapping[str, tuple[int | None, str | None]] | None = None,
+        hash_paths: set[str] | None = None,
+    ) -> RepoScanResult:
+        return self.scanner.scan(
+            repo.path,
+            name=repo.name,
+            source_type=repo.source_type,
+            known_hashes=known_hashes,
+            known_file_metadata=known_file_metadata,
+            hash_paths=hash_paths,
+        )
 
     def build_graph_for_path(self, path: str) -> CodeGraph:
         scan = self.scanner.scan(path)

@@ -98,3 +98,9 @@ class AstParser:
                 symbols=symbols,
             )
         return symbols
+
+    def fork(self) -> "AstParser":
+        return AstParser(
+            cache_dir=self.cache.cache_dir if self.cache is not None else None,
+            cache_enabled=self.cache is not None,
+        )

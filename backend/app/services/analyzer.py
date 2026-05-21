@@ -130,8 +130,8 @@ class AnalysisService:
 
         run = self.store.create_analysis_run(repo_id)
         try:
-            scan = self.pipeline.scan_repo(repo)
             old_nodes, old_edges = self.store.get_graph(repo_id)
+            scan = self._scan_repo_for_analysis(repo, old_nodes, force=force)
             incremental_plan = (
                 None if force or not old_nodes else self._incremental_plan(repo, scan, old_nodes)
             )
@@ -206,6 +206,24 @@ class AnalysisService:
     def build_graph_for_path(self, path: str) -> CodeGraph:
         return self.pipeline.build_graph_for_path(path)
 
+    def _scan_repo_for_analysis(
+        self,
+        repo: RepoDescriptor,
+        old_nodes: list[CodeGraphNode],
+        *,
+        force: bool,
+    ) -> RepoScanResult:
+        if force or not old_nodes:
+            return self.pipeline.scan_repo(repo)
+        current_repo = self.scanner.describe(repo.path, name=repo.name, source_type=repo.source_type)
+        candidate_paths = self._git_diff_candidates(repo, current_repo.commit_hash)
+        return self.pipeline.scan_repo(
+            current_repo,
+            known_hashes=_known_hashes_from_nodes(old_nodes),
+            known_file_metadata=_known_file_metadata_from_nodes(old_nodes),
+            hash_paths=candidate_paths,
+        )
+
     def _incremental_plan(
         self,
         repo: RepoDescriptor,
@@ -214,10 +232,7 @@ class AnalysisService:
     ) -> Any:
         from backend.app.services.incremental.planning import _plan_from_scan
 
-        metadata = read_repo_metadata(repo.id)
-        base_commit = metadata.commit_hash if metadata is not None else repo.commit_hash
-        head_commit = scan.repo.commit_hash
-        candidate_paths = git_diff_changed_paths(Path(scan.repo.path), base_commit, head_commit)
+        base_commit, head_commit, candidate_paths = self._git_diff_context(repo, scan.repo.commit_hash)
         detection_strategy = "git_diff+sha256" if candidate_paths is not None else "sha256"
         return _plan_from_scan(
             repo.id,
@@ -227,6 +242,23 @@ class AnalysisService:
             detection_strategy=detection_strategy,
             base_commit=base_commit,
             head_commit=head_commit,
+        )
+
+    def _git_diff_candidates(self, repo: RepoDescriptor, head_commit: str | None) -> set[str] | None:
+        _base_commit, _head_commit, candidate_paths = self._git_diff_context(repo, head_commit)
+        return candidate_paths
+
+    def _git_diff_context(
+        self,
+        repo: RepoDescriptor,
+        head_commit: str | None,
+    ) -> tuple[str | None, str | None, set[str] | None]:
+        metadata = read_repo_metadata(repo.id)
+        base_commit = metadata.commit_hash if metadata is not None else repo.commit_hash
+        return (
+            base_commit,
+            head_commit,
+            git_diff_changed_paths(Path(repo.path), base_commit, head_commit),
         )
 
 
@@ -253,3 +285,25 @@ def _community_count_by_level(communities) -> dict[str, int]:
         level = str(int(getattr(community, "level", 0) or 0))
         counts[level] = counts.get(level, 0) + 1
     return counts
+
+
+def _known_hashes_from_nodes(nodes: list[CodeGraphNode]) -> dict[str, str]:
+    return {
+        node.file_path: node.hash
+        for node in nodes
+        if node.type == "file" and node.file_path and node.hash
+    }
+
+
+def _known_file_metadata_from_nodes(nodes: list[CodeGraphNode]) -> dict[str, tuple[int | None, str | None]]:
+    metadata: dict[str, tuple[int | None, str | None]] = {}
+    for node in nodes:
+        if node.type != "file" or not node.file_path:
+            continue
+        size = node.metadata.get("size_bytes")
+        modified_at = node.metadata.get("modified_at")
+        metadata[node.file_path] = (
+            size if isinstance(size, int) else None,
+            modified_at if isinstance(modified_at, str) else None,
+        )
+    return metadata

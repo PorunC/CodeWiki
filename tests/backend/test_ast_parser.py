@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from backend.app.config import get_settings
-from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol
+from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol, parse_scanned_files
+from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.repo_scanner.file_info import sha256_file
 
 
@@ -37,6 +38,22 @@ def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> Non
     assert "Path" in by_id["app.py::Service.run"].calls
     assert by_id["app.py::build"].type == "function"
     assert "Service" in by_id["app.py::build"].calls
+
+
+def test_parse_scanned_files_parallel_preserves_results(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n")
+    (tmp_path / "b.py").write_text("def beta():\n    return 2\n")
+    scan = RepoScanner().scan(str(tmp_path))
+    monkeypatch.setenv("CODEWIKI_AST_PARSE_WORKERS", "2")
+
+    symbols, errors = parse_scanned_files(
+        AstParser(cache_enabled=False),
+        scan.files,
+        repo_root=tmp_path,
+    )
+
+    assert errors == []
+    assert [symbol.name for symbol in symbols if symbol.type == "function"] == ["alpha", "beta"]
 
 
 def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) -> None:

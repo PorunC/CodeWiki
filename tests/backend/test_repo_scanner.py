@@ -80,6 +80,46 @@ def test_scan_records_git_last_commit_time_for_source_files(tmp_path: Path) -> N
     assert files["notes.md"].last_commit_at is None
 
 
+def test_scan_can_reuse_known_hashes_for_unchanged_files(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "main.py"
+    source.write_text("print('hello')\n")
+    first_scan = RepoScanner().scan(str(tmp_path))
+    first_file = first_scan.files[0]
+
+    def fail_hash(_path: Path) -> str:
+        raise AssertionError("unchanged file should reuse known hash")
+
+    monkeypatch.setattr("backend.app.services.repo_scanner.file_info.sha256_file", fail_hash)
+    second_scan = RepoScanner().scan(
+        str(tmp_path),
+        known_hashes={first_file.path: first_file.sha256},
+        known_file_metadata={first_file.path: (first_file.size_bytes, first_file.modified_at)},
+        hash_paths=set(),
+    )
+
+    assert second_scan.files[0].sha256 == first_file.sha256
+
+
+def test_scan_rehashes_known_file_when_requested(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "main.py"
+    source.write_text("print('hello')\n")
+    first_scan = RepoScanner().scan(str(tmp_path))
+    first_file = first_scan.files[0]
+
+    monkeypatch.setattr(
+        "backend.app.services.repo_scanner.file_info.sha256_file",
+        lambda _path: "new-hash",
+    )
+    second_scan = RepoScanner().scan(
+        str(tmp_path),
+        known_hashes={first_file.path: first_file.sha256},
+        known_file_metadata={first_file.path: (first_file.size_bytes, first_file.modified_at)},
+        hash_paths={first_file.path},
+    )
+
+    assert second_scan.files[0].sha256 == "new-hash"
+
+
 def test_describe_git_url_clones_remote_repository(tmp_path: Path) -> None:
     if shutil.which("git") is None:
         pytest.skip("git executable is required for clone integration test")
