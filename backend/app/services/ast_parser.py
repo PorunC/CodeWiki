@@ -19,6 +19,7 @@ from backend.app.services.ast_parsers import (
     TreeSitterTypeScriptParser,
 )
 from backend.app.services.repo_scanner import ScannedFile
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 def parse_scanned_files(
@@ -28,6 +29,7 @@ def parse_scanned_files(
     repo_root: Path,
     only_paths: set[str] | None = None,
     max_workers: int | None = None,
+    content_provider: SourceFileContentProvider | None = None,
 ) -> tuple[list[AstSymbol], list[dict[str, str]]]:
     candidates = [
         scanned_file
@@ -35,6 +37,8 @@ def parse_scanned_files(
         if scanned_file.is_source and (only_paths is None or scanned_file.path in only_paths)
     ]
     worker_count = _parse_worker_count(len(candidates), max_workers)
+    if content_provider is not None:
+        parser.content_provider = content_provider
     if worker_count <= 1:
         return _parse_scanned_files_sequential(parser, candidates, repo_root=repo_root)
 

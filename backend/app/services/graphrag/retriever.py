@@ -170,8 +170,14 @@ class GraphRAGRetriever:
         nodes: list[CodeGraphNode],
     ) -> list[CodeChunkRecord]:
         from backend.app.services.chunk_builder import build_source_chunks
+        from backend.app.services.source_file_cache import SourceFileContentProvider
 
-        return build_source_chunks(repo_id=repo_id, repo_path=repo_path, nodes=nodes)
+        return build_source_chunks(
+            repo_id=repo_id,
+            repo_path=repo_path,
+            nodes=nodes,
+            content_provider=SourceFileContentProvider(repo_path),
+        )
 
     def _trace_id(
         self,

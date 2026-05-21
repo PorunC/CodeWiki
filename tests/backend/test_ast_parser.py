@@ -4,6 +4,7 @@ from backend.app.config import get_settings
 from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol, parse_scanned_files
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.repo_scanner.file_info import sha256_file
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> None:
@@ -408,6 +409,22 @@ def test_ast_parser_caches_symbols_by_file_hash(tmp_path: Path) -> None:
     assert language_parser.parse_count == 2
 
 
+def test_ast_parser_uses_content_provider_for_parse_content(tmp_path: Path) -> None:
+    source = tmp_path / "cached.py"
+    source.write_text("print('cached')\n")
+    provider = _CountingContentProvider(tmp_path)
+    language_parser = _ContentParser()
+    registry = AstParserRegistry()
+    registry.register(language_parser)
+    parser = AstParser(registry=registry, cache_enabled=False, content_provider=provider)
+
+    parser.parse_file(source, repo_root=tmp_path)
+    parser.parse_file(source, repo_root=tmp_path)
+
+    assert provider.read_count == 1
+    assert language_parser.contents == ["print('cached')\n", "print('cached')\n"]
+
+
 def test_ast_parser_default_cache_uses_storage_cache_ast(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "default_cached.py"
     source.write_text("print('cached by default')\n")
@@ -446,3 +463,45 @@ class _CountingParser:
                 hash=str(self.parse_count),
             )
         ]
+
+
+class _ContentParser:
+    language = "python"
+
+    def __init__(self) -> None:
+        self.contents: list[str] = []
+
+    def parse_content(
+        self,
+        path: Path,
+        content: str,
+        *,
+        repo_root: Path | None = None,
+    ) -> list[AstSymbol]:
+        self.contents.append(content)
+        return [
+            AstSymbol(
+                id=f"file:{path.relative_to(repo_root).as_posix() if repo_root else path.name}",
+                type="file",
+                name=path.name,
+                file_path=path.relative_to(repo_root).as_posix() if repo_root else path.name,
+                language=self.language,
+                start_line=1,
+                end_line=1,
+            )
+        ]
+
+    def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
+        raise AssertionError("parse_content should be used when content provider is present")
+
+
+class _CountingContentProvider(SourceFileContentProvider):
+    def __init__(self, repo_root: Path) -> None:
+        super().__init__(repo_root)
+        self.read_count = 0
+
+    def read_text(self, path: Path | str) -> str:
+        key = self._cache_key(Path(path).resolve())
+        if key not in self._texts:
+            self.read_count += 1
+        return super().read_text(path)

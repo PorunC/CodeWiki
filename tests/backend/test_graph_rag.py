@@ -15,6 +15,7 @@ from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graphrag.ranking import rank_source_chunks
 from backend.app.services.repo_scanner import RepoScanner
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 @pytest.mark.asyncio
@@ -81,7 +82,7 @@ async def test_graphrag_retrieve_lazily_builds_chunks_and_returns_context(tmp_pa
 async def test_graphrag_builds_optional_litellm_embedding_index(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n\ndef other():\n    return 43\n")
 
     store = SQLiteStore(tmp_path / "codewiki.sqlite3")
     repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
@@ -163,6 +164,43 @@ def test_chunk_builder_skips_file_nodes(tmp_path: Path) -> None:
     assert len(chunks) == 1
     assert chunks[0].node_id == function_node.id
     assert chunks[0].content == "def answer():\n    return 42\n"
+
+
+def test_chunk_builder_uses_shared_content_provider(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    provider = _CountingContentProvider(repo_dir)
+    nodes = [
+        CodeGraphNode(
+            id="repo:function:answer",
+            repo_id="repo",
+            type="function",
+            name="answer",
+            file_path="main.py",
+            start_line=1,
+            end_line=2,
+        ),
+        CodeGraphNode(
+            id="repo:function:answer-again",
+            repo_id="repo",
+            type="function",
+            name="other",
+            file_path="main.py",
+            start_line=4,
+            end_line=5,
+        ),
+    ]
+
+    chunks = ChunkBuilder().build_source_chunks(
+        repo_id="repo",
+        repo_path=str(repo_dir),
+        nodes=nodes,
+        content_provider=provider,
+    )
+
+    assert len(chunks) == 2
+    assert provider.read_count == 1
 
 
 @pytest.mark.asyncio
@@ -440,3 +478,15 @@ def _chunk(chunk_id: str, node_id: str, file_path: str) -> CodeChunkRecord:
         content_hash=chunk_id,
         token_count=1,
     )
+
+
+class _CountingContentProvider(SourceFileContentProvider):
+    def __init__(self, repo_root: Path) -> None:
+        super().__init__(repo_root)
+        self.read_count = 0
+
+    def read_text(self, path: Path | str) -> str:
+        key = self._cache_key(Path(path).resolve())
+        if key not in self._texts:
+            self.read_count += 1
+        return super().read_text(path)

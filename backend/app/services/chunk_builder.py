@@ -5,6 +5,7 @@ from backend.app.database import CodeChunkRecord
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import SOURCE_NODE_TYPES
 from backend.app.services.graphrag.utils import estimate_tokens, stable_id
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 CHUNK_SOURCE_NODE_TYPES = SOURCE_NODE_TYPES - {"file"}
 
@@ -16,8 +17,10 @@ class ChunkBuilder:
         repo_id: str,
         repo_path: str,
         nodes: list[CodeGraphNode],
+        content_provider: SourceFileContentProvider | None = None,
     ) -> list[CodeChunkRecord]:
         root = Path(repo_path).resolve()
+        provider = content_provider or SourceFileContentProvider(root)
         line_cache: dict[str, list[str]] = {}
         chunks: list[CodeChunkRecord] = []
         seen: set[tuple[str, int, int, str]] = set()
@@ -31,7 +34,7 @@ class ChunkBuilder:
                 if not file_path.is_file() or not file_path.is_relative_to(root):
                     line_cache[node.file_path] = []
                     continue
-                lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                lines = provider.read_lines(file_path)
                 line_cache[node.file_path] = lines
             if not lines:
                 continue
@@ -71,8 +74,14 @@ def build_source_chunks(
     repo_id: str,
     repo_path: str,
     nodes: list[CodeGraphNode],
+    content_provider: SourceFileContentProvider | None = None,
 ) -> list[CodeChunkRecord]:
-    return ChunkBuilder().build_source_chunks(repo_id=repo_id, repo_path=repo_path, nodes=nodes)
+    return ChunkBuilder().build_source_chunks(
+        repo_id=repo_id,
+        repo_path=repo_path,
+        nodes=nodes,
+        content_provider=content_provider,
+    )
 
 
 def source_chunk_id(

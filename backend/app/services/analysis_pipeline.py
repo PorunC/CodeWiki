@@ -9,6 +9,7 @@ from backend.app.services.community_edges import CommunityEdgeBuilder
 from backend.app.services.community_records import CommunityRecordBuilder
 from backend.app.services.graph import CodeGraph, GraphBuilder
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ class AnalysisPipeline:
             self.parser,
             scan.files,
             repo_root=Path(scan.repo.path),
+            content_provider=SourceFileContentProvider(scan.repo.path),
         )
         return self.graph_builder.build(scan, symbols)
 
@@ -85,6 +87,7 @@ class AnalysisPipeline:
             scan.files,
             repo_root=Path(scan.repo.path),
             only_paths=only_paths,
+            content_provider=SourceFileContentProvider(scan.repo.path),
         )
         graph = self.graph_builder.build(scan, [*(reused_symbols or []), *parsed_symbols])
         community_partitions = self.community_detector.detect(graph.nodes, graph.edges)
