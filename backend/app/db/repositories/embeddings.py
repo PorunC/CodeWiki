@@ -31,42 +31,38 @@ class CodeChunkEmbeddingRepositoryMixin:
         model: str,
         embeddings: list[CodeChunkEmbeddingRecord],
     ) -> None:
-        active_chunk_ids = {embedding.chunk_id for embedding in embeddings}
+        active_by_chunk_id = {embedding.chunk_id: embedding for embedding in embeddings}
         with self.orm_session() as session:
-            stale_rows = session.scalars(
+            existing_rows = session.scalars(
                 select(CodeChunkEmbeddingRecord).where(
                     CodeChunkEmbeddingRecord.repo_id == repo_id,
                     CodeChunkEmbeddingRecord.model == model,
-                    CodeChunkEmbeddingRecord.chunk_id.not_in(active_chunk_ids),
                 )
             ).all()
-            _delete_vector_rows(session, stale_rows)
-            if active_chunk_ids:
-                current_rows = session.scalars(
-                    select(CodeChunkEmbeddingRecord).where(
-                        CodeChunkEmbeddingRecord.repo_id == repo_id,
-                        CodeChunkEmbeddingRecord.model == model,
-                        CodeChunkEmbeddingRecord.chunk_id.in_(active_chunk_ids),
-                    )
-                ).all()
-                _delete_vector_rows(session, current_rows)
+            stale_rows: list[CodeChunkEmbeddingRecord] = []
+            changed_rows: list[CodeChunkEmbeddingRecord] = []
+            kept_chunk_ids: set[str] = set()
+            for row in existing_rows:
+                active = active_by_chunk_id.get(row.chunk_id)
+                if active is None:
+                    stale_rows.append(row)
+                elif _embedding_row_matches(session, row, active):
+                    kept_chunk_ids.add(row.chunk_id)
+                else:
+                    changed_rows.append(row)
+
+            rows_to_delete = [*stale_rows, *changed_rows]
+            _delete_vector_rows(session, rows_to_delete)
+            if rows_to_delete:
                 session.execute(
                     delete(CodeChunkEmbeddingRecord).where(
-                        CodeChunkEmbeddingRecord.repo_id == repo_id,
-                        CodeChunkEmbeddingRecord.model == model,
-                        CodeChunkEmbeddingRecord.chunk_id.in_(active_chunk_ids),
-                    )
-                )
-            elif stale_rows:
-                session.execute(
-                    delete(CodeChunkEmbeddingRecord).where(
-                        CodeChunkEmbeddingRecord.repo_id == repo_id,
-                        CodeChunkEmbeddingRecord.model == model,
+                        CodeChunkEmbeddingRecord.id.in_([row.id for row in rows_to_delete]),
                     )
                 )
 
             for embedding in embeddings:
-                _insert_embedding(session, embedding)
+                if embedding.chunk_id not in kept_chunk_ids:
+                    _insert_embedding(session, embedding)
 
     def list_code_chunk_embeddings(
         self,
@@ -169,10 +165,34 @@ def _insert_embedding(session, embedding: CodeChunkEmbeddingRecord) -> None:
     )
 
 
+def _embedding_row_matches(
+    session,
+    row: CodeChunkEmbeddingRecord,
+    embedding: CodeChunkEmbeddingRecord,
+) -> bool:
+    return (
+        row.id == embedding.id
+        and row.content_hash == embedding.content_hash
+        and row.dimensions == embedding.dimensions
+        and row.vec_rowid > 0
+        and _vector_row_exists(session, row.vec_table, row.vec_rowid)
+    )
+
+
 def _delete_vector_rows(session, rows: list[CodeChunkEmbeddingRecord]) -> None:
     for row in rows:
         if _is_vec_table_name(row.vec_table) and _table_exists(session, row.vec_table):
             session.execute(text(f"DELETE FROM {row.vec_table} WHERE rowid = :rowid"), {"rowid": row.vec_rowid})
+
+
+def _vector_row_exists(session, vec_table: str, vec_rowid: int) -> bool:
+    if not _is_vec_table_name(vec_table) or not _table_exists(session, vec_table):
+        return False
+    row = session.execute(
+        text(f"SELECT 1 FROM {vec_table} WHERE rowid = :vec_rowid"),
+        {"vec_rowid": vec_rowid},
+    ).first()
+    return row is not None
 
 
 def _delete_existing_vectors(session, repo_id: str, model: str) -> None:

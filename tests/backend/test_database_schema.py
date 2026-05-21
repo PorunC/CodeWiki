@@ -187,6 +187,27 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
     )
     assert vector_hits[0].chunk.id == chunk.id
 
+    replacement_chunk = CodeChunkRecord(
+        id="chunk-2",
+        repo_id=repo.id,
+        node_id=file_node.id,
+        file_path="other.py",
+        start_line=1,
+        end_line=1,
+        content="print('other')\n",
+        content_hash="hash-other",
+        token_count=3,
+    )
+    store.sync_code_chunks(repo.id, [chunk, replacement_chunk])
+    chunks = store.list_code_chunks(repo.id)
+    assert [item.id for item in chunks] == ["chunk-1", "chunk-2"]
+    assert store.search_code_chunks_fts(repo.id, '"other"', limit=5)[0].chunk.id == "chunk-2"
+
+    store.sync_code_chunks(repo.id, [replacement_chunk])
+    chunks = store.list_code_chunks(repo.id)
+    assert [item.id for item in chunks] == ["chunk-2"]
+    assert store.search_code_chunks_fts(repo.id, '"main"', limit=5) == []
+
     community = GraphCommunityRecord(
         id="community-1",
         repo_id=repo.id,

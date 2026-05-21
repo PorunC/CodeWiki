@@ -248,12 +248,62 @@ async def test_embedding_index_reuses_existing_vectors_by_content_hash(tmp_path:
     second_llm = _RecordingLLM()
 
     await EmbeddingIndex(store, first_llm).build(repo.id, chunks)
+    first_row = store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0]
     result = await EmbeddingIndex(store, second_llm).build(repo.id, chunks)
+    second_row = store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0]
 
     assert result.count == 1
     assert sum(len(call) for call in first_llm.calls) == 1
     assert second_llm.calls == []
-    assert store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0].embedding
+    assert second_row.embedding
+    assert second_row.vec_rowid == first_row.vec_rowid
+
+
+@pytest.mark.asyncio
+async def test_embedding_index_ensure_builds_missing_chunk_vectors(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    first_chunks = [
+        CodeChunkRecord(
+            id="chunk-a",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="a.py",
+            start_line=1,
+            end_line=1,
+            content="return 42\n",
+            content_hash="same-content",
+            token_count=2,
+        )
+    ]
+    second_chunks = [
+        *first_chunks,
+        CodeChunkRecord(
+            id="chunk-b",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="b.py",
+            start_line=1,
+            end_line=1,
+            content="return 43\n",
+            content_hash="other-content",
+            token_count=2,
+        ),
+    ]
+    store.replace_code_chunks(repo.id, first_chunks)
+    llm = _RecordingLLM()
+
+    await EmbeddingIndex(store, llm).build(repo.id, first_chunks)
+    store.sync_code_chunks(repo.id, second_chunks)
+    result = await EmbeddingIndex(store, llm).ensure(repo.id, second_chunks)
+
+    assert result is not None
+    assert result.count == 2
+    assert [len(call) for call in llm.calls] == [1, 1]
+    embeddings = store.list_code_chunk_embeddings(repo.id, model="fake/embed")
+    assert {embedding.chunk_id for embedding in embeddings} == {"chunk-a", "chunk-b"}
 
 
 def test_graphrag_hybrid_ranking_uses_five_factor_formula() -> None:

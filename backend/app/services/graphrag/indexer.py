@@ -50,5 +50,5 @@ def _build_and_store_source_chunks(
     nodes: list[CodeGraphNode],
 ) -> list[CodeChunkRecord]:
     chunks = ChunkBuilder().build_source_chunks(repo_id=repo_id, repo_path=repo_path, nodes=nodes)
-    store.replace_code_chunks(repo_id, chunks)
+    store.sync_code_chunks(repo_id, chunks)
     return chunks

@@ -74,7 +74,13 @@ class EmbeddingIndex:
         chunks: list[CodeChunkRecord],
     ) -> EmbeddingIndexBuildResult | None:
         model = self.model
-        if self.store.list_code_chunk_embeddings(repo_id, model=model) or not chunks:
+        if not chunks:
+            return None
+        existing_chunk_ids = {
+            embedding.chunk_id
+            for embedding in self.store.list_code_chunk_embeddings(repo_id, model=model)
+        }
+        if {chunk.id for chunk in chunks} <= existing_chunk_ids:
             return None
         return await self.build(repo_id, chunks)
 

@@ -13,6 +13,25 @@ class CodeChunkRepositoryMixin:
             session.execute(delete(CodeChunkRecord).where(CodeChunkRecord.repo_id == repo_id))
             _insert_code_chunks(session, chunks)
 
+    def sync_code_chunks(self, repo_id: str, chunks: list[CodeChunkRecord]) -> None:
+        active_ids = {chunk.id for chunk in chunks}
+        with self.orm_session() as session:
+            existing_ids = set(
+                session.scalars(select(CodeChunkRecord.id).where(CodeChunkRecord.repo_id == repo_id)).all()
+            )
+            stale_ids = existing_ids - active_ids
+            new_chunks = [chunk for chunk in chunks if chunk.id not in existing_ids]
+
+            if stale_ids:
+                _delete_code_chunk_fts_by_ids(session, repo_id, stale_ids)
+                session.execute(
+                    delete(CodeChunkRecord).where(
+                        CodeChunkRecord.repo_id == repo_id,
+                        CodeChunkRecord.id.in_(stale_ids),
+                    )
+                )
+            _insert_code_chunks(session, new_chunks)
+
     def replace_code_chunks_for_files(
         self,
         repo_id: str,
@@ -125,6 +144,17 @@ def _insert_code_chunks(session, chunks: list[CodeChunkRecord]) -> None:
             ),
             [_chunk_mapping(chunk) for chunk in chunks],
         )
+
+
+def _delete_code_chunk_fts_by_ids(session, repo_id: str, chunk_ids: set[str]) -> None:
+    if not chunk_ids:
+        return
+    params = {f"id_{index}": chunk_id for index, chunk_id in enumerate(chunk_ids)}
+    placeholders = ",".join(f":{key}" for key in params)
+    session.execute(
+        text(f"DELETE FROM code_chunk_fts WHERE repo_id = :repo_id AND id IN ({placeholders})"),
+        {"repo_id": repo_id, **params},
+    )
 
 
 def _clone_chunk(chunk: CodeChunkRecord) -> CodeChunkRecord:
