@@ -1,5 +1,5 @@
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 from pathlib import Path
 
@@ -30,6 +30,7 @@ def parse_scanned_files(
     only_paths: set[str] | None = None,
     max_workers: int | None = None,
     content_provider: SourceFileContentProvider | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[AstSymbol], list[dict[str, str]]]:
     candidates = [
         scanned_file
@@ -40,16 +41,23 @@ def parse_scanned_files(
     if content_provider is not None:
         parser.content_provider = content_provider
     if worker_count <= 1:
-        return _parse_scanned_files_sequential(parser, candidates, repo_root=repo_root)
+        return _parse_scanned_files_sequential(
+            parser,
+            candidates,
+            repo_root=repo_root,
+            progress_callback=progress_callback,
+        )
 
     results: list[tuple[int, list[AstSymbol], dict[str, str] | None]] = []
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        futures = [
-            executor.submit(_parse_scanned_file_worker, parser, index, scanned_file, repo_root)
+        futures = {
+            executor.submit(_parse_scanned_file_worker, parser, index, scanned_file, repo_root): scanned_file
             for index, scanned_file in enumerate(candidates)
-        ]
-        for future in futures:
+        }
+        for completed, future in enumerate(as_completed(futures), start=1):
             results.append(future.result())
+            if progress_callback is not None:
+                progress_callback(completed, len(candidates), futures[future].path)
 
     symbols: list[AstSymbol] = []
     errors: list[dict[str, str]] = []
@@ -66,16 +74,21 @@ def _parse_scanned_files_sequential(
     files: list[ScannedFile],
     *,
     repo_root: Path,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[AstSymbol], list[dict[str, str]]]:
     symbols: list[AstSymbol] = []
     errors: list[dict[str, str]] = []
-    for scanned_file in files:
+    for completed, scanned_file in enumerate(files, start=1):
         try:
             parsed_symbols = _parse_one_file(parser, scanned_file, repo_root=repo_root)
         except SyntaxError as exc:
             errors.append({"file_path": scanned_file.path, "error": str(exc)})
+            if progress_callback is not None:
+                progress_callback(completed, len(files), scanned_file.path)
             continue
         symbols.extend(parsed_symbols)
+        if progress_callback is not None:
+            progress_callback(completed, len(files), scanned_file.path)
     return symbols, errors
 
 

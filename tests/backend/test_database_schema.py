@@ -11,6 +11,8 @@ from backend.app.database import (
 )
 from backend.app.models import Base, CodeNodeRecord, DocCatalogRecord, RepoRecord
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.graph import CodeGraphNode
+from backend.app.services.repo_scanner.models import RepoDescriptor
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -129,6 +131,30 @@ def test_schema_migrates_existing_llm_run_cache_columns(tmp_path: Path) -> None:
         }
 
     assert {"response_content", "response_usage_json"} <= columns
+
+
+def test_replace_graph_deletes_stale_nodes_in_batches(tmp_path: Path) -> None:
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(
+        RepoDescriptor(id="large-repo", name="large", path=str(tmp_path), source_type="local")
+    )
+    initial_nodes = [
+        CodeGraphNode(
+            id=f"{repo.id}:symbol:{index}",
+            repo_id=repo.id,
+            type="function",
+            name=f"symbol_{index}",
+        )
+        for index in range(1200)
+    ]
+    kept_nodes = initial_nodes[:10]
+
+    store.replace_graph(repo.id, nodes=initial_nodes, edges=[])
+    store.replace_graph(repo.id, nodes=kept_nodes, edges=[])
+
+    nodes, edges = store.get_graph(repo.id)
+    assert [node.id for node in nodes] == [node.id for node in kept_nodes]
+    assert edges == []
 
 
 def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:

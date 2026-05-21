@@ -57,6 +57,26 @@ def test_parse_scanned_files_parallel_preserves_results(tmp_path: Path, monkeypa
     assert [symbol.name for symbol in symbols if symbol.type == "function"] == ["alpha", "beta"]
 
 
+def test_parse_scanned_files_reports_progress(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n")
+    (tmp_path / "b.py").write_text("def beta():\n    return 2\n")
+    scan = RepoScanner().scan(str(tmp_path))
+    monkeypatch.setenv("CODEWIKI_AST_PARSE_WORKERS", "2")
+    progress: list[tuple[int, int, str]] = []
+
+    symbols, errors = parse_scanned_files(
+        AstParser(cache_enabled=False),
+        scan.files,
+        repo_root=tmp_path,
+        progress_callback=lambda completed, total, path: progress.append((completed, total, path)),
+    )
+
+    assert errors == []
+    assert len(symbols) >= 2
+    assert [item[0] for item in progress] == [1, 2]
+    assert {item[2] for item in progress} == {"a.py", "b.py"}
+
+
 def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) -> None:
     source = tmp_path / "app.ts"
     source.write_text(

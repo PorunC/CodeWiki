@@ -9,6 +9,7 @@ from backend.app.models import CodeEdgeRecord, CodeNodeRecord
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode, CodeGraphNodeSearchHit
 
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
+SQLITE_SAFE_BATCH_SIZE = 500
 
 
 class CodeGraphRepositoryMixin:
@@ -24,12 +25,19 @@ class CodeGraphRepositoryMixin:
             session.execute(text("DELETE FROM code_node_fts WHERE repo_id = :repo_id"), {"repo_id": repo_id})
             session.execute(delete(CodeEdgeRecord).where(CodeEdgeRecord.repo_id == repo_id))
             if keep_ids:
-                session.execute(
-                    delete(CodeNodeRecord).where(
-                        CodeNodeRecord.repo_id == repo_id,
-                        CodeNodeRecord.id.not_in(keep_ids),
+                existing_ids = set(
+                    session.scalars(
+                        select(CodeNodeRecord.id).where(CodeNodeRecord.repo_id == repo_id)
                     )
                 )
+                stale_ids = existing_ids - keep_ids
+                for stale_batch in _chunks(sorted(stale_ids), SQLITE_SAFE_BATCH_SIZE):
+                    session.execute(
+                        delete(CodeNodeRecord).where(
+                            CodeNodeRecord.repo_id == repo_id,
+                            CodeNodeRecord.id.in_(stale_batch),
+                        )
+                    )
             else:
                 session.execute(delete(CodeNodeRecord).where(CodeNodeRecord.repo_id == repo_id))
 
@@ -283,6 +291,10 @@ def _node_record(node: CodeGraphNode) -> CodeNodeRecord:
         hash=node.hash,
         metadata_json=node.metadata,
     )
+
+
+def _chunks[T](items: list[T], size: int) -> list[list[T]]:
+    return [items[index:index + size] for index in range(0, len(items), size)]
 
 
 def _edge_record(edge: CodeGraphEdge) -> CodeEdgeRecord:

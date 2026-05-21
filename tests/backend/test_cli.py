@@ -25,7 +25,7 @@ def test_cli_help_lists_serve_command() -> None:
 def test_cli_registers_and_lists_repositories(tmp_path: Path, monkeypatch) -> None:
     _configure_database(tmp_path, monkeypatch)
     repo_dir = _repo(tmp_path)
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
 
     add_result = runner.invoke(
         main,
@@ -92,6 +92,25 @@ def test_cli_runs_analysis(tmp_path: Path, monkeypatch) -> None:
     assert analysis["status"] == "done"
     assert analysis["node_count"] >= 2
     assert analysis["edge_count"] >= 1
+
+
+def test_cli_analysis_progress_goes_to_stderr_with_json_stdout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _configure_database(tmp_path, monkeypatch)
+    repo_dir = _repo(tmp_path)
+    runner = CliRunner(mix_stderr=False)
+    add_result = runner.invoke(main, ["repos", "add", str(repo_dir), "--json"])
+    repo_id = json.loads(add_result.output)["id"]
+
+    result = runner.invoke(main, ["analyze", repo_id, "--progress", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["status"] == "done"
+    assert "PROGRESS scan start" in result.stderr
+    assert "PROGRESS parse" in result.stderr
+    assert "PROGRESS persist done" in result.stderr
 
 
 def test_cli_analyzes_current_directory_without_repo_id(tmp_path: Path, monkeypatch) -> None:

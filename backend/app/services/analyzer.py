@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from backend.app.config import Settings, get_settings
 from backend.app.database import SQLiteStore
@@ -88,8 +88,14 @@ class AnalysisService:
         force: bool = False,
         community_namer: CommunityNamer | None = None,
         settings: Settings | None = None,
+        progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> AnalysisWithCommunitySummariesResult:
-        result = await run_blocking(self.analyze, repo_id, force=force)
+        result = await run_blocking(
+            self.analyze,
+            repo_id,
+            force=force,
+            progress_callback=progress_callback,
+        )
         if not name_communities:
             return AnalysisWithCommunitySummariesResult(analysis=result)
 
@@ -123,7 +129,13 @@ class AnalysisService:
             community_naming=naming_result,
         )
 
-    def analyze(self, repo_id: str, *, force: bool = False) -> AnalysisResult:
+    def analyze(
+        self,
+        repo_id: str,
+        *,
+        force: bool = False,
+        progress_callback: Callable[[str, dict[str, object]], None] | None = None,
+    ) -> AnalysisResult:
         repo = self.store.get_repo(repo_id)
         if repo is None:
             raise ValueError(f"Repository not found: {repo_id}")
@@ -131,10 +143,27 @@ class AnalysisService:
         run = self.store.create_analysis_run(repo_id)
         try:
             old_nodes, old_edges = self.store.get_graph(repo_id)
+            _emit_progress(progress_callback, "scan_start", repo=repo.name, path=repo.path)
             scan = self._scan_repo_for_analysis(repo, old_nodes, force=force)
+            _emit_progress(
+                progress_callback,
+                "scan_done",
+                scanned=scan.scanned_count,
+                ignored=scan.ignored_count,
+                skipped=scan.skipped_count,
+            )
             incremental_plan = (
                 None if force or not old_nodes else self._incremental_plan(repo, scan, old_nodes)
             )
+            if incremental_plan is not None:
+                _emit_progress(
+                    progress_callback,
+                    "plan_done",
+                    changed=len(incremental_plan.changed_files),
+                    new=len(incremental_plan.new_files),
+                    deleted=len(incremental_plan.deleted_files),
+                    unchanged=len(incremental_plan.unchanged_files),
+                )
             if incremental_plan is not None and not incremental_plan.affected_files:
                 existing_communities = self.store.list_graph_communities(repo_id)
                 result = AnalysisResult(
@@ -153,6 +182,7 @@ class AnalysisService:
                 self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
                 self.store.upsert_repo(scan.repo)
                 write_repo_metadata(scan.repo)
+                _emit_progress(progress_callback, "analysis_done", mode=result.mode)
                 return result
 
             if incremental_plan is not None:
@@ -168,11 +198,12 @@ class AnalysisService:
                     scan,
                     only_paths=changed_or_new,
                     reused_symbols=reused_symbols,
+                    progress_callback=progress_callback,
                 )
                 mode = "incremental"
                 reused_file_count = len(incremental_plan.unchanged_files)
             else:
-                pipeline_result = self.pipeline.run(scan)
+                pipeline_result = self.pipeline.run(scan, progress_callback=progress_callback)
                 mode = "full"
                 reused_file_count = 0
 
@@ -193,6 +224,13 @@ class AnalysisService:
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
             self.store.upsert_repo(pipeline_result.scan.repo)
             write_repo_metadata(pipeline_result.scan.repo)
+            _emit_progress(
+                progress_callback,
+                "analysis_done",
+                mode=result.mode,
+                nodes=result.node_count,
+                edges=result.edge_count,
+            )
             return result
         except Exception as exc:
             self.store.finish_analysis_run(
@@ -270,6 +308,15 @@ def _llm_configured(settings: Settings) -> bool:
         or profile.provider_type
         or not profile.model.startswith("provider/")
     )
+
+
+def _emit_progress(
+    progress_callback: Callable[[str, dict[str, object]], None] | None,
+    stage: str,
+    **payload: object,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(stage, payload)
 
 
 async def _summarize_communities(namer: CommunityNamer, repo_id: str) -> CommunityNamingResult:
