@@ -7,17 +7,18 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.incremental.watcher import IncrementalUpdateWatcher, WatchIterationResult
 
-
 def register(main: click.Group) -> None:
     @main.command("analyze")
     @click.argument("repo", required=False)
-    @click.option("--community-summaries/--no-community-summaries", default=True, show_default=True)
+    @click.option("--community-summaries/--no-community-summaries", default=False, show_default=True)
+    @click.option("--force", is_flag=True, help="Ignore the incremental fast path and rebuild the graph.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
     @click.pass_context
     def analyze_repo(
         ctx: click.Context,
         repo: str | None,
         community_summaries: bool,
+        force: bool,
         as_json: bool,
     ) -> None:
         """Run full AST graph analysis for REPO.
@@ -32,6 +33,7 @@ def register(main: click.Group) -> None:
                 AnalysisService(store=store).analyze_with_community_summaries(
                     selected_repo.id,
                     name_communities=community_summaries,
+                    force=force,
                 )
             ),
             capture_stdout=as_json,
@@ -41,6 +43,7 @@ def register(main: click.Group) -> None:
             "run_id": result.run_id,
             "repo_id": result.repo_id,
             "status": result.status,
+            "mode": result.mode,
             **result.stats(),
         }
         if analysis.community_naming is not None:

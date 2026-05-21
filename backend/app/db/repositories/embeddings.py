@@ -22,38 +22,51 @@ class CodeChunkEmbeddingRepositoryMixin:
                 )
             )
             for embedding in embeddings:
-                if embedding.dimensions <= 0 or len(embedding.embedding) != embedding.dimensions:
-                    raise ValueError(f"Invalid embedding dimensions for chunk {embedding.chunk_id}")
+                _insert_embedding(session, embedding)
 
-                vec_table = _vec_table_name(embedding.dimensions)
-                _ensure_vec_table(session, embedding.dimensions)
-                cursor = session.execute(
-                    text(
-                        f"""
-                    INSERT INTO {vec_table} (embedding, repo_id, model, chunk_id)
-                    VALUES (:embedding, :repo_id, :model, :chunk_id)
-                    """
-                    ),
-                    {
-                        "embedding": _serialize_float32(embedding.embedding),
-                        "repo_id": embedding.repo_id,
-                        "model": embedding.model,
-                        "chunk_id": embedding.chunk_id,
-                    },
+    def sync_code_chunk_embeddings(
+        self,
+        repo_id: str,
+        *,
+        model: str,
+        embeddings: list[CodeChunkEmbeddingRecord],
+    ) -> None:
+        active_chunk_ids = {embedding.chunk_id for embedding in embeddings}
+        with self.orm_session() as session:
+            stale_rows = session.scalars(
+                select(CodeChunkEmbeddingRecord).where(
+                    CodeChunkEmbeddingRecord.repo_id == repo_id,
+                    CodeChunkEmbeddingRecord.model == model,
+                    CodeChunkEmbeddingRecord.chunk_id.not_in(active_chunk_ids),
                 )
-                session.add(
-                    CodeChunkEmbeddingRecord(
-                        id=embedding.id,
-                        repo_id=embedding.repo_id,
-                        chunk_id=embedding.chunk_id,
-                        model=embedding.model,
-                        dimensions=embedding.dimensions,
-                        embedding=[],
-                        content_hash=embedding.content_hash,
-                        vec_table=vec_table,
-                        vec_rowid=cursor.lastrowid,
+            ).all()
+            _delete_vector_rows(session, stale_rows)
+            if active_chunk_ids:
+                current_rows = session.scalars(
+                    select(CodeChunkEmbeddingRecord).where(
+                        CodeChunkEmbeddingRecord.repo_id == repo_id,
+                        CodeChunkEmbeddingRecord.model == model,
+                        CodeChunkEmbeddingRecord.chunk_id.in_(active_chunk_ids),
+                    )
+                ).all()
+                _delete_vector_rows(session, current_rows)
+                session.execute(
+                    delete(CodeChunkEmbeddingRecord).where(
+                        CodeChunkEmbeddingRecord.repo_id == repo_id,
+                        CodeChunkEmbeddingRecord.model == model,
+                        CodeChunkEmbeddingRecord.chunk_id.in_(active_chunk_ids),
                     )
                 )
+            elif stale_rows:
+                session.execute(
+                    delete(CodeChunkEmbeddingRecord).where(
+                        CodeChunkEmbeddingRecord.repo_id == repo_id,
+                        CodeChunkEmbeddingRecord.model == model,
+                    )
+                )
+
+            for embedding in embeddings:
+                _insert_embedding(session, embedding)
 
     def list_code_chunk_embeddings(
         self,
@@ -119,6 +132,47 @@ class CodeChunkEmbeddingRepositoryMixin:
                 continue
             hits.append(CodeChunkSearchHit(chunk=chunk, score=score, match_type="vector"))
         return hits[:limit]
+
+
+def _insert_embedding(session, embedding: CodeChunkEmbeddingRecord) -> None:
+    if embedding.dimensions <= 0 or len(embedding.embedding) != embedding.dimensions:
+        raise ValueError(f"Invalid embedding dimensions for chunk {embedding.chunk_id}")
+
+    vec_table = _vec_table_name(embedding.dimensions)
+    _ensure_vec_table(session, embedding.dimensions)
+    cursor = session.execute(
+        text(
+            f"""
+        INSERT INTO {vec_table} (embedding, repo_id, model, chunk_id)
+        VALUES (:embedding, :repo_id, :model, :chunk_id)
+        """
+        ),
+        {
+            "embedding": _serialize_float32(embedding.embedding),
+            "repo_id": embedding.repo_id,
+            "model": embedding.model,
+            "chunk_id": embedding.chunk_id,
+        },
+    )
+    session.add(
+        CodeChunkEmbeddingRecord(
+            id=embedding.id,
+            repo_id=embedding.repo_id,
+            chunk_id=embedding.chunk_id,
+            model=embedding.model,
+            dimensions=embedding.dimensions,
+            embedding=[],
+            content_hash=embedding.content_hash,
+            vec_table=vec_table,
+            vec_rowid=cursor.lastrowid,
+        )
+    )
+
+
+def _delete_vector_rows(session, rows: list[CodeChunkEmbeddingRecord]) -> None:
+    for row in rows:
+        if _is_vec_table_name(row.vec_table) and _table_exists(session, row.vec_table):
+            session.execute(text(f"DELETE FROM {row.vec_table} WHERE rowid = :rowid"), {"rowid": row.vec_rowid})
 
 
 def _delete_existing_vectors(session, repo_id: str, model: str) -> None:

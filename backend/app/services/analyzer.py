@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from backend.app.config import Settings, get_settings
@@ -9,11 +10,16 @@ from backend.app.services.async_tasks import run_blocking
 from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.community_namer import CommunityNamer
 from backend.app.services.community_naming import CommunityNamingResult
-from backend.app.services.graph import CodeGraph, GraphBuilder
+from backend.app.services.graph import CodeGraph, CodeGraphNode, GraphBuilder
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.model_router import ModelRouter
-from backend.app.services.repo_metadata import write_repo_metadata
-from backend.app.services.repo_scanner import RepoScanner
+from backend.app.services.repo_metadata import read_repo_metadata, write_repo_metadata
+from backend.app.services.repo_scanner import (
+    RepoDescriptor,
+    RepoScanResult,
+    RepoScanner,
+    git_diff_changed_paths,
+)
 
 
 @dataclass(frozen=True)
@@ -28,11 +34,15 @@ class AnalysisResult:
     community_count: int
     community_count_by_level: dict[str, int] = field(default_factory=dict)
     errors: list[dict[str, str]] = field(default_factory=list)
+    mode: str = "full"
+    reused_file_count: int = 0
 
     def stats(self) -> dict[str, Any]:
         return {
+            "mode": self.mode,
             "scanned_count": self.scanned_count,
             "parsed_file_count": self.parsed_file_count,
+            "reused_file_count": self.reused_file_count,
             "node_count": self.node_count,
             "edge_count": self.edge_count,
             "community_count": self.community_count,
@@ -75,10 +85,11 @@ class AnalysisService:
         repo_id: str,
         *,
         name_communities: bool = True,
+        force: bool = False,
         community_namer: CommunityNamer | None = None,
         settings: Settings | None = None,
     ) -> AnalysisWithCommunitySummariesResult:
-        result = await run_blocking(self.analyze, repo_id)
+        result = await run_blocking(self.analyze, repo_id, force=force)
         if not name_communities:
             return AnalysisWithCommunitySummariesResult(analysis=result)
 
@@ -112,7 +123,7 @@ class AnalysisService:
             community_naming=naming_result,
         )
 
-    def analyze(self, repo_id: str) -> AnalysisResult:
+    def analyze(self, repo_id: str, *, force: bool = False) -> AnalysisResult:
         repo = self.store.get_repo(repo_id)
         if repo is None:
             raise ValueError(f"Repository not found: {repo_id}")
@@ -120,7 +131,50 @@ class AnalysisService:
         run = self.store.create_analysis_run(repo_id)
         try:
             scan = self.pipeline.scan_repo(repo)
-            pipeline_result = self.pipeline.run(scan)
+            old_nodes, old_edges = self.store.get_graph(repo_id)
+            incremental_plan = (
+                None if force or not old_nodes else self._incremental_plan(repo, scan, old_nodes)
+            )
+            if incremental_plan is not None and not incremental_plan.affected_files:
+                existing_communities = self.store.list_graph_communities(repo_id)
+                result = AnalysisResult(
+                    run_id=run.id,
+                    repo_id=repo_id,
+                    status="done",
+                    scanned_count=scan.scanned_count,
+                    parsed_file_count=0,
+                    reused_file_count=len(incremental_plan.unchanged_files),
+                    node_count=len(old_nodes),
+                    edge_count=len(old_edges),
+                    community_count=len(existing_communities),
+                    community_count_by_level=_community_count_by_level(existing_communities),
+                    mode="unchanged",
+                )
+                self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
+                self.store.upsert_repo(scan.repo)
+                write_repo_metadata(scan.repo)
+                return result
+
+            if incremental_plan is not None:
+                from backend.app.services.incremental.symbol_recovery import _symbols_from_existing_graph
+
+                changed_or_new = set(incremental_plan.changed_files + incremental_plan.new_files)
+                reused_symbols = _symbols_from_existing_graph(
+                    old_nodes,
+                    old_edges,
+                    set(incremental_plan.unchanged_files),
+                )
+                pipeline_result = self.pipeline.run(
+                    scan,
+                    only_paths=changed_or_new,
+                    reused_symbols=reused_symbols,
+                )
+                mode = "incremental"
+                reused_file_count = len(incremental_plan.unchanged_files)
+            else:
+                pipeline_result = self.pipeline.run(scan)
+                mode = "full"
+                reused_file_count = 0
 
             result = AnalysisResult(
                 run_id=run.id,
@@ -133,6 +187,8 @@ class AnalysisService:
                 community_count=len(pipeline_result.communities),
                 community_count_by_level=_community_count_by_level(pipeline_result.communities),
                 errors=pipeline_result.parse_errors,
+                mode=mode,
+                reused_file_count=reused_file_count,
             )
             self.store.finish_analysis_run(run.id, status="done", stats=result.stats())
             self.store.upsert_repo(pipeline_result.scan.repo)
@@ -149,6 +205,29 @@ class AnalysisService:
 
     def build_graph_for_path(self, path: str) -> CodeGraph:
         return self.pipeline.build_graph_for_path(path)
+
+    def _incremental_plan(
+        self,
+        repo: RepoDescriptor,
+        scan: RepoScanResult,
+        old_nodes: list[CodeGraphNode],
+    ) -> Any:
+        from backend.app.services.incremental.planning import _plan_from_scan
+
+        metadata = read_repo_metadata(repo.id)
+        base_commit = metadata.commit_hash if metadata is not None else repo.commit_hash
+        head_commit = scan.repo.commit_hash
+        candidate_paths = git_diff_changed_paths(Path(scan.repo.path), base_commit, head_commit)
+        detection_strategy = "git_diff+sha256" if candidate_paths is not None else "sha256"
+        return _plan_from_scan(
+            repo.id,
+            scan,
+            old_nodes,
+            candidate_paths=candidate_paths,
+            detection_strategy=detection_strategy,
+            base_commit=base_commit,
+            head_commit=head_commit,
+        )
 
 
 def _llm_configured(settings: Settings) -> bool:

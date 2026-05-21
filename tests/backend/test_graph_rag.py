@@ -224,6 +224,38 @@ async def test_embedding_index_deduplicates_llm_calls_by_content_hash(tmp_path: 
     assert embeddings["chunk-a"].content_hash == embeddings["chunk-b"].content_hash
 
 
+@pytest.mark.asyncio
+async def test_embedding_index_reuses_existing_vectors_by_content_hash(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    chunks = [
+        CodeChunkRecord(
+            id="chunk-a",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="a.py",
+            start_line=1,
+            end_line=1,
+            content="return 42\n",
+            content_hash="same-content",
+            token_count=2,
+        )
+    ]
+    store.replace_code_chunks(repo.id, chunks)
+    first_llm = _RecordingLLM()
+    second_llm = _RecordingLLM()
+
+    await EmbeddingIndex(store, first_llm).build(repo.id, chunks)
+    result = await EmbeddingIndex(store, second_llm).build(repo.id, chunks)
+
+    assert result.count == 1
+    assert sum(len(call) for call in first_llm.calls) == 1
+    assert second_llm.calls == []
+    assert store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0].embedding
+
+
 def test_graphrag_hybrid_ranking_uses_five_factor_formula() -> None:
     old_chunk = _chunk("old", "node-old", "old.py")
     fresh_chunk = _chunk("fresh", "node-fresh", "fresh.py")

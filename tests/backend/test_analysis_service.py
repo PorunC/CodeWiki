@@ -118,6 +118,26 @@ def test_store_lists_analysis_runs(tmp_path: Path) -> None:
     assert runs[0].stats["community_count_by_level"] == result.community_count_by_level
 
 
+def test_analyze_reuses_existing_graph_when_repo_is_unchanged(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "main.py").write_text("def main():\n    return 1\n")
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    service = AnalysisService(store=store)
+
+    first = service.analyze(repo.id)
+    second = service.analyze(repo.id)
+
+    assert first.mode == "full"
+    assert second.mode == "unchanged"
+    assert second.parsed_file_count == 0
+    assert second.reused_file_count == 1
+    assert second.node_count == first.node_count
+    assert store.list_analysis_runs(repo.id)[0].stats["mode"] == "unchanged"
+
+
 @pytest.mark.asyncio
 async def test_analyze_with_community_summaries_invokes_llm_namer(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
