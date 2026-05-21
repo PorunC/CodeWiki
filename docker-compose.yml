@@ -1,0 +1,23 @@
+services:
+  codewiki:
+    build:
+      context: .
+    image: codewiki:local
+    ports:
+      - "8000:8000"
+    environment:
+      CODEWIKI_DATABASE_URL: sqlite+aiosqlite:////app/data/codewiki.sqlite3
+      CODEWIKI_STORAGE_DIR: /app/storage
+      # Add LLM settings here or pass them with --env-file .env.
+      # CODEWIKI_LLM__DEFAULT__MODEL: openai/gpt-4.1
+      # CODEWIKI_LLM__DEFAULT__API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - codewiki-data:/app/data
+      - codewiki-storage:/app/storage
+      # Mount repositories you want to analyze under /workspace.
+      - .:/workspace/CodeWiki:ro
+    restart: unless-stopped
+
+volumes:
+  codewiki-data:
+  codewiki-storage:
