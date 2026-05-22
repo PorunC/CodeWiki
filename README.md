@@ -17,6 +17,8 @@ source-grounded wiki generation, and LiteLLM-powered Q&A.
   implementations, calls, route handlers, source references, and configuration usage.
 - GraphRAG retrieval with source chunks, optional embeddings, community summaries,
   and cached LLM runs.
+- SQLite by default, with opt-in PostgreSQL storage, PostgreSQL full-text search, and
+  pgvector-backed vector search when the database extension is available.
 - DeepWiki-style wiki generation with catalog planning, detailed page generation,
   source citations, automatic diagrams, multi-language translation, and incremental
   updates.
@@ -54,8 +56,34 @@ storage cache in Docker volumes, and mounts this checkout at `/workspace/CodeWik
 you can register that path from the UI or CLI. To analyze another local repository,
 add another bind mount under `/workspace` in `docker-compose.yml`.
 
+The compose file also includes a PostgreSQL service using the `pgvector/pgvector`
+image. To run against PostgreSQL, switch `CODEWIKI_DATABASE_URL` to the commented
+PostgreSQL URL in `docker-compose.yml` and enable the `depends_on` block for the
+`postgres` service.
+
 For LLM-backed wiki and Q&A features, pass `CODEWIKI_LLM__*` environment variables in
 `docker-compose.yml` or run with `docker compose --env-file .env up --build`.
+
+## Database Configuration
+
+CodeWiki defaults to a local SQLite database:
+
+```bash
+CODEWIKI_DATABASE_URL=sqlite+aiosqlite:///./data/codewiki.sqlite3
+```
+
+PostgreSQL 15+ is supported through `psycopg`:
+
+```bash
+CODEWIKI_DATABASE_URL=postgresql+psycopg://codewiki:codewiki@localhost:5432/codewiki
+```
+
+On PostgreSQL, CodeWiki creates the relational schema, uses PostgreSQL full-text
+search for graph nodes and source chunks, and attempts to enable the `vector`
+extension. If pgvector is installed and available to the database user, embedding
+search uses dimension-specific pgvector tables with HNSW cosine indexes. If pgvector
+setup fails, repository analysis, wiki generation, LLM runs, and text retrieval remain
+usable while vector hits are skipped.
 
 Configure local environment variables with:
 
