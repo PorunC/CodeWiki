@@ -27,7 +27,8 @@ def postgres_store():
     url = make_url(base_url)
     query = dict(url.query)
     query["options"] = f"-csearch_path={schema}"
-    store = create_store(str(url.set(query=query)))
+    store_url = url.set(query=query).render_as_string(hide_password=False)
+    store = create_store(store_url)
     try:
         yield store
     finally:
