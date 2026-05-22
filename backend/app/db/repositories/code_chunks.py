@@ -119,6 +119,10 @@ class CodeChunkRepositoryMixin:
         if not fts_query.strip():
             return []
         if not self.supports_fts5:
+            if self.supports_postgres_text_search:
+                hits = self._search_code_chunks_postgres_fts(repo_id, fts_query, limit=limit)
+                if hits:
+                    return hits
             return self._search_code_chunks_like(repo_id, fts_query, limit=limit)
         with self.orm_session() as session:
             rows = session.execute(
@@ -184,6 +188,55 @@ class CodeChunkRepositoryMixin:
             for row in rows
         ]
 
+    def _search_code_chunks_postgres_fts(
+        self,
+        repo_id: str,
+        query: str,
+        *,
+        limit: int,
+    ) -> list[CodeChunkSearchHit]:
+        query = _postgres_search_query(query)
+        if not query:
+            return []
+        with self.orm_session() as session:
+            rows = session.execute(
+                text(
+                    """
+                    WITH search_query AS (
+                        SELECT websearch_to_tsquery('simple', :query) AS query
+                    )
+                    SELECT c.id, c.repo_id, c.node_id, c.file_path, c.start_line, c.end_line,
+                           c.content, c.content_hash, c.token_count,
+                           ts_rank_cd(
+                             to_tsvector(
+                               'simple',
+                               coalesce(c.content, '') || ' ' ||
+                               coalesce(c.file_path, '')
+                             ),
+                             search_query.query
+                           ) AS rank
+                    FROM code_chunk c, search_query
+                    WHERE c.repo_id = :repo_id
+                      AND to_tsvector(
+                            'simple',
+                            coalesce(c.content, '') || ' ' ||
+                            coalesce(c.file_path, '')
+                          ) @@ search_query.query
+                    ORDER BY rank DESC, c.file_path, c.start_line
+                    LIMIT :limit
+                    """
+                ),
+                {"repo_id": repo_id, "query": query, "limit": limit},
+            ).mappings().all()
+        return [
+            CodeChunkSearchHit(
+                chunk=code_chunk_from_row(row),
+                score=max(0.1, float(row["rank"])),
+                match_type="postgres_fts",
+            )
+            for row in rows
+        ]
+
 
 def _insert_code_chunks(session, dialect, chunks: list[CodeChunkRecord], use_fts: bool, batch_size: int) -> None:
     if not chunks:
@@ -230,3 +283,13 @@ def _chunk_mapping(chunk: CodeChunkRecord) -> dict[str, Any]:
         "content_hash": chunk.content_hash,
         "token_count": chunk.token_count,
     }
+
+
+def _postgres_search_query(query: str) -> str:
+    return (
+        query.replace('"', " ")
+        .replace("*", " ")
+        .replace(" OR ", " ")
+        .replace(" AND ", " ")
+        .strip()
+    )

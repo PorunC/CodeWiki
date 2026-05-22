@@ -98,6 +98,14 @@ class CodeGraphRepositoryMixin:
                 languages=languages,
                 limit=max(limit * 5, 50),
             )
+        elif self.supports_postgres_text_search:
+            hits = self._search_code_nodes_postgres_fts(
+                repo_id,
+                query,
+                types=types,
+                languages=languages,
+                limit=max(limit * 5, 50),
+            )
         if not hits and query:
             hits = self._search_code_nodes_like(
                 repo_id,
@@ -231,6 +239,61 @@ class CodeGraphRepositoryMixin:
                 node=_node_from_mapping(row),
                 score=float(row["rank"]),
                 reasons=("like",),
+            )
+            for row in rows
+        ]
+
+    def _search_code_nodes_postgres_fts(
+        self,
+        repo_id: str,
+        query: str,
+        *,
+        types: list[str],
+        languages: list[str],
+        limit: int,
+    ) -> list[CodeGraphNodeSearchHit]:
+        if not query:
+            return []
+        where, params = _node_filter_sql(repo_id, types=types, languages=languages, alias="n")
+        with self.orm_session() as session:
+            rows = session.execute(
+                text(
+                    f"""
+                    WITH search_query AS (
+                        SELECT websearch_to_tsquery('simple', :query) AS query
+                    )
+                    SELECT n.id, n.repo_id, n.type, n.name, n.file_path, n.start_line, n.end_line,
+                           n.language, n.symbol_id, n.summary, n.hash, n.metadata_json,
+                           ts_rank_cd(
+                             to_tsvector(
+                               'simple',
+                               coalesce(n.name, '') || ' ' ||
+                               coalesce(n.symbol_id, '') || ' ' ||
+                               coalesce(n.file_path, '') || ' ' ||
+                               coalesce(n.summary, '')
+                             ),
+                             search_query.query
+                           ) AS rank
+                    FROM code_node n, search_query
+                    WHERE {where}
+                      AND to_tsvector(
+                            'simple',
+                            coalesce(n.name, '') || ' ' ||
+                            coalesce(n.symbol_id, '') || ' ' ||
+                            coalesce(n.file_path, '') || ' ' ||
+                            coalesce(n.summary, '')
+                          ) @@ search_query.query
+                    ORDER BY rank DESC, length(n.name), n.file_path
+                    LIMIT :limit
+                    """
+                ),
+                {**params, "query": query, "limit": limit},
+            ).mappings().all()
+        return [
+            CodeGraphNodeSearchHit(
+                node=_node_from_mapping(row),
+                score=max(0.1, float(row["rank"])),
+                reasons=("postgres_fts",),
             )
             for row in rows
         ]

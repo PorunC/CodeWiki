@@ -65,6 +65,7 @@ COLUMN_PATCHES = (
 class BaseStore:
     dialect_name: str
     supports_fts5 = False
+    supports_postgres_text_search = False
     supports_sqlite_vec = False
 
     def __init__(self, database_url: str) -> None:
@@ -221,10 +222,15 @@ class SQLiteStoreBase(BaseStore):
 
 class PostgresStoreBase(BaseStore):
     dialect_name = "postgresql"
+    supports_postgres_text_search = True
 
     @classmethod
     def from_url(cls, database_url: str):
         return cls(database_url)
+
+    def ensure_schema(self) -> None:
+        super().ensure_schema()
+        self._ensure_text_search_indexes()
 
     def connect(self):
         raise NotImplementedError(
@@ -241,3 +247,36 @@ class PostgresStoreBase(BaseStore):
             pool_recycle=1800,
             future=True,
         )
+
+    def _ensure_text_search_indexes(self) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_code_node_search_vector
+                    ON code_node USING GIN (
+                        to_tsvector(
+                            'simple',
+                            coalesce(name, '') || ' ' ||
+                            coalesce(symbol_id, '') || ' ' ||
+                            coalesce(file_path, '') || ' ' ||
+                            coalesce(summary, '')
+                        )
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_code_chunk_search_vector
+                    ON code_chunk USING GIN (
+                        to_tsvector(
+                            'simple',
+                            coalesce(content, '') || ' ' ||
+                            coalesce(file_path, '')
+                        )
+                    )
+                    """
+                )
+            )
