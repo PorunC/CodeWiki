@@ -11,6 +11,7 @@ import csv
 import json
 import os
 import shlex
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -144,6 +145,19 @@ REPOS: tuple[BenchRepo, ...] = (
 REPOS_BY_KEY = {repo.key: repo for repo in REPOS}
 DEFAULT_SCENARIOS = ("cold", "warm", "small-delta")
 DEFAULT_STATUS_INTERVAL_SECONDS = 30.0
+DATABASE_WRITE_TABLES = (
+    ("repo", "repos"),
+    ("analysis_run", "runs"),
+    ("code_node", "nodes"),
+    ("code_edge", "edges"),
+    ("graph_community", "communities"),
+    ("graph_community_edge", "community_edges"),
+    ("code_chunk", "chunks"),
+    ("code_chunk_embedding", "embeddings"),
+    ("doc_catalog", "catalogs"),
+    ("doc_page", "pages"),
+    ("llm_run", "llm_runs"),
+)
 DELTA_CONTENT = {
     "go": ("codewiki_bench_delta.go", "package main\n\nconst CodeWikiBenchDelta = 1\n"),
     "java": (
@@ -164,6 +178,13 @@ class CommandResult:
     stdout: str
     stderr: str
     timed_out: bool = False
+
+
+@dataclass(frozen=True)
+class DatabaseWriteStats:
+    total_rows: int
+    table_counts: dict[str, int]
+    error: str | None = None
 
 
 class ProgressReporter:
@@ -214,8 +235,17 @@ class ProgressReporter:
     def message(self, message: str) -> None:
         self.bar.write(message)
 
-    def running(self, message: str, *, elapsed_seconds: float) -> None:
-        self._set_status(status=f"RUNNING {message}", detail=f"elapsed {format_duration(elapsed_seconds)}")
+    def running(
+        self,
+        message: str,
+        *,
+        elapsed_seconds: float,
+        database_stats: DatabaseWriteStats | None = None,
+    ) -> None:
+        detail = f"elapsed {format_duration(elapsed_seconds)}"
+        if database_stats is not None:
+            detail = f"{detail}; {format_database_write_stats(database_stats)}"
+        self._set_status(status=f"RUNNING {message}", detail=detail)
 
     def analysis_progress(self, message: str) -> None:
         status, detail = split_progress_message(message.removeprefix("PROGRESS ").strip())
@@ -589,6 +619,7 @@ def run_codewiki(
         progress.bar.write("dry-run: " + format_command(command))
         result = CommandResult(command, 0.0, 0, "{}", "")
     else:
+        db_path = sqlite_path_from_url(db_url)
         result = run_command(
             command,
             cwd=PROJECT_ROOT,
@@ -597,6 +628,7 @@ def run_codewiki(
             on_status=lambda elapsed: progress.running(
                 f"{repo.key}:{scenario}",
                 elapsed_seconds=elapsed,
+                database_stats=read_database_write_stats(db_path),
             ),
             on_stderr_line=lambda line: _handle_progress_line(progress, line),
         )
@@ -791,6 +823,53 @@ def parse_json_output(output: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {"value": payload}
 
 
+def read_database_write_stats(path: Path) -> DatabaseWriteStats:
+    if not path.exists():
+        return DatabaseWriteStats(total_rows=0, table_counts={})
+
+    try:
+        connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=0.2)
+    except sqlite3.Error as error:
+        return DatabaseWriteStats(total_rows=0, table_counts={}, error=str(error))
+
+    try:
+        connection.execute("PRAGMA query_only = TRUE")
+        table_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table')"
+            )
+        }
+        counts: dict[str, int] = {}
+        for table_name, label in DATABASE_WRITE_TABLES:
+            if table_name not in table_names:
+                continue
+            row = connection.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
+            counts[label] = int(row[0])
+        return DatabaseWriteStats(total_rows=sum(counts.values()), table_counts=counts)
+    except sqlite3.Error as error:
+        return DatabaseWriteStats(total_rows=0, table_counts={}, error=str(error))
+    finally:
+        connection.close()
+
+
+def format_database_write_stats(stats: DatabaseWriteStats) -> str:
+    if stats.error is not None:
+        return f"db rows unavailable ({stats.error})"
+    if not stats.table_counts:
+        return "db rows 0"
+
+    detail_labels = ("nodes", "edges", "chunks", "communities", "embeddings", "pages")
+    details = [
+        f"{label}={stats.table_counts[label]:,}"
+        for label in detail_labels
+        if stats.table_counts.get(label)
+    ]
+    if details:
+        return f"db rows {stats.total_rows:,} ({', '.join(details)})"
+    return f"db rows {stats.total_rows:,}"
+
+
 def format_command(command: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
@@ -846,6 +925,13 @@ def write_summary_csv(path: Path, records: list[dict[str, Any]]) -> None:
 
 def sqlite_url(path: Path) -> str:
     return f"sqlite+aiosqlite:///{path.as_posix()}"
+
+
+def sqlite_path_from_url(url: str) -> Path:
+    for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
+        if url.startswith(prefix):
+            return Path(url.removeprefix(prefix))
+    raise ValueError(f"Only sqlite database URLs are supported: {url}")
 
 
 def clone_command(repo: BenchRepo, target: Path) -> list[str]:

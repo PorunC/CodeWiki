@@ -1,6 +1,11 @@
+import json
+
 from sqlalchemy import delete, select
+from sqlalchemy import text
 
 from backend.app.models import GraphCommunityEdgeRecord, GraphCommunityRecord
+
+SQLITE_SAFE_BATCH_SIZE = 500
 
 
 class GraphCommunityRepositoryMixin:
@@ -26,7 +31,8 @@ class GraphCommunityRepositoryMixin:
     ) -> None:
         with self.orm_session() as session:
             session.execute(delete(GraphCommunityRecord).where(GraphCommunityRecord.repo_id == repo_id))
-            session.add_all(_clone_community(community) for community in communities)
+            session.commit()
+            _insert_graph_communities(session, communities)
 
     def replace_graph_community_edges(
         self,
@@ -37,7 +43,8 @@ class GraphCommunityRepositoryMixin:
             session.execute(
                 delete(GraphCommunityEdgeRecord).where(GraphCommunityEdgeRecord.repo_id == repo_id)
             )
-            session.add_all(_clone_community_edge(edge) for edge in edges)
+            session.commit()
+            _insert_graph_community_edges(session, edges)
 
     def list_graph_communities(self, repo_id: str) -> list[GraphCommunityRecord]:
         with self.orm_session() as session:
@@ -70,3 +77,77 @@ def _clone_community(community: GraphCommunityRecord) -> GraphCommunityRecord:
 
 def _clone_community_edge(edge: GraphCommunityEdgeRecord) -> GraphCommunityEdgeRecord:
     return GraphCommunityEdgeRecord(**edge.as_record_dict())
+
+
+def _insert_graph_communities(session, communities: list[GraphCommunityRecord]) -> None:
+    if not communities:
+        return
+    statement = text(
+        """
+        INSERT OR IGNORE INTO graph_community (
+          id, repo_id, name, level, parent_id, rank, node_ids_json,
+          summary, summary_hash, created_at
+        )
+        VALUES (
+          :id, :repo_id, :name, :level, :parent_id, :rank, :node_ids_json,
+          :summary, :summary_hash, :created_at
+        )
+        """
+    )
+    for batch in _chunks(communities, SQLITE_SAFE_BATCH_SIZE):
+        session.execute(statement, [_community_mapping(community) for community in batch])
+        session.commit()
+
+
+def _insert_graph_community_edges(session, edges: list[GraphCommunityEdgeRecord]) -> None:
+    if not edges:
+        return
+    statement = text(
+        """
+        INSERT OR IGNORE INTO graph_community_edge (
+          id, repo_id, source_community_id, target_community_id, type,
+          weight, confidence, reason, evidence_edge_ids_json, created_at
+        )
+        VALUES (
+          :id, :repo_id, :source_community_id, :target_community_id, :type,
+          :weight, :confidence, :reason, :evidence_edge_ids_json, :created_at
+        )
+        """
+    )
+    for batch in _chunks(edges, SQLITE_SAFE_BATCH_SIZE):
+        session.execute(statement, [_community_edge_mapping(edge) for edge in batch])
+        session.commit()
+
+
+def _community_mapping(community: GraphCommunityRecord) -> dict[str, object]:
+    return {
+        "id": community.id,
+        "repo_id": community.repo_id,
+        "name": community.name,
+        "level": community.level or 0,
+        "parent_id": community.parent_id,
+        "rank": community.rank or 0,
+        "node_ids_json": json.dumps(community.node_ids, sort_keys=True),
+        "summary": community.summary,
+        "summary_hash": community.summary_hash,
+        "created_at": community.created_at,
+    }
+
+
+def _community_edge_mapping(edge: GraphCommunityEdgeRecord) -> dict[str, object]:
+    return {
+        "id": edge.id,
+        "repo_id": edge.repo_id,
+        "source_community_id": edge.source_community_id,
+        "target_community_id": edge.target_community_id,
+        "type": edge.type,
+        "weight": edge.weight if edge.weight is not None else 1.0,
+        "confidence": edge.confidence if edge.confidence is not None else 1.0,
+        "reason": edge.reason,
+        "evidence_edge_ids_json": json.dumps(edge.evidence_edge_ids, sort_keys=True),
+        "created_at": edge.created_at,
+    }
+
+
+def _chunks[T](items: list[T], size: int) -> list[list[T]]:
+    return [items[index:index + size] for index in range(0, len(items), size)]
