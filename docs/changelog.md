@@ -2,8 +2,70 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-22
+
+### Added
+
+- **Layered repository benchmark runner** — added `scripts/benchmark_repos.py` for
+  repeatable cold repository pressure tests with JSONL/CSV output, progress reporting,
+  timeout handling, and repository manifests.
+- **Cold benchmark report** — documented React and VS Code cold analyze pressure-test
+  results, database write scale, throughput estimates, and SQLite persistence findings.
+- **Docker deployment support** — added Docker and Compose files for packaged local
+  deployment.
+- **MIT license** — added the project license file.
+
+### Changed
+
+- **Analyze throughput** — reused file scan hashes, cached source file reads, and
+  parallelized parsing to reduce repeated analysis cost.
+- **GraphRAG indexing** — chunk and embedding indexes now sync incrementally instead of
+  rebuilding unchanged records.
+- **SQLite persistence** — large graph, chunk, community, and embedding writes are now
+  committed in 500-row batches with ignore/upsert semantics to avoid long-running giant
+  transactions during large cold analyzes.
+- **Benchmark observability** — long-running benchmark heartbeats now include SQLite row
+  counts for key tables so persistence progress is visible while the command is running.
 - **LLM routing** — task output token limits can now be configured per profile with
   `CODEWIKI_LLM__PROFILES__<TASK>__MAX_TOKENS`.
+
+### Fixed
+
+- **Code node FTS backfill** — skipped redundant FTS rebuilds when graph node search rows
+  are already in sync.
+- **Large benchmark writes** — reduced oversized WAL buildup and made intermediate
+  database writes visible during pressure tests.
+
+## [0.3.0] - 2026-05-21
+
+### Added
+
+- **Hierarchical communities** — graph analysis now builds multi-level communities and
+  derived community edges so large repositories can be explored at progressively finer
+  levels.
+- **Community hierarchy prompts** — GraphRAG and wiki prompts include community hierarchy
+  relationships to improve context for architecture-level explanations.
+- **Hierarchical graph views** — the frontend can render and navigate community levels
+  in graph views.
+- **Collapsible wiki catalog sections** — wiki catalog navigation supports collapsing
+  sections for easier browsing of larger generated documentation sets.
+
+### Changed
+
+- **Community navigation** — community level navigation moved into breadcrumbs, making
+  drilldown paths clearer in the graph UI.
+- **Analysis progress** — graph analysis progress reporting was expanded so long-running
+  operations expose more useful status.
+- **LLM routing** — maximum output tokens can be configured per LLM task profile.
+- **Wiki catalog scaling** — catalog generation was made more resilient for larger
+  repositories and translation workflows.
+
+### Fixed
+
+- **Community drilldown routing** — parent community drilldown now redirects correctly
+  and hierarchical drilldown interactions are more stable.
+- **Wiki translation resilience** — translation flows handle larger catalog structures
+  more reliably.
 
 ## [0.2.0] - 2026-05-19
 
