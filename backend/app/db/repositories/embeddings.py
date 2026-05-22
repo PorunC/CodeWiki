@@ -440,6 +440,14 @@ def _ensure_pg_vector_table(session, dimensions: int) -> None:
             """
         )
     )
+    session.execute(
+        text(
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_{vec_table}_embedding_hnsw
+            ON {vec_table} USING hnsw (embedding public.vector_cosine_ops)
+            """
+        )
+    )
 
 
 def _load_vector(session, vec_table: str, vec_rowid: int) -> list[float]:

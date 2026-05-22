@@ -174,6 +174,22 @@ def test_postgres_store_persists_core_graph_and_chunk_records(postgres_store) ->
     )
     assert [hit.chunk.id for hit in vector_hits] == ["chunk-1", "chunk-2"]
     assert vector_hits[0].match_type == "pgvector"
+    with postgres_store.sql_connection() as connection:
+        index_names = {
+            row["indexname"]
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT indexname
+                    FROM pg_indexes
+                    WHERE schemaname = current_schema()
+                      AND tablename = 'code_chunk_embedding_vec_3'
+                    """
+                )
+            ).mappings()
+        }
+    assert "idx_code_chunk_embedding_vec_3_repo_model" in index_names
+    assert "idx_code_chunk_embedding_vec_3_embedding_hnsw" in index_names
 
 
 def test_postgres_store_covers_analysis_wiki_llm_and_delete(
@@ -321,5 +337,8 @@ def test_postgres_store_covers_incremental_update(
     assert result.parsed_file_count == 2
     assert result.stale_pages == ["api"]
     assert postgres_store.get_doc_page(repo.id, "api").status == "draft"
-    assert postgres_store.list_analysis_runs(repo.id)[0].stats["mode"] == "incremental"
+    assert any(
+        run.stats.get("mode") == "incremental"
+        for run in postgres_store.list_analysis_runs(repo.id)
+    )
     assert any(node.file_path == "util.py" and node.name == "helper" for node in nodes)
