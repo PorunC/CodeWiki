@@ -1,4 +1,6 @@
 import asyncio
+import sys
+import time
 
 import click
 
@@ -7,17 +9,20 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.incremental.watcher import IncrementalUpdateWatcher, WatchIterationResult
 
-
 def register(main: click.Group) -> None:
     @main.command("analyze")
     @click.argument("repo", required=False)
-    @click.option("--community-summaries/--no-community-summaries", default=True, show_default=True)
+    @click.option("--community-summaries/--no-community-summaries", default=False, show_default=True)
+    @click.option("--force", is_flag=True, help="Ignore the incremental fast path and rebuild the graph.")
+    @click.option("--progress", is_flag=True, help="Print analysis progress to stderr.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
     @click.pass_context
     def analyze_repo(
         ctx: click.Context,
         repo: str | None,
         community_summaries: bool,
+        force: bool,
+        progress: bool,
         as_json: bool,
     ) -> None:
         """Run full AST graph analysis for REPO.
@@ -27,11 +32,14 @@ def register(main: click.Group) -> None:
         """
         store = store_from_context(ctx)
         selected_repo = run_click_errors(lambda: resolve_repo(store, repo))
+        progress_printer = AnalysisProgressPrinter(enabled=progress)
         analysis = run_click_errors(
             lambda: asyncio.run(
                 AnalysisService(store=store).analyze_with_community_summaries(
                     selected_repo.id,
                     name_communities=community_summaries,
+                    force=force,
+                    progress_callback=progress_printer,
                 )
             ),
             capture_stdout=as_json,
@@ -41,6 +49,7 @@ def register(main: click.Group) -> None:
             "run_id": result.run_id,
             "repo_id": result.repo_id,
             "status": result.status,
+            "mode": result.mode,
             **result.stats(),
         }
         if analysis.community_naming is not None:
@@ -139,3 +148,96 @@ def register(main: click.Group) -> None:
             )
         except KeyboardInterrupt:
             click.echo("Stopped watching.")
+
+
+class AnalysisProgressPrinter:
+    def __init__(self, *, enabled: bool, interval_seconds: float = 2.0) -> None:
+        self.enabled = enabled
+        self.interval_seconds = interval_seconds
+        self.last_parse_update_at = 0.0
+        self.dynamic = sys.stderr.isatty()
+
+    def __call__(self, stage: str, payload: dict[str, object]) -> None:
+        if not self.enabled:
+            return
+        message = self._message(stage, payload)
+        if message:
+            self._write(message, final=stage == "analysis_done")
+
+    def _write(self, message: str, *, final: bool = False) -> None:
+        if not self.dynamic:
+            click.echo(message, err=True)
+            return
+        sys.stderr.write(f"\r\033[K{message}")
+        if final:
+            sys.stderr.write("\n")
+        sys.stderr.flush()
+
+    def _message(self, stage: str, payload: dict[str, object]) -> str | None:
+        if stage == "scan_start":
+            return f"PROGRESS scan start repo={payload.get('repo')} path={payload.get('path')}"
+        if stage == "scan_done":
+            return (
+                "PROGRESS scan done "
+                f"scanned={payload.get('scanned')} ignored={payload.get('ignored')} "
+                f"skipped={payload.get('skipped')}"
+            )
+        if stage == "plan_done":
+            return (
+                "PROGRESS plan done "
+                f"changed={payload.get('changed')} new={payload.get('new')} "
+                f"deleted={payload.get('deleted')} unchanged={payload.get('unchanged')}"
+            )
+        if stage == "parse_start":
+            return (
+                "PROGRESS parse start "
+                f"total={payload.get('total')} reused_symbols={payload.get('reused_files')}"
+            )
+        if stage == "parse_progress":
+            completed = int(payload.get("completed") or 0)
+            total = int(payload.get("total") or 0)
+            now = time.monotonic()
+            if completed != total and now - self.last_parse_update_at < self.interval_seconds:
+                return None
+            self.last_parse_update_at = now
+            percent = (completed / total * 100) if total else 100.0
+            return (
+                f"PROGRESS parse {completed}/{total} ({percent:.1f}%) "
+                f"path={payload.get('path')}"
+            )
+        if stage == "parse_done":
+            return (
+                "PROGRESS parse done "
+                f"parsed_files={payload.get('parsed_files')} symbols={payload.get('symbols')} "
+                f"errors={payload.get('errors')}"
+            )
+        if stage == "graph_start":
+            return f"PROGRESS graph start symbols={payload.get('symbols')}"
+        if stage == "graph_done":
+            return f"PROGRESS graph done nodes={payload.get('nodes')} edges={payload.get('edges')}"
+        if stage == "communities_start":
+            return (
+                "PROGRESS communities start "
+                f"nodes={payload.get('nodes')} edges={payload.get('edges')}"
+            )
+        if stage == "communities_done":
+            return (
+                "PROGRESS communities done "
+                f"communities={payload.get('communities')} "
+                f"community_edges={payload.get('community_edges')}"
+            )
+        if stage == "persist_start":
+            return (
+                "PROGRESS persist start "
+                f"nodes={payload.get('nodes')} edges={payload.get('edges')} "
+                f"communities={payload.get('communities')}"
+            )
+        if stage == "persist_done":
+            return "PROGRESS persist done"
+        if stage == "analysis_done":
+            return (
+                "PROGRESS analysis done "
+                f"mode={payload.get('mode')} nodes={payload.get('nodes')} edges={payload.get('edges')}"
+            )
+        print(f"PROGRESS {stage} {payload}", file=sys.stderr)
+        return None

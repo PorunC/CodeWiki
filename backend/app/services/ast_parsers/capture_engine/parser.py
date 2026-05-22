@@ -27,6 +27,15 @@ class TreeSitterCaptureParser:
 
     def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
         content = path.read_text(encoding="utf-8", errors="replace")
+        return self.parse_content(path, content, repo_root=repo_root)
+
+    def parse_content(
+        self,
+        path: Path,
+        content: str,
+        *,
+        repo_root: Path | None = None,
+    ) -> list[AstSymbol]:
         source = content.encode("utf-8")
         tree = self._parser.parse(source)
         root = tree.root_node

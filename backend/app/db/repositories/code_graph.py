@@ -9,6 +9,7 @@ from backend.app.models import CodeEdgeRecord, CodeNodeRecord
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode, CodeGraphNodeSearchHit
 
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
+SQLITE_SAFE_BATCH_SIZE = 500
 
 
 class CodeGraphRepositoryMixin:
@@ -23,41 +24,28 @@ class CodeGraphRepositoryMixin:
         with self.orm_session() as session:
             session.execute(text("DELETE FROM code_node_fts WHERE repo_id = :repo_id"), {"repo_id": repo_id})
             session.execute(delete(CodeEdgeRecord).where(CodeEdgeRecord.repo_id == repo_id))
+            session.commit()
             if keep_ids:
-                session.execute(
-                    delete(CodeNodeRecord).where(
-                        CodeNodeRecord.repo_id == repo_id,
-                        CodeNodeRecord.id.not_in(keep_ids),
+                existing_ids = set(
+                    session.scalars(
+                        select(CodeNodeRecord.id).where(CodeNodeRecord.repo_id == repo_id)
                     )
                 )
+                stale_ids = existing_ids - keep_ids
+                for stale_batch in _chunks(sorted(stale_ids), SQLITE_SAFE_BATCH_SIZE):
+                    session.execute(
+                        delete(CodeNodeRecord).where(
+                            CodeNodeRecord.repo_id == repo_id,
+                            CodeNodeRecord.id.in_(stale_batch),
+                        )
+                    )
+                    session.commit()
             else:
                 session.execute(delete(CodeNodeRecord).where(CodeNodeRecord.repo_id == repo_id))
+                session.commit()
 
-            existing_nodes = {
-                record.id: record
-                for record in session.scalars(
-                    select(CodeNodeRecord).where(CodeNodeRecord.repo_id == repo_id)
-                )
-            }
-            for node in nodes:
-                record = existing_nodes.get(node.id)
-                if record is None:
-                    session.add(_node_record(node))
-                    continue
-                record.repo_id = node.repo_id
-                record.type = node.type
-                record.name = node.name
-                record.file_path = node.file_path
-                record.start_line = node.start_line
-                record.end_line = node.end_line
-                record.language = node.language
-                record.symbol_id = node.symbol_id
-                record.summary = node.summary
-                record.hash = node.hash
-                record.metadata_json = node.metadata
-
-            session.flush()
-            session.add_all(_edge_record(edge) for edge in edges)
+            _upsert_code_nodes(session, nodes)
+            _insert_code_edges(session, edges)
             _insert_code_node_fts(session, nodes)
 
     def get_graph(self, repo_id: str) -> tuple[list[CodeGraphNode], list[CodeGraphEdge]]:
@@ -268,54 +256,109 @@ class CodeGraphRepositoryMixin:
         ]
 
 
-def _node_record(node: CodeGraphNode) -> CodeNodeRecord:
-    return CodeNodeRecord(
-        id=node.id,
-        repo_id=node.repo_id,
-        type=node.type,
-        name=node.name,
-        file_path=node.file_path,
-        start_line=node.start_line,
-        end_line=node.end_line,
-        language=node.language,
-        symbol_id=node.symbol_id,
-        summary=node.summary,
-        hash=node.hash,
-        metadata_json=node.metadata,
+def _upsert_code_nodes(session, nodes: list[CodeGraphNode]) -> None:
+    if not nodes:
+        return
+    statement = text(
+        """
+        INSERT INTO code_node (
+          id, repo_id, type, name, file_path, start_line, end_line,
+          language, symbol_id, summary, hash, metadata_json
+        )
+        VALUES (
+          :id, :repo_id, :type, :name, :file_path, :start_line, :end_line,
+          :language, :symbol_id, :summary, :hash, :metadata_json
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          repo_id = excluded.repo_id,
+          type = excluded.type,
+          name = excluded.name,
+          file_path = excluded.file_path,
+          start_line = excluded.start_line,
+          end_line = excluded.end_line,
+          language = excluded.language,
+          symbol_id = excluded.symbol_id,
+          summary = excluded.summary,
+          hash = excluded.hash,
+          metadata_json = excluded.metadata_json
+        """
     )
+    for batch in _chunks(nodes, SQLITE_SAFE_BATCH_SIZE):
+        session.execute(statement, [_node_mapping(node) for node in batch])
+        session.commit()
 
 
-def _edge_record(edge: CodeGraphEdge) -> CodeEdgeRecord:
-    return CodeEdgeRecord(
-        id=edge.id,
-        repo_id=edge.repo_id,
-        source_id=edge.source_id,
-        target_id=edge.target_id,
-        type=edge.type,
-        confidence=edge.confidence,
-        weight=edge.weight,
-        is_inferred=edge.is_inferred,
-        metadata_json=edge.metadata,
+def _chunks[T](items: list[T], size: int) -> list[list[T]]:
+    return [items[index:index + size] for index in range(0, len(items), size)]
+
+
+def _insert_code_edges(session, edges: list[CodeGraphEdge]) -> None:
+    if not edges:
+        return
+    statement = text(
+        """
+        INSERT OR IGNORE INTO code_edge (
+          id, repo_id, source_id, target_id, type, confidence, weight, is_inferred, metadata_json
+        )
+        VALUES (
+          :id, :repo_id, :source_id, :target_id, :type, :confidence, :weight,
+          :is_inferred, :metadata_json
+        )
+        """
     )
+    for batch in _chunks(edges, SQLITE_SAFE_BATCH_SIZE):
+        session.execute(statement, [_edge_mapping(edge) for edge in batch])
+        session.commit()
+
+
+def _node_mapping(node: CodeGraphNode) -> dict[str, Any]:
+    return {
+        "id": node.id,
+        "repo_id": node.repo_id,
+        "type": node.type,
+        "name": node.name,
+        "file_path": node.file_path,
+        "start_line": node.start_line,
+        "end_line": node.end_line,
+        "language": node.language,
+        "symbol_id": node.symbol_id,
+        "summary": node.summary,
+        "hash": node.hash,
+        "metadata_json": json.dumps(node.metadata, sort_keys=True),
+    }
+
+
+def _edge_mapping(edge: CodeGraphEdge) -> dict[str, Any]:
+    return {
+        "id": edge.id,
+        "repo_id": edge.repo_id,
+        "source_id": edge.source_id,
+        "target_id": edge.target_id,
+        "type": edge.type,
+        "confidence": edge.confidence,
+        "weight": edge.weight,
+        "is_inferred": edge.is_inferred,
+        "metadata_json": json.dumps(edge.metadata, sort_keys=True),
+    }
 
 
 def _insert_code_node_fts(session, nodes: list[CodeGraphNode]) -> None:
     if not nodes:
         return
-    session.execute(
-        text(
-            """
-            INSERT INTO code_node_fts (
+    statement = text(
+        """
+            INSERT OR IGNORE INTO code_node_fts (
               id, repo_id, type, name, file_path, language, symbol_id, summary, signature, docstring
             )
             VALUES (
               :id, :repo_id, :type, :name, :file_path, :language, :symbol_id, :summary,
               :signature, :docstring
             )
-            """
-        ),
-        [_node_fts_mapping(node) for node in nodes],
+        """
     )
+    for batch in _chunks(nodes, SQLITE_SAFE_BATCH_SIZE):
+        session.execute(statement, [_node_fts_mapping(node) for node in batch])
+        session.commit()
 
 
 def _node_fts_mapping(node: CodeGraphNode) -> dict[str, str]:

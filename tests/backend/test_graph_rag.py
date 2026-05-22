@@ -15,6 +15,7 @@ from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graphrag.ranking import rank_source_chunks
 from backend.app.services.repo_scanner import RepoScanner
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 @pytest.mark.asyncio
@@ -81,7 +82,7 @@ async def test_graphrag_retrieve_lazily_builds_chunks_and_returns_context(tmp_pa
 async def test_graphrag_builds_optional_litellm_embedding_index(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n\ndef other():\n    return 43\n")
 
     store = SQLiteStore(tmp_path / "codewiki.sqlite3")
     repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
@@ -165,6 +166,43 @@ def test_chunk_builder_skips_file_nodes(tmp_path: Path) -> None:
     assert chunks[0].content == "def answer():\n    return 42\n"
 
 
+def test_chunk_builder_uses_shared_content_provider(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    provider = _CountingContentProvider(repo_dir)
+    nodes = [
+        CodeGraphNode(
+            id="repo:function:answer",
+            repo_id="repo",
+            type="function",
+            name="answer",
+            file_path="main.py",
+            start_line=1,
+            end_line=2,
+        ),
+        CodeGraphNode(
+            id="repo:function:answer-again",
+            repo_id="repo",
+            type="function",
+            name="other",
+            file_path="main.py",
+            start_line=4,
+            end_line=5,
+        ),
+    ]
+
+    chunks = ChunkBuilder().build_source_chunks(
+        repo_id="repo",
+        repo_path=str(repo_dir),
+        nodes=nodes,
+        content_provider=provider,
+    )
+
+    assert len(chunks) == 2
+    assert provider.read_count == 1
+
+
 @pytest.mark.asyncio
 async def test_embedding_index_deduplicates_llm_calls_by_content_hash(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
@@ -222,6 +260,88 @@ async def test_embedding_index_deduplicates_llm_calls_by_content_hash(tmp_path: 
     assert set(embeddings) == {"chunk-a", "chunk-b", "chunk-c"}
     assert embeddings["chunk-a"].embedding == embeddings["chunk-b"].embedding
     assert embeddings["chunk-a"].content_hash == embeddings["chunk-b"].content_hash
+
+
+@pytest.mark.asyncio
+async def test_embedding_index_reuses_existing_vectors_by_content_hash(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    chunks = [
+        CodeChunkRecord(
+            id="chunk-a",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="a.py",
+            start_line=1,
+            end_line=1,
+            content="return 42\n",
+            content_hash="same-content",
+            token_count=2,
+        )
+    ]
+    store.replace_code_chunks(repo.id, chunks)
+    first_llm = _RecordingLLM()
+    second_llm = _RecordingLLM()
+
+    await EmbeddingIndex(store, first_llm).build(repo.id, chunks)
+    first_row = store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0]
+    result = await EmbeddingIndex(store, second_llm).build(repo.id, chunks)
+    second_row = store.list_code_chunk_embeddings(repo.id, model="fake/embed")[0]
+
+    assert result.count == 1
+    assert sum(len(call) for call in first_llm.calls) == 1
+    assert second_llm.calls == []
+    assert second_row.embedding
+    assert second_row.vec_rowid == first_row.vec_rowid
+
+
+@pytest.mark.asyncio
+async def test_embedding_index_ensure_builds_missing_chunk_vectors(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    first_chunks = [
+        CodeChunkRecord(
+            id="chunk-a",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="a.py",
+            start_line=1,
+            end_line=1,
+            content="return 42\n",
+            content_hash="same-content",
+            token_count=2,
+        )
+    ]
+    second_chunks = [
+        *first_chunks,
+        CodeChunkRecord(
+            id="chunk-b",
+            repo_id=repo.id,
+            node_id=None,
+            file_path="b.py",
+            start_line=1,
+            end_line=1,
+            content="return 43\n",
+            content_hash="other-content",
+            token_count=2,
+        ),
+    ]
+    store.replace_code_chunks(repo.id, first_chunks)
+    llm = _RecordingLLM()
+
+    await EmbeddingIndex(store, llm).build(repo.id, first_chunks)
+    store.sync_code_chunks(repo.id, second_chunks)
+    result = await EmbeddingIndex(store, llm).ensure(repo.id, second_chunks)
+
+    assert result is not None
+    assert result.count == 2
+    assert [len(call) for call in llm.calls] == [1, 1]
+    embeddings = store.list_code_chunk_embeddings(repo.id, model="fake/embed")
+    assert {embedding.chunk_id for embedding in embeddings} == {"chunk-a", "chunk-b"}
 
 
 def test_graphrag_hybrid_ranking_uses_five_factor_formula() -> None:
@@ -358,3 +478,15 @@ def _chunk(chunk_id: str, node_id: str, file_path: str) -> CodeChunkRecord:
         content_hash=chunk_id,
         token_count=1,
     )
+
+
+class _CountingContentProvider(SourceFileContentProvider):
+    def __init__(self, repo_root: Path) -> None:
+        super().__init__(repo_root)
+        self.read_count = 0
+
+    def read_text(self, path: Path | str) -> str:
+        key = self._cache_key(Path(path).resolve())
+        if key not in self._texts:
+            self.read_count += 1
+        return super().read_text(path)

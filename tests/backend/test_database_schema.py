@@ -11,6 +11,8 @@ from backend.app.database import (
 )
 from backend.app.models import Base, CodeNodeRecord, DocCatalogRecord, RepoRecord
 from backend.app.services.analyzer import AnalysisService
+from backend.app.services.graph import CodeGraphNode
+from backend.app.services.repo_scanner.models import RepoDescriptor
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -131,6 +133,81 @@ def test_schema_migrates_existing_llm_run_cache_columns(tmp_path: Path) -> None:
     assert {"response_content", "response_usage_json"} <= columns
 
 
+def test_replace_graph_deletes_stale_nodes_in_batches(tmp_path: Path) -> None:
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(
+        RepoDescriptor(id="large-repo", name="large", path=str(tmp_path), source_type="local")
+    )
+    initial_nodes = [
+        CodeGraphNode(
+            id=f"{repo.id}:symbol:{index}",
+            repo_id=repo.id,
+            type="function",
+            name=f"symbol_{index}",
+        )
+        for index in range(1200)
+    ]
+    kept_nodes = initial_nodes[:10]
+
+    store.replace_graph(repo.id, nodes=initial_nodes, edges=[])
+    store.replace_graph(repo.id, nodes=kept_nodes, edges=[])
+
+    nodes, edges = store.get_graph(repo.id)
+    assert [node.id for node in nodes] == [node.id for node in kept_nodes]
+    assert edges == []
+
+
+def test_schema_rebuilds_missing_code_node_fts_rows(tmp_path: Path) -> None:
+    database_path = tmp_path / "codewiki.sqlite3"
+    store = SQLiteStore(database_path)
+    repo = store.upsert_repo(
+        RepoDescriptor(id="fts-repo", name="fts", path=str(tmp_path), source_type="local")
+    )
+    node = CodeGraphNode(
+        id=f"{repo.id}:symbol:main",
+        repo_id=repo.id,
+        type="function",
+        name="main",
+    )
+    store.replace_graph(repo.id, nodes=[node], edges=[])
+    with store.connect() as connection:
+        connection.execute("DELETE FROM code_node_fts WHERE id = ?", (node.id,))
+
+    SQLiteStore(database_path)
+
+    with store.connect() as connection:
+        fts_count = connection.execute("SELECT COUNT(*) FROM code_node_fts").fetchone()[0]
+    assert fts_count == 1
+
+
+def test_schema_keeps_existing_code_node_fts_rows_without_duplicates(tmp_path: Path) -> None:
+    database_path = tmp_path / "codewiki.sqlite3"
+    store = SQLiteStore(database_path)
+    repo = store.upsert_repo(
+        RepoDescriptor(id="fts-repo", name="fts", path=str(tmp_path), source_type="local")
+    )
+    nodes = [
+        CodeGraphNode(
+            id=f"{repo.id}:symbol:{index}",
+            repo_id=repo.id,
+            type="function",
+            name=f"symbol_{index}",
+        )
+        for index in range(3)
+    ]
+    store.replace_graph(repo.id, nodes=nodes, edges=[])
+
+    SQLiteStore(database_path)
+
+    with store.connect() as connection:
+        fts_count = connection.execute("SELECT COUNT(*) FROM code_node_fts").fetchone()[0]
+        unique_fts_count = connection.execute(
+            "SELECT COUNT(DISTINCT id) FROM code_node_fts"
+        ).fetchone()[0]
+    assert fts_count == len(nodes)
+    assert unique_fts_count == len(nodes)
+
+
 def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -186,6 +263,27 @@ def test_graphrag_wiki_and_llm_records_round_trip(tmp_path: Path) -> None:
         limit=5,
     )
     assert vector_hits[0].chunk.id == chunk.id
+
+    replacement_chunk = CodeChunkRecord(
+        id="chunk-2",
+        repo_id=repo.id,
+        node_id=file_node.id,
+        file_path="other.py",
+        start_line=1,
+        end_line=1,
+        content="print('other')\n",
+        content_hash="hash-other",
+        token_count=3,
+    )
+    store.sync_code_chunks(repo.id, [chunk, replacement_chunk])
+    chunks = store.list_code_chunks(repo.id)
+    assert [item.id for item in chunks] == ["chunk-1", "chunk-2"]
+    assert store.search_code_chunks_fts(repo.id, '"other"', limit=5)[0].chunk.id == "chunk-2"
+
+    store.sync_code_chunks(repo.id, [replacement_chunk])
+    chunks = store.list_code_chunks(repo.id)
+    assert [item.id for item in chunks] == ["chunk-2"]
+    assert store.search_code_chunks_fts(repo.id, '"main"', limit=5) == []
 
     community = GraphCommunityRecord(
         id="community-1",

@@ -124,10 +124,6 @@ def _partition(graph: nx.Graph, *, resolution: float = 1.0) -> tuple[list[set[st
     if graph.number_of_edges() == 0:
         return [set(component) for component in nx.connected_components(graph)], "connected_components"
 
-    leiden_communities = _graspologic_leiden_communities(graph, resolution=resolution)
-    if leiden_communities is not None:
-        return leiden_communities, "graspologic_leiden"
-
     try:
         communities = nx.algorithms.community.louvain_communities(
             graph,
@@ -137,6 +133,9 @@ def _partition(graph: nx.Graph, *, resolution: float = 1.0) -> tuple[list[set[st
         )
         return [set(community) for community in communities], "networkx_louvain"
     except Exception:
+        leiden_communities = _graspologic_leiden_communities(graph, resolution=resolution)
+        if leiden_communities is not None:
+            return leiden_communities, "graspologic_leiden"
         communities = nx.algorithms.community.greedy_modularity_communities(
             graph,
             weight="weight",

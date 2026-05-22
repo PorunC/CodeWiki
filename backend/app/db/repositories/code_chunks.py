@@ -5,13 +5,37 @@ from sqlalchemy import delete, select, text
 from backend.app.db.mappers import code_chunk_from_row
 from backend.app.models import CodeChunkRecord, CodeChunkSearchHit
 
+SQLITE_SAFE_BATCH_SIZE = 500
+
 
 class CodeChunkRepositoryMixin:
     def replace_code_chunks(self, repo_id: str, chunks: list[CodeChunkRecord]) -> None:
         with self.orm_session() as session:
             session.execute(text("DELETE FROM code_chunk_fts WHERE repo_id = :repo_id"), {"repo_id": repo_id})
             session.execute(delete(CodeChunkRecord).where(CodeChunkRecord.repo_id == repo_id))
+            session.commit()
             _insert_code_chunks(session, chunks)
+
+    def sync_code_chunks(self, repo_id: str, chunks: list[CodeChunkRecord]) -> None:
+        active_ids = {chunk.id for chunk in chunks}
+        with self.orm_session() as session:
+            existing_ids = set(
+                session.scalars(select(CodeChunkRecord.id).where(CodeChunkRecord.repo_id == repo_id)).all()
+            )
+            stale_ids = existing_ids - active_ids
+            new_chunks = [chunk for chunk in chunks if chunk.id not in existing_ids]
+
+            if stale_ids:
+                for stale_batch in _chunks(sorted(stale_ids), SQLITE_SAFE_BATCH_SIZE):
+                    _delete_code_chunk_fts_by_ids(session, repo_id, stale_batch)
+                    session.execute(
+                        delete(CodeChunkRecord).where(
+                            CodeChunkRecord.repo_id == repo_id,
+                            CodeChunkRecord.id.in_(stale_batch),
+                        )
+                    )
+                    session.commit()
+            _insert_code_chunks(session, new_chunks)
 
     def replace_code_chunks_for_files(
         self,
@@ -34,6 +58,7 @@ class CodeChunkRepositoryMixin:
                     CodeChunkRecord.file_path.in_(file_paths),
                 )
             )
+            session.commit()
             _insert_code_chunks(session, chunks)
 
     def list_code_chunks(self, repo_id: str) -> list[CodeChunkRecord]:
@@ -110,25 +135,50 @@ class CodeChunkRepositoryMixin:
 
 
 def _insert_code_chunks(session, chunks: list[CodeChunkRecord]) -> None:
-    session.add_all(_clone_chunk(chunk) for chunk in chunks)
-    if chunks:
-        session.execute(
-            text(
-                """
-            INSERT INTO code_chunk_fts (
+    if not chunks:
+        return
+    chunk_statement = text(
+        """
+            INSERT OR IGNORE INTO code_chunk (
+              id, repo_id, node_id, file_path, start_line, end_line,
+              content, content_hash, token_count
+            )
+            VALUES (
+              :id, :repo_id, :node_id, :file_path, :start_line, :end_line,
+              :content, :content_hash, :token_count
+            )
+        """
+    )
+    fts_statement = text(
+        """
+            INSERT OR IGNORE INTO code_chunk_fts (
               id, repo_id, node_id, file_path, start_line, end_line, content
             )
             VALUES (
               :id, :repo_id, :node_id, :file_path, :start_line, :end_line, :content
             )
-            """
-            ),
-            [_chunk_mapping(chunk) for chunk in chunks],
-        )
+        """
+    )
+    for batch in _chunks(chunks, SQLITE_SAFE_BATCH_SIZE):
+        mappings = [_chunk_mapping(chunk) for chunk in batch]
+        session.execute(chunk_statement, mappings)
+        session.execute(fts_statement, mappings)
+        session.commit()
 
 
-def _clone_chunk(chunk: CodeChunkRecord) -> CodeChunkRecord:
-    return CodeChunkRecord(**chunk.as_record_dict())
+def _delete_code_chunk_fts_by_ids(session, repo_id: str, chunk_ids: list[str]) -> None:
+    if not chunk_ids:
+        return
+    params = {f"id_{index}": chunk_id for index, chunk_id in enumerate(chunk_ids)}
+    placeholders = ",".join(f":{key}" for key in params)
+    session.execute(
+        text(f"DELETE FROM code_chunk_fts WHERE repo_id = :repo_id AND id IN ({placeholders})"),
+        {"repo_id": repo_id, **params},
+    )
+
+
+def _chunks[T](items: list[T], size: int) -> list[list[T]]:
+    return [items[index:index + size] for index in range(0, len(items), size)]
 
 
 def _chunk_mapping(chunk: CodeChunkRecord) -> dict[str, Any]:

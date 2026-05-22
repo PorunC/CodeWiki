@@ -1,8 +1,12 @@
 from pathlib import Path
+from threading import Lock
+import time
 
 from backend.app.config import get_settings
-from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol
+from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol, parse_scanned_files
+from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.repo_scanner.file_info import sha256_file
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> None:
@@ -37,6 +41,56 @@ def test_python_parser_extracts_symbols_imports_and_calls(tmp_path: Path) -> Non
     assert "Path" in by_id["app.py::Service.run"].calls
     assert by_id["app.py::build"].type == "function"
     assert "Service" in by_id["app.py::build"].calls
+
+
+def test_parse_scanned_files_parallel_preserves_results(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n")
+    (tmp_path / "b.py").write_text("def beta():\n    return 2\n")
+    scan = RepoScanner().scan(str(tmp_path))
+    monkeypatch.setenv("CODEWIKI_AST_PARSE_WORKERS", "2")
+
+    symbols, errors = parse_scanned_files(
+        AstParser(cache_enabled=False),
+        scan.files,
+        repo_root=tmp_path,
+    )
+
+    assert errors == []
+    assert [symbol.name for symbol in symbols if symbol.type == "function"] == ["alpha", "beta"]
+
+
+def test_parse_scanned_files_reports_progress(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n")
+    (tmp_path / "b.py").write_text("def beta():\n    return 2\n")
+    scan = RepoScanner().scan(str(tmp_path))
+    monkeypatch.setenv("CODEWIKI_AST_PARSE_WORKERS", "2")
+    progress: list[tuple[int, int, str]] = []
+
+    symbols, errors = parse_scanned_files(
+        AstParser(cache_enabled=False),
+        scan.files,
+        repo_root=tmp_path,
+        progress_callback=lambda completed, total, path: progress.append((completed, total, path)),
+    )
+
+    assert errors == []
+    assert len(symbols) >= 2
+    assert [item[0] for item in progress] == [1, 2]
+    assert {item[2] for item in progress} == {"a.py", "b.py"}
+
+
+def test_parse_scanned_files_reuses_one_parser_fork_per_worker(tmp_path: Path, monkeypatch) -> None:
+    for index in range(5):
+        (tmp_path / f"file_{index}.py").write_text(f"def fn_{index}():\n    return {index}\n")
+    scan = RepoScanner().scan(str(tmp_path))
+    monkeypatch.setenv("CODEWIKI_AST_PARSE_WORKERS", "2")
+    parser = _ForkCountingParser()
+
+    symbols, errors = parse_scanned_files(parser, scan.files, repo_root=tmp_path)
+
+    assert errors == []
+    assert len(symbols) == 5
+    assert 1 <= parser.fork_count <= 2
 
 
 def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) -> None:
@@ -391,6 +445,22 @@ def test_ast_parser_caches_symbols_by_file_hash(tmp_path: Path) -> None:
     assert language_parser.parse_count == 2
 
 
+def test_ast_parser_uses_content_provider_for_parse_content(tmp_path: Path) -> None:
+    source = tmp_path / "cached.py"
+    source.write_text("print('cached')\n")
+    provider = _CountingContentProvider(tmp_path)
+    language_parser = _ContentParser()
+    registry = AstParserRegistry()
+    registry.register(language_parser)
+    parser = AstParser(registry=registry, cache_enabled=False, content_provider=provider)
+
+    parser.parse_file(source, repo_root=tmp_path)
+    parser.parse_file(source, repo_root=tmp_path)
+
+    assert provider.read_count == 1
+    assert language_parser.contents == ["print('cached')\n", "print('cached')\n"]
+
+
 def test_ast_parser_default_cache_uses_storage_cache_ast(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "default_cached.py"
     source.write_text("print('cached by default')\n")
@@ -429,3 +499,83 @@ class _CountingParser:
                 hash=str(self.parse_count),
             )
         ]
+
+
+class _ForkCountingParser:
+    content_provider = None
+
+    def __init__(self) -> None:
+        self.fork_count = 0
+        self._lock = Lock()
+
+    def fork(self) -> "_ForkCountingWorkerParser":
+        with self._lock:
+            self.fork_count += 1
+        return _ForkCountingWorkerParser()
+
+
+class _ForkCountingWorkerParser:
+    def parse_file(
+        self,
+        path: Path,
+        *,
+        repo_root: Path | None = None,
+        language: str | None = None,
+        file_hash: str | None = None,
+    ) -> list[AstSymbol]:
+        time.sleep(0.01)
+        file_path = path.relative_to(repo_root).as_posix() if repo_root is not None else path.name
+        return [
+            AstSymbol(
+                id=f"file:{file_path}",
+                type="file",
+                name=path.name,
+                file_path=file_path,
+                language=language or "python",
+                start_line=1,
+                end_line=1,
+                hash=file_hash or "",
+            )
+        ]
+
+
+class _ContentParser:
+    language = "python"
+
+    def __init__(self) -> None:
+        self.contents: list[str] = []
+
+    def parse_content(
+        self,
+        path: Path,
+        content: str,
+        *,
+        repo_root: Path | None = None,
+    ) -> list[AstSymbol]:
+        self.contents.append(content)
+        return [
+            AstSymbol(
+                id=f"file:{path.relative_to(repo_root).as_posix() if repo_root else path.name}",
+                type="file",
+                name=path.name,
+                file_path=path.relative_to(repo_root).as_posix() if repo_root else path.name,
+                language=self.language,
+                start_line=1,
+                end_line=1,
+            )
+        ]
+
+    def parse(self, path: Path, *, repo_root: Path | None = None) -> list[AstSymbol]:
+        raise AssertionError("parse_content should be used when content provider is present")
+
+
+class _CountingContentProvider(SourceFileContentProvider):
+    def __init__(self, repo_root: Path) -> None:
+        super().__init__(repo_root)
+        self.read_count = 0
+
+    def read_text(self, path: Path | str) -> str:
+        key = self._cache_key(Path(path).resolve())
+        if key not in self._texts:
+            self.read_count += 1
+        return super().read_text(path)

@@ -5,7 +5,11 @@ from backend.app.services.analysis_pipeline import AnalysisPipeline
 from backend.app.services.ast_parser import AstParser
 from backend.app.services.async_tasks import run_blocking
 from backend.app.services.community_detector import CommunityDetector
-from backend.app.services.analyzer import _community_count_by_level
+from backend.app.services.analyzer import (
+    _community_count_by_level,
+    _known_file_metadata_from_nodes,
+    _known_hashes_from_nodes,
+)
 from backend.app.services.graph import CodeGraphNode, GraphBuilder
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.incremental.models import IncrementalUpdatePlan, IncrementalUpdateResult
@@ -51,14 +55,14 @@ class IncrementalUpdater:
 
     def plan(self, repo_id: str) -> IncrementalUpdatePlan:
         repo = self._repo(repo_id)
-        scan = self.pipeline.scan_repo(repo)
         nodes, _edges = self.store.get_graph(repo_id)
+        scan = self._scan_repo_for_update(repo, nodes)
         return self._plan_from_scan_with_metadata(repo, scan, nodes)
 
     def update(self, repo_id: str, *, refresh_chunks: bool = True) -> IncrementalUpdateResult:
         repo = self._repo(repo_id)
-        scan = self.pipeline.scan_repo(repo)
         old_nodes, old_edges = self.store.get_graph(repo_id)
+        scan = self._scan_repo_for_update(repo, old_nodes)
         plan = self._plan_from_scan_with_metadata(repo, scan, old_nodes)
         stale_graph_refs = _affected_graph_refs(old_nodes, old_edges, plan.changed_files + plan.deleted_files)
         run = self.store.create_analysis_run(repo_id)
@@ -148,6 +152,22 @@ class IncrementalUpdater:
             raise ValueError(f"Repository not found: {repo_id}")
         return repo
 
+    def _scan_repo_for_update(
+        self,
+        repo: RepoDescriptor,
+        old_nodes: list[CodeGraphNode],
+    ) -> RepoScanResult:
+        if not old_nodes:
+            return self.pipeline.scan_repo(repo)
+        current_repo = self.scanner.describe(repo.path, name=repo.name, source_type=repo.source_type)
+        candidate_paths = self._git_diff_candidate_paths(repo, current_repo.commit_hash)
+        return self.pipeline.scan_repo(
+            current_repo,
+            known_hashes=_known_hashes_from_nodes(old_nodes),
+            known_file_metadata=_known_file_metadata_from_nodes(old_nodes),
+            hash_paths=candidate_paths,
+        )
+
     def _plan_from_scan_with_metadata(
         self,
         repo: RepoDescriptor,
@@ -176,10 +196,19 @@ class IncrementalUpdater:
         metadata = read_repo_metadata(repo.id)
         base_commit = metadata.commit_hash if metadata is not None else repo.commit_hash
         head_commit = scan.repo.commit_hash
-        diff_paths = git_diff_changed_paths(Path(scan.repo.path), base_commit, head_commit)
+        diff_paths = self._git_diff_candidate_paths(repo, head_commit)
         if diff_paths is None:
             return None, "sha256", base_commit, head_commit
         return diff_paths, "git_diff+sha256", base_commit, head_commit
+
+    def _git_diff_candidate_paths(
+        self,
+        repo: RepoDescriptor,
+        head_commit: str | None,
+    ) -> set[str] | None:
+        metadata = read_repo_metadata(repo.id)
+        base_commit = metadata.commit_hash if metadata is not None else repo.commit_hash
+        return git_diff_changed_paths(Path(repo.path), base_commit, head_commit)
 
     def _refresh_chunks(
         self,

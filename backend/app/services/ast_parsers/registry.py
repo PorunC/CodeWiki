@@ -6,6 +6,7 @@ from backend.app.services.ast_parsers.base import AstSymbol, LanguageParser
 from backend.app.services.ast_parsers.common import relative_path
 from backend.app.services.language_detector import LanguageDetector
 from backend.app.services.repo_scanner.file_info import sha256_file
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 class AstParserRegistry:
@@ -58,9 +59,11 @@ class AstParser:
         language_detector: LanguageDetector | None = None,
         cache_dir: Path | None = None,
         cache_enabled: bool = True,
+        content_provider: SourceFileContentProvider | None = None,
     ) -> None:
         self.registry = registry or AstParserRegistry.default()
         self.language_detector = language_detector or LanguageDetector()
+        self.content_provider = content_provider
         self.cache = (
             AstParseCache(cache_dir or get_settings().storage_dir / "cache" / "ast")
             if cache_enabled
@@ -89,7 +92,13 @@ class AstParser:
             )
             if cached_symbols is not None:
                 return cached_symbols
-        symbols = parser.parse(path, repo_root=repo_root)
+        content = self.content_provider.read_text(path) if self.content_provider else None
+        parse_content = getattr(parser, "parse_content", None)
+        symbols = (
+            parse_content(path, content, repo_root=repo_root)
+            if content is not None and callable(parse_content)
+            else parser.parse(path, repo_root=repo_root)
+        )
         if self.cache is not None:
             self.cache.write(
                 cache_hash,
@@ -98,3 +107,10 @@ class AstParser:
                 symbols=symbols,
             )
         return symbols
+
+    def fork(self) -> "AstParser":
+        return AstParser(
+            cache_dir=self.cache.cache_dir if self.cache is not None else None,
+            cache_enabled=self.cache is not None,
+            content_provider=self.content_provider,
+        )

@@ -41,6 +41,22 @@ codewiki serve
 Then open `http://127.0.0.1:8000` for the Web UI. The Python package includes the
 built frontend; a source checkout is only needed for frontend development with Vite.
 
+### Docker
+
+Build and run CodeWiki with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Then open `http://127.0.0.1:8000`. The compose file persists the SQLite database and
+storage cache in Docker volumes, and mounts this checkout at `/workspace/CodeWiki` so
+you can register that path from the UI or CLI. To analyze another local repository,
+add another bind mount under `/workspace` in `docker-compose.yml`.
+
+For LLM-backed wiki and Q&A features, pass `CODEWIKI_LLM__*` environment variables in
+`docker-compose.yml` or run with `docker compose --env-file .env up --build`.
+
 Configure local environment variables with:
 
 ```bash

@@ -35,8 +35,16 @@ class EmbeddingIndex:
     ) -> EmbeddingIndexBuildResult:
         model = self.model
         unique_chunks = _dedupe_chunks_by_content_hash(chunks)
-        vectors_by_hash: dict[str, list[float]] = {}
-        for batch in batched(unique_chunks, self.batch_size):
+        vectors_by_hash = {
+            embedding.content_hash: embedding.embedding
+            for embedding in self.store.list_code_chunk_embeddings(repo_id, model=model)
+            if embedding.embedding
+        }
+        missing_chunks = [
+            chunk for chunk in unique_chunks
+            if chunk.content_hash not in vectors_by_hash
+        ]
+        for batch in batched(missing_chunks, self.batch_size):
             texts = [embedding_text(chunk) for chunk in batch]
             vectors = await self.llm.embed(texts, task_type="embedding")
             for chunk, vector in zip(batch, vectors, strict=True):
@@ -57,7 +65,7 @@ class EmbeddingIndex:
                     created_at=None,
                 )
             )
-        self.store.replace_code_chunk_embeddings(repo_id, model=model, embeddings=records)
+        self.store.sync_code_chunk_embeddings(repo_id, model=model, embeddings=records)
         return EmbeddingIndexBuildResult(count=len(records), model=model)
 
     async def ensure(
@@ -66,7 +74,13 @@ class EmbeddingIndex:
         chunks: list[CodeChunkRecord],
     ) -> EmbeddingIndexBuildResult | None:
         model = self.model
-        if self.store.list_code_chunk_embeddings(repo_id, model=model) or not chunks:
+        if not chunks:
+            return None
+        existing_chunk_ids = {
+            embedding.chunk_id
+            for embedding in self.store.list_code_chunk_embeddings(repo_id, model=model)
+        }
+        if {chunk.id for chunk in chunks} <= existing_chunk_ids:
             return None
         return await self.build(repo_id, chunks)
 

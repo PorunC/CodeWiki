@@ -6,6 +6,7 @@ from backend.app.services.embedding_index import EmbeddingIndex
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.models import GraphRAGBuildResult
 from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 async def build_index(
@@ -49,6 +50,11 @@ def _build_and_store_source_chunks(
     repo_path: str,
     nodes: list[CodeGraphNode],
 ) -> list[CodeChunkRecord]:
-    chunks = ChunkBuilder().build_source_chunks(repo_id=repo_id, repo_path=repo_path, nodes=nodes)
-    store.replace_code_chunks(repo_id, chunks)
+    chunks = ChunkBuilder().build_source_chunks(
+        repo_id=repo_id,
+        repo_path=repo_path,
+        nodes=nodes,
+        content_provider=SourceFileContentProvider(repo_path),
+    )
+    store.sync_code_chunks(repo_id, chunks)
     return chunks

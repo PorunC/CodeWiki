@@ -5,7 +5,7 @@ from backend.app.services.community_detector import CommunityDetector, _partitio
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
-def test_partition_prefers_graspologic_leiden_when_available() -> None:
+def test_partition_prefers_networkx_louvain_for_default_speed() -> None:
     graph = nx.Graph()
     graph.add_edge("api.py", "service.py", weight=1.0)
     graph.add_edge("service.py", "models.py", weight=0.8)
@@ -14,7 +14,7 @@ def test_partition_prefers_graspologic_leiden_when_available() -> None:
 
     communities, algorithm = _partition(graph)
 
-    assert algorithm == "graspologic_leiden"
+    assert algorithm == "networkx_louvain"
     assert set().union(*communities) == set(graph.nodes)
 
 

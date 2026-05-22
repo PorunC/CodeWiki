@@ -1,12 +1,13 @@
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlparse
 
 from backend.app.config import get_settings
 from backend.app.services.language_detector import LanguageDetector
-from backend.app.services.repo_scanner.file_info import scan_file
+from backend.app.services.repo_scanner.file_info import modified_at_iso, scan_file
 from backend.app.services.repo_scanner.filesystem import FileSystemWalker
 from backend.app.services.repo_scanner.git_ops import GitOperations
 from backend.app.services.repo_scanner.models import RepoDescriptor, RepoScanResult
@@ -56,14 +57,40 @@ class RepoScanner:
             commit_hash=commit_hash,
         )
 
-    def scan(self, path: str, *, name: str | None = None, source_type: str = "local") -> RepoScanResult:
+    def scan(
+        self,
+        path: str,
+        *,
+        name: str | None = None,
+        source_type: str = "local",
+        known_hashes: Mapping[str, str] | None = None,
+        known_file_metadata: Mapping[str, tuple[int | None, str | None]] | None = None,
+        hash_paths: set[str] | None = None,
+    ) -> RepoScanResult:
         repo = self.describe(path, name=name, source_type=source_type)
         root = Path(repo.path)
         walk = self.file_walker.walk(root)
-        files = [
-            scan_file(root, file_path, self.language_detector)
-            for file_path in walk.file_paths
-        ]
+        files = []
+        for file_path in walk.file_paths:
+            relative_path = file_path.relative_to(root).as_posix()
+            stat = file_path.stat()
+            known_sha256 = _known_hash_for(
+                relative_path,
+                stat_size=stat.st_size,
+                modified_at=modified_at_iso(stat),
+                known_hashes=known_hashes,
+                known_file_metadata=known_file_metadata,
+                hash_paths=hash_paths,
+            )
+            files.append(
+                scan_file(
+                    root,
+                    file_path,
+                    self.language_detector,
+                    known_sha256=known_sha256,
+                    stat=stat,
+                )
+            )
 
         commit_times = self.git.file_commit_times(root, [file.path for file in files if file.is_source])
         if commit_times:
@@ -133,3 +160,22 @@ def repo_name_from_git_url(git_url: str) -> str:
 def safe_repo_dir_name(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("._-")
     return (safe or "repository")[:80]
+
+
+def _known_hash_for(
+    path: str,
+    *,
+    stat_size: int,
+    modified_at: str,
+    known_hashes: Mapping[str, str] | None,
+    known_file_metadata: Mapping[str, tuple[int | None, str | None]] | None,
+    hash_paths: set[str] | None,
+) -> str | None:
+    if not known_hashes or path not in known_hashes:
+        return None
+    if hash_paths is None or path in hash_paths:
+        return None
+    previous_size, previous_modified_at = (known_file_metadata or {}).get(path, (None, None))
+    if previous_size != stat_size or previous_modified_at != modified_at:
+        return None
+    return known_hashes[path]
