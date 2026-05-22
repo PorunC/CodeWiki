@@ -177,7 +177,7 @@ def _insert_embedding(session, dialect, embedding: CodeChunkEmbeddingRecord, use
             },
         )
         vec_rowid = cursor.lastrowid
-    statement = dialect.insert_ignore(CodeChunkEmbeddingRecord.__table__, ["id"])
+    statement = dialect.insert_ignore(CodeChunkEmbeddingRecord.__table__)
     session.execute(
         statement,
         _embedding_mapping(embedding, vec_table=vec_table, vec_rowid=vec_rowid),

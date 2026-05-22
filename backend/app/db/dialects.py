@@ -17,13 +17,17 @@ class DatabaseDialect:
     def supports_sqlite_vec(self) -> bool:
         return self.name == "sqlite"
 
-    def insert_ignore(self, table: Table, conflict_columns: list[str]):
+    def insert_ignore(self, table: Table, conflict_columns: list[str] | None = None):
         if self.name == "postgresql":
-            return postgresql.insert(table).on_conflict_do_nothing(
-                index_elements=conflict_columns
-            )
+            statement = postgresql.insert(table)
+            if conflict_columns:
+                return statement.on_conflict_do_nothing(index_elements=conflict_columns)
+            return statement.on_conflict_do_nothing()
         if self.name == "sqlite":
-            return sqlite.insert(table).on_conflict_do_nothing(index_elements=conflict_columns)
+            statement = sqlite.insert(table)
+            if conflict_columns:
+                return statement.on_conflict_do_nothing(index_elements=conflict_columns)
+            return statement.on_conflict_do_nothing()
         raise ValueError(f"Unsupported database dialect: {self.name}")
 
     def upsert(self, table: Table, conflict_columns: list[str], update_columns: list[str]):

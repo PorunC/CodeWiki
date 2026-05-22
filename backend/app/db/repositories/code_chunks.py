@@ -188,7 +188,7 @@ class CodeChunkRepositoryMixin:
 def _insert_code_chunks(session, dialect, chunks: list[CodeChunkRecord], use_fts: bool, batch_size: int) -> None:
     if not chunks:
         return
-    chunk_statement = dialect.insert_ignore(CodeChunkRecord.__table__, ["id"])
+    chunk_statement = dialect.insert_ignore(CodeChunkRecord.__table__)
     fts_statement = text(
         """
             INSERT OR IGNORE INTO code_chunk_fts (
