@@ -53,20 +53,7 @@ class BaseSQLiteStore:
         Base.metadata.create_all(self.engine)
         with self.connect() as connection:
             connection.executescript(AUXILIARY_SCHEMA_SQL)
-            connection.execute(
-                """
-                INSERT INTO code_node_fts (
-                  id, repo_id, type, name, file_path, language, symbol_id, summary, signature, docstring
-                )
-                SELECT n.id, n.repo_id, n.type, n.name, n.file_path,
-                       COALESCE(n.language, ''), COALESCE(n.symbol_id, ''),
-                       COALESCE(n.summary, ''), '', ''
-                FROM code_node n
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM code_node_fts f WHERE f.id = n.id
-                )
-                """
-            )
+            self._sync_code_node_fts_if_needed(connection)
             self._ensure_columns(
                 connection,
                 "repo",
@@ -112,6 +99,25 @@ class BaseSQLiteStore:
                 ON doc_page (repo_id, language_code, slug)
                 """
             )
+
+    def _sync_code_node_fts_if_needed(self, connection: sqlite3.Connection) -> None:
+        node_count = connection.execute("SELECT COUNT(*) FROM code_node").fetchone()[0]
+        fts_count = connection.execute("SELECT COUNT(*) FROM code_node_fts").fetchone()[0]
+        if node_count == fts_count:
+            return
+
+        connection.execute("DELETE FROM code_node_fts")
+        connection.execute(
+            """
+            INSERT INTO code_node_fts (
+              id, repo_id, type, name, file_path, language, symbol_id, summary, signature, docstring
+            )
+            SELECT n.id, n.repo_id, n.type, n.name, n.file_path,
+                   COALESCE(n.language, ''), COALESCE(n.symbol_id, ''),
+                   COALESCE(n.summary, ''), '', ''
+            FROM code_node n
+            """
+        )
 
     def _create_engine(self) -> Engine:
         engine = create_engine(
