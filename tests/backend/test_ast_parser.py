@@ -1,4 +1,6 @@
 from pathlib import Path
+from threading import Lock
+import time
 
 from backend.app.config import get_settings
 from backend.app.services.ast_parser import AstParser, AstParserRegistry, AstSymbol, parse_scanned_files
@@ -75,6 +77,20 @@ def test_parse_scanned_files_reports_progress(tmp_path: Path, monkeypatch) -> No
     assert len(symbols) >= 2
     assert [item[0] for item in progress] == [1, 2]
     assert {item[2] for item in progress} == {"a.py", "b.py"}
+
+
+def test_parse_scanned_files_reuses_one_parser_fork_per_worker(tmp_path: Path, monkeypatch) -> None:
+    for index in range(5):
+        (tmp_path / f"file_{index}.py").write_text(f"def fn_{index}():\n    return {index}\n")
+    scan = RepoScanner().scan(str(tmp_path))
+    monkeypatch.setenv("CODEWIKI_AST_PARSE_WORKERS", "2")
+    parser = _ForkCountingParser()
+
+    symbols, errors = parse_scanned_files(parser, scan.files, repo_root=tmp_path)
+
+    assert errors == []
+    assert len(symbols) == 5
+    assert 1 <= parser.fork_count <= 2
 
 
 def test_tree_sitter_typescript_parser_extracts_basic_symbols(tmp_path: Path) -> None:
@@ -481,6 +497,44 @@ class _CountingParser:
                 start_line=1,
                 end_line=1,
                 hash=str(self.parse_count),
+            )
+        ]
+
+
+class _ForkCountingParser:
+    content_provider = None
+
+    def __init__(self) -> None:
+        self.fork_count = 0
+        self._lock = Lock()
+
+    def fork(self) -> "_ForkCountingWorkerParser":
+        with self._lock:
+            self.fork_count += 1
+        return _ForkCountingWorkerParser()
+
+
+class _ForkCountingWorkerParser:
+    def parse_file(
+        self,
+        path: Path,
+        *,
+        repo_root: Path | None = None,
+        language: str | None = None,
+        file_hash: str | None = None,
+    ) -> list[AstSymbol]:
+        time.sleep(0.01)
+        file_path = path.relative_to(repo_root).as_posix() if repo_root is not None else path.name
+        return [
+            AstSymbol(
+                id=f"file:{file_path}",
+                type="file",
+                name=path.name,
+                file_path=file_path,
+                language=language or "python",
+                start_line=1,
+                end_line=1,
+                hash=file_hash or "",
             )
         ]
 

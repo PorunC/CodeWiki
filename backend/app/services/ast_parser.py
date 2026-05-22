@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
+import threading
 from pathlib import Path
 
 from backend.app.services.ast_parsers import (
@@ -48,10 +49,18 @@ def parse_scanned_files(
             progress_callback=progress_callback,
         )
 
+    thread_state = threading.local()
     results: list[tuple[int, list[AstSymbol], dict[str, str] | None]] = []
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
         futures = {
-            executor.submit(_parse_scanned_file_worker, parser, index, scanned_file, repo_root): scanned_file
+            executor.submit(
+                _parse_scanned_file_worker,
+                parser,
+                thread_state,
+                index,
+                scanned_file,
+                repo_root,
+            ): scanned_file
             for index, scanned_file in enumerate(candidates)
         }
         for completed, future in enumerate(as_completed(futures), start=1):
@@ -94,11 +103,15 @@ def _parse_scanned_files_sequential(
 
 def _parse_scanned_file_worker(
     parser: AstParser,
+    thread_state: threading.local,
     index: int,
     scanned_file: ScannedFile,
     repo_root: Path,
 ) -> tuple[int, list[AstSymbol], dict[str, str] | None]:
-    worker_parser = parser.fork()
+    worker_parser = getattr(thread_state, "parser", None)
+    if worker_parser is None:
+        worker_parser = parser.fork()
+        thread_state.parser = worker_parser
     try:
         return index, _parse_one_file(worker_parser, scanned_file, repo_root=repo_root), None
     except SyntaxError as exc:
