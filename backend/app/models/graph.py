@@ -119,7 +119,7 @@ class GraphCommunityRecord(Base, RecordMixin):
     )
     summary: Mapped[str | None] = mapped_column(Text)
     summary_hash: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
+    created_at: Mapped[str | None] = mapped_column(Text)
 
 
 class GraphCommunityEdgeRecord(Base, RecordMixin):
@@ -166,4 +166,4 @@ class GraphCommunityEdgeRecord(Base, RecordMixin):
         default=list,
         server_default=text("'[]'"),
     )
-    created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
+    created_at: Mapped[str | None] = mapped_column(Text)

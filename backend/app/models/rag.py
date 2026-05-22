@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import ForeignKey, Index, Integer, Text, text
+from sqlalchemy import ForeignKey, Index, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.models.base import Base, RecordMixin
@@ -73,7 +73,7 @@ class CodeChunkEmbeddingRecord(Base, RecordMixin):
     vec_table: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     vec_rowid: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
+    created_at: Mapped[str | None] = mapped_column(Text)
     embedding: list[float]
 
     def __init__(

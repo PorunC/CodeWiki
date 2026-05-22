@@ -79,11 +79,21 @@ class GraphCommunityRepositoryMixin:
 
 
 def _clone_community(community: GraphCommunityRecord) -> GraphCommunityRecord:
-    return GraphCommunityRecord(**community.as_record_dict())
+    return GraphCommunityRecord(
+        **{
+            **community.as_record_dict(),
+            "created_at": community.created_at or now_iso(),
+        }
+    )
 
 
 def _clone_community_edge(edge: GraphCommunityEdgeRecord) -> GraphCommunityEdgeRecord:
-    return GraphCommunityEdgeRecord(**edge.as_record_dict())
+    return GraphCommunityEdgeRecord(
+        **{
+            **edge.as_record_dict(),
+            "created_at": edge.created_at or now_iso(),
+        }
+    )
 
 
 def _insert_graph_communities(

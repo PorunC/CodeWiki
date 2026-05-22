@@ -24,7 +24,7 @@ class DocCatalogRecord(Base, RecordMixin):
         default=dict,
         server_default=text("'{\"items\":[]}'"),
     )
-    generated_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
+    generated_at: Mapped[str | None] = mapped_column(Text)
 
 
 class DocPageRecord(Base, RecordMixin):
@@ -69,4 +69,4 @@ class DocPageRecord(Base, RecordMixin):
         server_default=text("'[]'"),
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default=text("'draft'"))
-    updated_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
+    updated_at: Mapped[str | None] = mapped_column(Text)

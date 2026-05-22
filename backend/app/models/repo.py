@@ -27,8 +27,8 @@ class RepoRecord(Base, RecordMixin):
     source_type: Mapped[str] = mapped_column(Text, nullable=False, default="local", server_default=text("'local'"))
     git_url: Mapped[str | None] = mapped_column(Text)
     commit_hash: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
-    updated_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
+    created_at: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[str | None] = mapped_column(Text)
 
 
 class AnalysisRunRecord(Base, RecordMixin):
@@ -112,4 +112,4 @@ class LLMRunRecord(Base, RecordMixin):
     cached: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
     status: Mapped[str] = mapped_column(Text, nullable=False, default="success", server_default=text("'success'"))
     error: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
+    created_at: Mapped[str | None] = mapped_column(Text)
