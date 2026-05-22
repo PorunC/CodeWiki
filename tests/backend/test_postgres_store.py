@@ -37,6 +37,8 @@ def postgres_store():
     query["options"] = f"-csearch_path={schema}"
     store_url = url.set(query=query).render_as_string(hide_password=False)
     store = create_store(store_url)
+    with store.sql_connection() as connection:
+        assert connection.execute(text("SELECT current_schema()")).scalar_one() == schema
     try:
         yield store
     finally:
@@ -117,34 +119,61 @@ def test_postgres_store_persists_core_graph_and_chunk_records(postgres_store) ->
         content_hash="chunk-hash",
         token_count=6,
     )
-    postgres_store.replace_code_chunks(repo.id, [chunk])
+    other_chunk = CodeChunkRecord(
+        id="chunk-2",
+        repo_id=repo.id,
+        node_id="node-file",
+        file_path="service.py",
+        start_line=1,
+        end_line=1,
+        content="module constants",
+        content_hash="other-chunk-hash",
+        token_count=2,
+    )
+    postgres_store.replace_code_chunks(repo.id, [chunk, other_chunk])
     chunk_hits = postgres_store.search_code_chunks_fts(repo.id, "handle_request", limit=5)
     assert [hit.chunk.id for hit in chunk_hits] == ["chunk-1"]
     assert chunk_hits[0].match_type == "postgres_fts"
 
-    embedding = CodeChunkEmbeddingRecord(
-        id="embedding-1",
-        repo_id=repo.id,
-        chunk_id="chunk-1",
-        model="test-embedding",
-        dimensions=3,
-        embedding=[0.1, 0.2, 0.3],
-        content_hash="chunk-hash",
-    )
+    embeddings = [
+        CodeChunkEmbeddingRecord(
+            id="embedding-1",
+            repo_id=repo.id,
+            chunk_id="chunk-1",
+            model="test-embedding",
+            dimensions=3,
+            embedding=[0.1, 0.2, 0.3],
+            content_hash="chunk-hash",
+        ),
+        CodeChunkEmbeddingRecord(
+            id="embedding-2",
+            repo_id=repo.id,
+            chunk_id="chunk-2",
+            model="test-embedding",
+            dimensions=3,
+            embedding=[0.9, 0.1, 0.1],
+            content_hash="other-chunk-hash",
+        ),
+    ]
     postgres_store.replace_code_chunk_embeddings(
         repo.id,
         model="test-embedding",
-        embeddings=[embedding],
+        embeddings=embeddings,
     )
 
     rows = postgres_store.list_code_chunk_embeddings(repo.id, model="test-embedding")
-    assert len(rows) == 1
-    assert rows[0].embedding == []
-    assert postgres_store.search_code_chunk_embeddings(
+    assert len(rows) == 2
+    assert {row.chunk_id: row.embedding for row in rows} == {
+        "chunk-1": [0.1, 0.2, 0.3],
+        "chunk-2": [0.9, 0.1, 0.1],
+    }
+    vector_hits = postgres_store.search_code_chunk_embeddings(
         repo.id,
         model="test-embedding",
         query_embedding=[0.1, 0.2, 0.3],
-    ) == []
+    )
+    assert [hit.chunk.id for hit in vector_hits] == ["chunk-1", "chunk-2"]
+    assert vector_hits[0].match_type == "pgvector"
 
 
 def test_postgres_store_covers_analysis_wiki_llm_and_delete(
@@ -193,16 +222,46 @@ def test_postgres_store_covers_analysis_wiki_llm_and_delete(
         response_content="answer",
         response_usage={"prompt_tokens": 1, "completion_tokens": 2},
     )
+    chunk = CodeChunkRecord(
+        id="delete-check-chunk",
+        repo_id=repo.id,
+        node_id=nodes[0].id,
+        file_path="main.py",
+        start_line=1,
+        end_line=2,
+        content="def main(): return 1",
+        content_hash="delete-check-hash",
+        token_count=4,
+    )
+    postgres_store.replace_code_chunks(repo.id, [chunk])
+    postgres_store.replace_code_chunk_embeddings(
+        repo.id,
+        model="test-embedding",
+        embeddings=[
+            CodeChunkEmbeddingRecord(
+                id="embedding-delete-check",
+                repo_id=repo.id,
+                chunk_id=chunk.id,
+                model="test-embedding",
+                dimensions=3,
+                embedding=[0.1, 0.2, 0.3],
+                content_hash=chunk.content_hash,
+            )
+        ],
+    )
 
     assert postgres_store.get_latest_doc_catalog(repo.id).id == catalog.id
     assert postgres_store.get_doc_page(repo.id, "main").id == page.id
-    assert postgres_store.get_cached_llm_run(
-        repo.id,
-        task_type="qa",
-        cache_key="cache-key",
-        input_hash="input-hash",
-        model="fake/qa",
-    ).id == llm_run.id
+    assert (
+        postgres_store.get_cached_llm_run(
+            repo.id,
+            task_type="qa",
+            cache_key="cache-key",
+            input_hash="input-hash",
+            model="fake/qa",
+        ).id
+        == llm_run.id
+    )
 
     assert postgres_store.delete_repo(repo.id) is True
     assert postgres_store.get_repo(repo.id) is None
@@ -210,6 +269,11 @@ def test_postgres_store_covers_analysis_wiki_llm_and_delete(
     assert postgres_store.list_doc_pages(repo.id) == []
     assert postgres_store.list_llm_runs(repo.id) == []
     assert postgres_store.get_graph(repo.id) == ([], [])
+    with postgres_store.sql_connection() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM code_chunk_embedding_vec_3")).scalar_one()
+            == 0
+        )
 
 
 def test_postgres_store_covers_incremental_update(
@@ -220,9 +284,7 @@ def test_postgres_store_covers_incremental_update(
     repo_dir.mkdir()
     (repo_dir / "service.py").write_text("def answer():\n    return 42\n", encoding="utf-8")
     (repo_dir / "api.py").write_text(
-        "from service import answer\n\n"
-        "def handler():\n"
-        "    return answer()\n",
+        "from service import answer\n\ndef handler():\n    return answer()\n",
         encoding="utf-8",
     )
 
@@ -245,9 +307,7 @@ def test_postgres_store_covers_incremental_update(
     )
 
     (repo_dir / "api.py").write_text(
-        "from service import answer\n\n"
-        "def handler():\n"
-        "    return answer() + 1\n",
+        "from service import answer\n\ndef handler():\n    return answer() + 1\n",
         encoding="utf-8",
     )
     (repo_dir / "util.py").write_text("def helper():\n    return 'ok'\n", encoding="utf-8")

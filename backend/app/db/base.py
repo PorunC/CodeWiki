@@ -6,6 +6,7 @@ from typing import Iterator
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.db.dialects import DatabaseDialect
@@ -66,6 +67,7 @@ class BaseStore:
     dialect_name: str
     supports_fts5 = False
     supports_postgres_text_search = False
+    supports_pgvector = False
     supports_sqlite_vec = False
 
     def __init__(self, database_url: str) -> None:
@@ -113,7 +115,11 @@ class BaseStore:
                 columns = {column["name"] for column in inspector.get_columns(patch.table)}
                 if patch.column in columns:
                     continue
-                clause = "ADD COLUMN IF NOT EXISTS" if self.dialect_name == "postgresql" else "ADD COLUMN"
+                clause = (
+                    "ADD COLUMN IF NOT EXISTS"
+                    if self.dialect_name == "postgresql"
+                    else "ADD COLUMN"
+                )
                 connection.execute(
                     text(f"ALTER TABLE {patch.table} {clause} {patch.ddl(self.dialect_name)}")
                 )
@@ -230,6 +236,7 @@ class PostgresStoreBase(BaseStore):
 
     def ensure_schema(self) -> None:
         super().ensure_schema()
+        self._ensure_pgvector_extension()
         self._ensure_text_search_indexes()
 
     def connect(self):
@@ -247,6 +254,15 @@ class PostgresStoreBase(BaseStore):
             pool_recycle=1800,
             future=True,
         )
+
+    def _ensure_pgvector_extension(self) -> None:
+        try:
+            with self.engine.begin() as connection:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"))
+        except SQLAlchemyError:
+            self.supports_pgvector = False
+            return
+        self.supports_pgvector = True
 
     def _ensure_text_search_indexes(self) -> None:
         with self.engine.begin() as connection:

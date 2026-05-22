@@ -52,6 +52,8 @@ class RepoRepositoryMixin:
 
             if self.supports_sqlite_vec:
                 _delete_vector_rows(session, repo_id)
+            elif self.supports_pgvector:
+                _delete_pg_vector_rows(session, repo_id)
             if self.supports_fts5:
                 session.execute(
                     text("DELETE FROM code_chunk_fts WHERE repo_id = :repo_id"),
@@ -86,4 +88,26 @@ def _delete_vector_rows(session, repo_id: str) -> None:
         table_name = row["name"]
         suffix = table_name.removeprefix("code_chunk_embedding_vec_")
         if suffix.isdigit():
-            session.execute(text(f"DELETE FROM {table_name} WHERE repo_id = :repo_id"), {"repo_id": repo_id})
+            session.execute(
+                text(f"DELETE FROM {table_name} WHERE repo_id = :repo_id"), {"repo_id": repo_id}
+            )
+
+
+def _delete_pg_vector_rows(session, repo_id: str) -> None:
+    rows = session.execute(
+        text(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = current_schema()
+              AND table_name LIKE 'code_chunk_embedding_vec_%'
+            """
+        )
+    ).mappings()
+    for row in rows:
+        table_name = row["table_name"]
+        suffix = table_name.removeprefix("code_chunk_embedding_vec_")
+        if suffix.isdigit():
+            session.execute(
+                text(f"DELETE FROM {table_name} WHERE repo_id = :repo_id"), {"repo_id": repo_id}
+            )
