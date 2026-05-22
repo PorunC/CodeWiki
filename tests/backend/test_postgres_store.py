@@ -39,6 +39,16 @@ def postgres_store():
     store = create_store(store_url)
     with store.sql_connection() as connection:
         assert connection.execute(text("SELECT current_schema()")).scalar_one() == schema
+        assert store.pgvector_schema == connection.execute(
+            text(
+                """
+                SELECT n.nspname
+                FROM pg_extension e
+                JOIN pg_namespace n ON n.oid = e.extnamespace
+                WHERE e.extname = 'vector'
+                """
+            )
+        ).scalar_one()
     try:
         yield store
     finally:
@@ -175,12 +185,12 @@ def test_postgres_store_persists_core_graph_and_chunk_records(postgres_store) ->
     assert [hit.chunk.id for hit in vector_hits] == ["chunk-1", "chunk-2"]
     assert vector_hits[0].match_type == "pgvector"
     with postgres_store.sql_connection() as connection:
-        index_names = {
-            row["indexname"]
+        indexes = {
+            row["indexname"]: row["indexdef"]
             for row in connection.execute(
                 text(
                     """
-                    SELECT indexname
+                    SELECT indexname, indexdef
                     FROM pg_indexes
                     WHERE schemaname = current_schema()
                       AND tablename = 'code_chunk_embedding_vec_3'
@@ -188,8 +198,9 @@ def test_postgres_store_persists_core_graph_and_chunk_records(postgres_store) ->
                 )
             ).mappings()
         }
-    assert "idx_code_chunk_embedding_vec_3_repo_model" in index_names
-    assert "idx_code_chunk_embedding_vec_3_embedding_hnsw" in index_names
+    assert "idx_code_chunk_embedding_vec_3_repo_model" in indexes
+    assert "idx_code_chunk_embedding_vec_3_embedding_hnsw" in indexes
+    assert "USING hnsw" in indexes["idx_code_chunk_embedding_vec_3_embedding_hnsw"]
 
 
 def test_postgres_store_covers_analysis_wiki_llm_and_delete(

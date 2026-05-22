@@ -68,6 +68,7 @@ class BaseStore:
     supports_fts5 = False
     supports_postgres_text_search = False
     supports_pgvector = False
+    pgvector_schema = "public"
     supports_sqlite_vec = False
 
     def __init__(self, database_url: str) -> None:
@@ -259,9 +260,23 @@ class PostgresStoreBase(BaseStore):
         try:
             with self.engine.begin() as connection:
                 connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"))
+                schema = connection.execute(
+                    text(
+                        """
+                        SELECT n.nspname
+                        FROM pg_extension e
+                        JOIN pg_namespace n ON n.oid = e.extnamespace
+                        WHERE e.extname = 'vector'
+                        """
+                    )
+                ).scalar_one_or_none()
         except SQLAlchemyError:
             self.supports_pgvector = False
             return
+        if not schema:
+            self.supports_pgvector = False
+            return
+        self.pgvector_schema = str(schema)
         self.supports_pgvector = True
 
     def _ensure_text_search_indexes(self) -> None:

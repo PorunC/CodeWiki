@@ -37,6 +37,7 @@ class CodeChunkEmbeddingRepositoryMixin:
                     dialect_name=self.dialect_name,
                     use_sqlite_vector=self.supports_sqlite_vec,
                     use_pgvector=self.supports_pgvector,
+                    pgvector_schema=self.pgvector_schema,
                 )
                 if index % batch_size == 0:
                     session.commit()
@@ -100,6 +101,7 @@ class CodeChunkEmbeddingRepositoryMixin:
                         dialect_name=self.dialect_name,
                         use_sqlite_vector=self.supports_sqlite_vec,
                         use_pgvector=self.supports_pgvector,
+                        pgvector_schema=self.pgvector_schema,
                     )
                     inserted_count += 1
                     if inserted_count % batch_size == 0:
@@ -203,6 +205,7 @@ class CodeChunkEmbeddingRepositoryMixin:
     ) -> list[CodeChunkSearchHit]:
         dimensions = len(query_embedding)
         vec_table = _vec_table_name(dimensions)
+        pgvector_schema = _quote_identifier(self.pgvector_schema)
         with self.orm_session() as session:
             if not _pg_vector_table_exists(session, vec_table):
                 return []
@@ -212,11 +215,13 @@ class CodeChunkEmbeddingRepositoryMixin:
                         f"""
                     SELECT
                         chunk_id,
-                        embedding OPERATOR(public.<=>) CAST(:embedding AS public.vector) AS distance
+                        embedding OPERATOR({pgvector_schema}.<=>)
+                          CAST(:embedding AS {pgvector_schema}.vector) AS distance
                     FROM {vec_table}
                     WHERE repo_id = :repo_id
                       AND model = :model
-                    ORDER BY embedding OPERATOR(public.<=>) CAST(:embedding AS public.vector)
+                    ORDER BY embedding OPERATOR({pgvector_schema}.<=>)
+                      CAST(:embedding AS {pgvector_schema}.vector)
                     LIMIT :limit
                     """
                     ),
@@ -252,6 +257,7 @@ def _insert_embedding(
     dialect_name: str,
     use_sqlite_vector: bool,
     use_pgvector: bool,
+    pgvector_schema: str,
 ) -> None:
     if embedding.dimensions <= 0 or len(embedding.embedding) != embedding.dimensions:
         raise ValueError(f"Invalid embedding dimensions for chunk {embedding.chunk_id}")
@@ -278,7 +284,7 @@ def _insert_embedding(
         vec_rowid = cursor.lastrowid
     elif use_pgvector:
         vec_table = _vec_table_name(embedding.dimensions)
-        _ensure_pg_vector_table(session, embedding.dimensions)
+        _ensure_pg_vector_table(session, embedding.dimensions, pgvector_schema=pgvector_schema)
         vec_rowid = session.execute(
             text(
                 f"""
@@ -417,8 +423,9 @@ def _ensure_vec_table(session, dimensions: int) -> None:
     )
 
 
-def _ensure_pg_vector_table(session, dimensions: int) -> None:
+def _ensure_pg_vector_table(session, dimensions: int, *, pgvector_schema: str) -> None:
     vec_table = _vec_table_name(dimensions)
+    schema = _quote_identifier(pgvector_schema)
     session.execute(
         text(
             f"""
@@ -427,7 +434,7 @@ def _ensure_pg_vector_table(session, dimensions: int) -> None:
               repo_id TEXT NOT NULL,
               model TEXT NOT NULL,
               chunk_id TEXT NOT NULL,
-              embedding public.vector({dimensions}) NOT NULL
+              embedding {schema}.vector({dimensions}) NOT NULL
             )
             """
         )
@@ -444,7 +451,7 @@ def _ensure_pg_vector_table(session, dimensions: int) -> None:
         text(
             f"""
             CREATE INDEX IF NOT EXISTS idx_{vec_table}_embedding_hnsw
-            ON {vec_table} USING hnsw (embedding public.vector_cosine_ops)
+            ON {vec_table} USING hnsw (embedding {schema}.vector_cosine_ops)
             """
         )
     )
@@ -505,6 +512,10 @@ def _deserialize_pgvector(value: object) -> list[float]:
     if not text_value:
         return []
     return [float(item) for item in text_value.removeprefix("[").removesuffix("]").split(",")]
+
+
+def _quote_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
 
 
 def _table_exists(session, table_name: str) -> bool:
