@@ -1,13 +1,16 @@
-# syntax=docker/dockerfile:1.7
+ARG NODE_IMAGE=node:22-bookworm-slim
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 
-FROM node:22-slim AS frontend-builder
+FROM ${NODE_IMAGE} AS frontend-builder
+ARG NPM_REGISTRY=
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./frontend/
-RUN npm --prefix frontend ci
+RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi \
+    && npm --prefix frontend ci --loglevel=info --fetch-timeout=120000 --fetch-retries=5
 COPY frontend ./frontend
 RUN npm --prefix frontend run build
 
-FROM python:3.12-slim AS python-builder
+FROM ${PYTHON_IMAGE} AS python-builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -29,7 +32,10 @@ COPY --from=frontend-builder /app/backend/app/static ./backend/app/static
 RUN pip install --upgrade pip \
     && pip wheel --wheel-dir /wheels .
 
-FROM python:3.12-slim AS runtime
+FROM ${PYTHON_IMAGE} AS runtime-base
+
+ARG APT_MIRROR=
+ARG APT_SECURITY_MIRROR=
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -38,13 +44,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CODEWIKI_DATABASE_URL=sqlite+aiosqlite:////app/data/codewiki.sqlite3 \
     CODEWIKI_STORAGE_DIR=/app/storage
 
-RUN apt-get update \
+RUN if [ -n "$APT_MIRROR" ]; then \
+        security_mirror="${APT_SECURITY_MIRROR:-${APT_MIRROR%-security}-security}"; \
+        sed -i \
+            -e "s|http://deb.debian.org/debian-security|${security_mirror}|g" \
+            -e "s|http://deb.debian.org/debian|${APT_MIRROR}|g" \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get -o Acquire::Retries=3 update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         git \
         libpq5 \
         postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+FROM runtime-base AS runtime
 
 WORKDIR /app
 
