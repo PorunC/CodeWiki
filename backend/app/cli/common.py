@@ -8,25 +8,25 @@ from typing import Any, Callable, TypeVar
 
 import click
 
-from backend.app.database import SQLiteStore, get_store
+from backend.app.database import CodeWikiStore, get_store
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner, is_git_url
 
 T = TypeVar("T")
 
 
-def store_from_context(ctx: click.Context) -> SQLiteStore:
+def store_from_context(ctx: click.Context) -> CodeWikiStore:
     obj = ctx.ensure_object(dict)
     store = obj.get("store")
     if store is None:
         store = get_store()
         obj["store"] = store
-    if not isinstance(store, SQLiteStore):
+    if store is None:
         raise click.ClickException("CLI store is not initialized.")
     return store
 
 
 def resolve_repo(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     selector: str | None,
     *,
     auto_register_paths: bool = True,
@@ -70,7 +70,7 @@ def resolve_repo(
     )
 
 
-def can_resolve_repo_selector(store: SQLiteStore, selector: str) -> bool:
+def can_resolve_repo_selector(store: CodeWikiStore, selector: str) -> bool:
     try:
         resolve_repo(store, selector, auto_register_paths=False)
     except ValueError:
@@ -79,7 +79,7 @@ def can_resolve_repo_selector(store: SQLiteStore, selector: str) -> bool:
 
 
 def parse_ask_args(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     args: tuple[str, ...],
     repo_option: str | None,
 ) -> tuple[str | None, str]:

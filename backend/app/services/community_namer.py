@@ -1,6 +1,6 @@
 import json
 
-from backend.app.database import SQLiteStore, get_store
+from backend.app.database import CodeWikiStore, get_store
 from backend.app.services.community_edges import CommunityEdgeBuilder
 from backend.app.services.community_naming import (
     COMMUNITIES_PER_BATCH,
@@ -24,7 +24,7 @@ class CommunityNamer:
         self,
         llm: LLMGateway,
         *,
-        store: SQLiteStore | None = None,
+        store: CodeWikiStore | None = None,
     ) -> None:
         self.llm = llm
         self.store = store or get_store()

@@ -1,6 +1,6 @@
 from typing import Any
 
-from backend.app.database import DocCatalogRecord, SQLiteStore
+from backend.app.database import DocCatalogRecord, CodeWikiStore
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.llm_gateway import LLMGateway
@@ -28,7 +28,7 @@ class WikiCatalogGenerator:
         retriever: GraphRAGRetriever,
         llm: LLMGateway,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         context_builder: RepositoryContextBuilder,
         candidate_planner: CatalogModuleCandidatePlanner | None = None,
     ) -> None:

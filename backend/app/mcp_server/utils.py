@@ -7,12 +7,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.mcp_server.types import JsonObject
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanner, is_git_url
 
 
-def resolve_repo(store: SQLiteStore, selector: str | None) -> RepoDescriptor:
+def resolve_repo(store: CodeWikiStore, selector: str | None) -> RepoDescriptor:
     selector = (selector or ".").strip() or "."
     if repo := store.get_repo(selector):
         return repo

@@ -2,9 +2,9 @@ import struct
 
 from sqlalchemy import delete, select, text
 
+from backend.app.db.batching import chunks, write_batch_size
+from backend.app.db.utils import now_iso
 from backend.app.models import CodeChunkEmbeddingRecord, CodeChunkSearchHit
-
-SQLITE_SAFE_BATCH_SIZE = 500
 
 
 class CodeChunkEmbeddingRepositoryMixin:
@@ -15,8 +15,10 @@ class CodeChunkEmbeddingRepositoryMixin:
         model: str,
         embeddings: list[CodeChunkEmbeddingRecord],
     ) -> None:
+        batch_size = write_batch_size(self.dialect_name)
         with self.orm_session() as session:
-            _delete_existing_vectors(session, repo_id, model)
+            if self.supports_sqlite_vec:
+                _delete_existing_vectors(session, repo_id, model)
             session.execute(
                 delete(CodeChunkEmbeddingRecord).where(
                     CodeChunkEmbeddingRecord.repo_id == repo_id,
@@ -25,8 +27,8 @@ class CodeChunkEmbeddingRepositoryMixin:
             )
             session.commit()
             for index, embedding in enumerate(embeddings, start=1):
-                _insert_embedding(session, embedding)
-                if index % SQLITE_SAFE_BATCH_SIZE == 0:
+                _insert_embedding(session, self.dialect, embedding, self.supports_sqlite_vec)
+                if index % batch_size == 0:
                     session.commit()
             session.commit()
 
@@ -38,6 +40,7 @@ class CodeChunkEmbeddingRepositoryMixin:
         embeddings: list[CodeChunkEmbeddingRecord],
     ) -> None:
         active_by_chunk_id = {embedding.chunk_id: embedding for embedding in embeddings}
+        batch_size = write_batch_size(self.dialect_name)
         with self.orm_session() as session:
             existing_rows = session.scalars(
                 select(CodeChunkEmbeddingRecord).where(
@@ -52,15 +55,16 @@ class CodeChunkEmbeddingRepositoryMixin:
                 active = active_by_chunk_id.get(row.chunk_id)
                 if active is None:
                     stale_rows.append(row)
-                elif _embedding_row_matches(session, row, active):
+                elif _embedding_row_matches(session, row, active, self.supports_sqlite_vec):
                     kept_chunk_ids.add(row.chunk_id)
                 else:
                     changed_rows.append(row)
 
             rows_to_delete = [*stale_rows, *changed_rows]
-            _delete_vector_rows(session, rows_to_delete)
+            if self.supports_sqlite_vec:
+                _delete_vector_rows(session, rows_to_delete)
             if rows_to_delete:
-                for delete_batch in _chunks(rows_to_delete, SQLITE_SAFE_BATCH_SIZE):
+                for delete_batch in chunks(rows_to_delete, batch_size):
                     session.execute(
                         delete(CodeChunkEmbeddingRecord).where(
                             CodeChunkEmbeddingRecord.id.in_([row.id for row in delete_batch]),
@@ -71,9 +75,9 @@ class CodeChunkEmbeddingRepositoryMixin:
             inserted_count = 0
             for embedding in embeddings:
                 if embedding.chunk_id not in kept_chunk_ids:
-                    _insert_embedding(session, embedding)
+                    _insert_embedding(session, self.dialect, embedding, self.supports_sqlite_vec)
                     inserted_count += 1
-                    if inserted_count % SQLITE_SAFE_BATCH_SIZE == 0:
+                    if inserted_count % batch_size == 0:
                         session.commit()
             session.commit()
 
@@ -91,7 +95,11 @@ class CodeChunkEmbeddingRepositoryMixin:
                 query.order_by(CodeChunkEmbeddingRecord.created_at.desc(), CodeChunkEmbeddingRecord.chunk_id)
             ).all()
             for row in rows:
-                row.embedding = _load_vector(session, row.vec_table, row.vec_rowid)
+                row.embedding = (
+                    _load_vector(session, row.vec_table, row.vec_rowid)
+                    if self.supports_sqlite_vec
+                    else []
+                )
             return list(rows)
 
     def search_code_chunk_embeddings(
@@ -103,6 +111,8 @@ class CodeChunkEmbeddingRepositoryMixin:
         limit: int = 20,
     ) -> list[CodeChunkSearchHit]:
         if not query_embedding:
+            return []
+        if not self.supports_sqlite_vec:
             return []
         dimensions = len(query_embedding)
         vec_table = _vec_table_name(dimensions)
@@ -143,49 +153,34 @@ class CodeChunkEmbeddingRepositoryMixin:
         return hits[:limit]
 
 
-def _insert_embedding(session, embedding: CodeChunkEmbeddingRecord) -> None:
+def _insert_embedding(session, dialect, embedding: CodeChunkEmbeddingRecord, use_vector: bool) -> None:
     if embedding.dimensions <= 0 or len(embedding.embedding) != embedding.dimensions:
         raise ValueError(f"Invalid embedding dimensions for chunk {embedding.chunk_id}")
 
-    vec_table = _vec_table_name(embedding.dimensions)
-    _ensure_vec_table(session, embedding.dimensions)
-    cursor = session.execute(
-        text(
-            f"""
-        INSERT INTO {vec_table} (embedding, repo_id, model, chunk_id)
-        VALUES (:embedding, :repo_id, :model, :chunk_id)
-        """
-        ),
-        {
-            "embedding": _serialize_float32(embedding.embedding),
-            "repo_id": embedding.repo_id,
-            "model": embedding.model,
-            "chunk_id": embedding.chunk_id,
-        },
-    )
-    session.execute(
-        text(
+    vec_table = ""
+    vec_rowid = 0
+    if use_vector:
+        vec_table = _vec_table_name(embedding.dimensions)
+        _ensure_vec_table(session, embedding.dimensions)
+        cursor = session.execute(
+            text(
+                f"""
+            INSERT INTO {vec_table} (embedding, repo_id, model, chunk_id)
+            VALUES (:embedding, :repo_id, :model, :chunk_id)
             """
-        INSERT OR IGNORE INTO code_chunk_embedding (
-          id, repo_id, chunk_id, model, dimensions, vec_table,
-          vec_rowid, content_hash
+            ),
+            {
+                "embedding": _serialize_float32(embedding.embedding),
+                "repo_id": embedding.repo_id,
+                "model": embedding.model,
+                "chunk_id": embedding.chunk_id,
+            },
         )
-        VALUES (
-          :id, :repo_id, :chunk_id, :model, :dimensions, :vec_table,
-          :vec_rowid, :content_hash
-        )
-        """
-        ),
-        {
-            "id": embedding.id,
-            "repo_id": embedding.repo_id,
-            "chunk_id": embedding.chunk_id,
-            "model": embedding.model,
-            "dimensions": embedding.dimensions,
-            "vec_table": vec_table,
-            "vec_rowid": cursor.lastrowid,
-            "content_hash": embedding.content_hash,
-        },
+        vec_rowid = cursor.lastrowid
+    statement = dialect.insert_ignore(CodeChunkEmbeddingRecord.__table__, ["id"])
+    session.execute(
+        statement,
+        _embedding_mapping(embedding, vec_table=vec_table, vec_rowid=vec_rowid),
     )
 
 
@@ -193,14 +188,18 @@ def _embedding_row_matches(
     session,
     row: CodeChunkEmbeddingRecord,
     embedding: CodeChunkEmbeddingRecord,
+    use_vector: bool,
 ) -> bool:
-    return (
+    metadata_matches = (
         row.id == embedding.id
         and row.content_hash == embedding.content_hash
         and row.dimensions == embedding.dimensions
-        and row.vec_rowid > 0
-        and _vector_row_exists(session, row.vec_table, row.vec_rowid)
     )
+    if not metadata_matches:
+        return False
+    if not use_vector:
+        return True
+    return row.vec_rowid > 0 and _vector_row_exists(session, row.vec_table, row.vec_rowid)
 
 
 def _delete_vector_rows(session, rows: list[CodeChunkEmbeddingRecord]) -> None:
@@ -308,5 +307,20 @@ def _is_vec_table_name(table_name: str) -> bool:
     return table_name.startswith(prefix) and table_name[len(prefix) :].isdigit()
 
 
-def _chunks[T](items: list[T], size: int) -> list[list[T]]:
-    return [items[index:index + size] for index in range(0, len(items), size)]
+def _embedding_mapping(
+    embedding: CodeChunkEmbeddingRecord,
+    *,
+    vec_table: str,
+    vec_rowid: int,
+) -> dict[str, object]:
+    return {
+        "id": embedding.id,
+        "repo_id": embedding.repo_id,
+        "chunk_id": embedding.chunk_id,
+        "model": embedding.model,
+        "dimensions": embedding.dimensions,
+        "vec_table": vec_table,
+        "vec_rowid": vec_rowid,
+        "content_hash": embedding.content_hash,
+        "created_at": embedding.created_at or now_iso(),
+    }

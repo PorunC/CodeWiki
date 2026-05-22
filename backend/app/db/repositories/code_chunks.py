@@ -2,19 +2,23 @@ from typing import Any
 
 from sqlalchemy import delete, select, text
 
+from backend.app.db.batching import chunks as chunked
+from backend.app.db.batching import write_batch_size
 from backend.app.db.mappers import code_chunk_from_row
 from backend.app.models import CodeChunkRecord, CodeChunkSearchHit
-
-SQLITE_SAFE_BATCH_SIZE = 500
 
 
 class CodeChunkRepositoryMixin:
     def replace_code_chunks(self, repo_id: str, chunks: list[CodeChunkRecord]) -> None:
         with self.orm_session() as session:
-            session.execute(text("DELETE FROM code_chunk_fts WHERE repo_id = :repo_id"), {"repo_id": repo_id})
+            if self.supports_fts5:
+                session.execute(
+                    text("DELETE FROM code_chunk_fts WHERE repo_id = :repo_id"),
+                    {"repo_id": repo_id},
+                )
             session.execute(delete(CodeChunkRecord).where(CodeChunkRecord.repo_id == repo_id))
             session.commit()
-            _insert_code_chunks(session, chunks)
+            _insert_code_chunks(session, self.dialect, chunks, self.supports_fts5, write_batch_size(self.dialect_name))
 
     def sync_code_chunks(self, repo_id: str, chunks: list[CodeChunkRecord]) -> None:
         active_ids = {chunk.id for chunk in chunks}
@@ -24,10 +28,12 @@ class CodeChunkRepositoryMixin:
             )
             stale_ids = existing_ids - active_ids
             new_chunks = [chunk for chunk in chunks if chunk.id not in existing_ids]
+            batch_size = write_batch_size(self.dialect_name)
 
             if stale_ids:
-                for stale_batch in _chunks(sorted(stale_ids), SQLITE_SAFE_BATCH_SIZE):
-                    _delete_code_chunk_fts_by_ids(session, repo_id, stale_batch)
+                for stale_batch in chunked(sorted(stale_ids), batch_size):
+                    if self.supports_fts5:
+                        _delete_code_chunk_fts_by_ids(session, repo_id, list(stale_batch))
                     session.execute(
                         delete(CodeChunkRecord).where(
                             CodeChunkRecord.repo_id == repo_id,
@@ -35,7 +41,7 @@ class CodeChunkRepositoryMixin:
                         )
                     )
                     session.commit()
-            _insert_code_chunks(session, new_chunks)
+            _insert_code_chunks(session, self.dialect, new_chunks, self.supports_fts5, batch_size)
 
     def replace_code_chunks_for_files(
         self,
@@ -48,10 +54,14 @@ class CodeChunkRepositoryMixin:
         path_params = {f"path_{index}": path for index, path in enumerate(file_paths)}
         placeholders = ",".join(f":{key}" for key in path_params)
         with self.orm_session() as session:
-            session.execute(
-                text(f"DELETE FROM code_chunk_fts WHERE repo_id = :repo_id AND file_path IN ({placeholders})"),
-                {"repo_id": repo_id, **path_params},
-            )
+            if self.supports_fts5:
+                session.execute(
+                    text(
+                        f"DELETE FROM code_chunk_fts "
+                        f"WHERE repo_id = :repo_id AND file_path IN ({placeholders})"
+                    ),
+                    {"repo_id": repo_id, **path_params},
+                )
             session.execute(
                 delete(CodeChunkRecord).where(
                     CodeChunkRecord.repo_id == repo_id,
@@ -59,7 +69,7 @@ class CodeChunkRepositoryMixin:
                 )
             )
             session.commit()
-            _insert_code_chunks(session, chunks)
+            _insert_code_chunks(session, self.dialect, chunks, self.supports_fts5, write_batch_size(self.dialect_name))
 
     def list_code_chunks(self, repo_id: str) -> list[CodeChunkRecord]:
         with self.orm_session() as session:
@@ -108,6 +118,8 @@ class CodeChunkRepositoryMixin:
     ) -> list[CodeChunkSearchHit]:
         if not fts_query.strip():
             return []
+        if not self.supports_fts5:
+            return self._search_code_chunks_like(repo_id, fts_query, limit=limit)
         with self.orm_session() as session:
             rows = session.execute(
                 text(
@@ -133,22 +145,50 @@ class CodeChunkRepositoryMixin:
             for index, row in enumerate(rows)
         ]
 
+    def _search_code_chunks_like(
+        self,
+        repo_id: str,
+        query: str,
+        *,
+        limit: int,
+    ) -> list[CodeChunkSearchHit]:
+        pattern = f"%{query.strip().strip('\"')}%"
+        with self.orm_session() as session:
+            rows = session.execute(
+                text(
+                    """
+                    SELECT id, repo_id, node_id, file_path, start_line, end_line,
+                           content, content_hash, token_count,
+                           CASE
+                             WHEN lower(file_path) LIKE lower(:pattern) THEN 0.8
+                             ELSE 0.5
+                           END AS rank
+                    FROM code_chunk
+                    WHERE repo_id = :repo_id
+                      AND (
+                        lower(content) LIKE lower(:pattern)
+                        OR lower(file_path) LIKE lower(:pattern)
+                      )
+                    ORDER BY rank DESC, file_path, start_line
+                    LIMIT :limit
+                    """
+                ),
+                {"repo_id": repo_id, "pattern": pattern, "limit": limit},
+            ).mappings().all()
+        return [
+            CodeChunkSearchHit(
+                chunk=code_chunk_from_row(row),
+                score=float(row["rank"]),
+                match_type="like",
+            )
+            for row in rows
+        ]
 
-def _insert_code_chunks(session, chunks: list[CodeChunkRecord]) -> None:
+
+def _insert_code_chunks(session, dialect, chunks: list[CodeChunkRecord], use_fts: bool, batch_size: int) -> None:
     if not chunks:
         return
-    chunk_statement = text(
-        """
-            INSERT OR IGNORE INTO code_chunk (
-              id, repo_id, node_id, file_path, start_line, end_line,
-              content, content_hash, token_count
-            )
-            VALUES (
-              :id, :repo_id, :node_id, :file_path, :start_line, :end_line,
-              :content, :content_hash, :token_count
-            )
-        """
-    )
+    chunk_statement = dialect.insert_ignore(CodeChunkRecord.__table__, ["id"])
     fts_statement = text(
         """
             INSERT OR IGNORE INTO code_chunk_fts (
@@ -159,10 +199,11 @@ def _insert_code_chunks(session, chunks: list[CodeChunkRecord]) -> None:
             )
         """
     )
-    for batch in _chunks(chunks, SQLITE_SAFE_BATCH_SIZE):
+    for batch in chunked(chunks, batch_size):
         mappings = [_chunk_mapping(chunk) for chunk in batch]
         session.execute(chunk_statement, mappings)
-        session.execute(fts_statement, mappings)
+        if use_fts:
+            session.execute(fts_statement, mappings)
         session.commit()
 
 
@@ -175,10 +216,6 @@ def _delete_code_chunk_fts_by_ids(session, repo_id: str, chunk_ids: list[str]) -
         text(f"DELETE FROM code_chunk_fts WHERE repo_id = :repo_id AND id IN ({placeholders})"),
         {"repo_id": repo_id, **params},
     )
-
-
-def _chunks[T](items: list[T], size: int) -> list[list[T]]:
-    return [items[index:index + size] for index in range(0, len(items), size)]
 
 
 def _chunk_mapping(chunk: CodeChunkRecord) -> dict[str, Any]:

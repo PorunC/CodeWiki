@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable, Mapping
 
-from backend.app.database import GraphCommunityEdgeRecord, GraphCommunityRecord, SQLiteStore
+from backend.app.database import GraphCommunityEdgeRecord, GraphCommunityRecord, CodeWikiStore
 from backend.app.services.ast_parser import AstParser, AstSymbol, parse_scanned_files
 from backend.app.services.community_detector import CommunityDetector
 from backend.app.services.community_edges import CommunityEdgeBuilder
@@ -31,7 +31,7 @@ class AnalysisPipeline:
     def __init__(
         self,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         scanner: RepoScanner | None = None,
         parser: AstParser | None = None,
         graph_builder: GraphBuilder | None = None,

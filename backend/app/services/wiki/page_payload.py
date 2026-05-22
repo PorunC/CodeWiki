@@ -1,6 +1,6 @@
 from typing import Any
 
-from backend.app.database import DocPageRecord, SQLiteStore
+from backend.app.database import DocPageRecord, CodeWikiStore
 from backend.app.services.graphrag import RetrievalTrace
 from backend.app.services.repo_scanner import RepoDescriptor
 from backend.app.services.wiki.agent_tools import ReadFileEvidence
@@ -17,7 +17,7 @@ class PageGenerationPayloadBuilder:
     def __init__(
         self,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         template: PagePayloadTemplate | None = None,
         child_summary_builder: ChildPageSummaryBuilder | None = None,
         evidence_inventory_builder: EvidenceInventoryBuilder | None = None,

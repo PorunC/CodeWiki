@@ -1,5 +1,5 @@
 from backend.app.config import Settings, get_settings
-from backend.app.database import CodeChunkRecord, SQLiteStore
+from backend.app.database import CodeChunkRecord, CodeWikiStore
 from backend.app.services.async_tasks import run_blocking
 from backend.app.services.chunk_builder import ChunkBuilder
 from backend.app.services.embedding_index import EmbeddingIndex
@@ -10,7 +10,7 @@ from backend.app.services.source_file_cache import SourceFileContentProvider
 
 
 async def build_index(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     *,
     include_embeddings: bool = False,
@@ -45,7 +45,7 @@ async def build_index(
 
 
 def _build_and_store_source_chunks(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     repo_path: str,
     nodes: list[CodeGraphNode],

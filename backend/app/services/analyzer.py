@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.app.config import Settings, get_settings
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.services.analysis_pipeline import AnalysisPipeline
 from backend.app.services.ast_parser import AstParser
 from backend.app.services.async_tasks import run_blocking
@@ -61,7 +61,7 @@ class AnalysisService:
     def __init__(
         self,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         scanner: RepoScanner | None = None,
         parser: AstParser | None = None,
         graph_builder: GraphBuilder | None = None,

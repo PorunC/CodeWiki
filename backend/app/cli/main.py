@@ -11,12 +11,17 @@ from backend.app.cli import analysis, ask, config, graph, graphrag, repos, serve
 @click.option(
     "--database-url",
     envvar="CODEWIKI_DATABASE_URL",
-    help="SQLite database URL. Defaults to CODEWIKI_DATABASE_URL or app settings.",
+    help=(
+        "Database URL. Supports sqlite+aiosqlite:///path and "
+        "postgresql+psycopg://user:pass@host:5432/db."
+    ),
 )
 @click.pass_context
 def main(ctx: click.Context, database_url: str | None) -> None:
     """Code Wiki command line tools."""
     if database_url:
+        if get_store.cache_info().currsize:
+            get_store().close()
         os.environ["CODEWIKI_DATABASE_URL"] = database_url
         get_settings.cache_clear()
         get_store.cache_clear()

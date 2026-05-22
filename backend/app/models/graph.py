@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, Text, text
+from sqlalchemy import Float, ForeignKey, Index, Integer, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.models.base import Base, JSONText, RecordMixin
@@ -45,7 +45,7 @@ class CodeNodeRecord(Base, RecordMixin):
         JSONText(dict),
         nullable=False,
         default=dict,
-        server_default="{}",
+        server_default=text("'{}'"),
     )
 
 
@@ -75,12 +75,12 @@ class CodeEdgeRecord(Base, RecordMixin):
     type: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
-    is_inferred: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="0")
+    is_inferred: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONText(dict),
         nullable=False,
         default=dict,
-        server_default="{}",
+        server_default=text("'{}'"),
     )
 
 
@@ -115,7 +115,7 @@ class GraphCommunityRecord(Base, RecordMixin):
         JSONText(list),
         nullable=False,
         default=list,
-        server_default="[]",
+        server_default=text("'[]'"),
     )
     summary: Mapped[str | None] = mapped_column(Text)
     summary_hash: Mapped[str | None] = mapped_column(Text)
@@ -164,6 +164,6 @@ class GraphCommunityEdgeRecord(Base, RecordMixin):
         JSONText(list),
         nullable=False,
         default=list,
-        server_default="[]",
+        server_default=text("'[]'"),
     )
     created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))

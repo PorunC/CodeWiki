@@ -1,4 +1,4 @@
-from backend.app.database import CodeChunkRecord, CodeChunkSearchHit, SQLiteStore
+from backend.app.database import CodeChunkRecord, CodeChunkSearchHit, CodeWikiStore
 from backend.app.services.embedding_index import EmbeddingIndex
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import SEED_NODE_TYPES
@@ -11,7 +11,7 @@ def seed_from_symbols(
     query: str,
     nodes: list[CodeGraphNode],
     *,
-    store: SQLiteStore | None = None,
+    store: CodeWikiStore | None = None,
     repo_id: str | None = None,
 ) -> dict[str, NodeHit]:
     query_lower = query.lower()
@@ -65,7 +65,7 @@ def seed_from_symbols(
 
 
 def search_fts(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     query: str,
     *,
@@ -78,7 +78,7 @@ def search_fts(
 
 
 async def search_vectors(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     llm: LLMGateway,
     repo_id: str,
     query: str,

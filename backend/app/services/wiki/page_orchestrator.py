@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any
 
-from backend.app.database import DocPageRecord, SQLiteStore
+from backend.app.database import DocPageRecord, CodeWikiStore
 from backend.app.services.wiki.catalog_generator import WikiCatalogGenerator
 from backend.app.services.wiki.incremental_strategy import (
     WikiIncrementalStrategy,
@@ -25,7 +25,7 @@ class WikiPageOrchestrator:
     def __init__(
         self,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         catalog_generator: WikiCatalogGenerator,
         page_generator: WikiPageGenerator,
         incremental_strategy: WikiIncrementalStrategy | None = None,

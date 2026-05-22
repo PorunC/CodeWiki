@@ -1,7 +1,7 @@
 from typing import Any
 
 from backend.app.config import Settings
-from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore, get_store
+from backend.app.database import DocCatalogRecord, DocPageRecord, CodeWikiStore, get_store
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.repo_context import RepositoryContextBuilder
@@ -22,7 +22,7 @@ class WikiGenerator:
         retriever: GraphRAGRetriever,
         llm: LLMGateway,
         *,
-        store: SQLiteStore | None = None,
+        store: CodeWikiStore | None = None,
         context_builder: RepositoryContextBuilder | None = None,
         settings: Settings | None = None,
     ) -> None:

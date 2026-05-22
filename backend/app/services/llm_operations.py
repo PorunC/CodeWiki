@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.services.llm_run_recorder import RecordedLLMResult, complete_with_cache
 
 
@@ -22,7 +22,7 @@ class LLMOperation:
 
 
 class CachedLLMService:
-    def __init__(self, *, store: SQLiteStore, llm: Any) -> None:
+    def __init__(self, *, store: CodeWikiStore, llm: Any) -> None:
         self.store = store
         self.llm = llm
 

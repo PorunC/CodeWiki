@@ -3,7 +3,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from backend.app.database import DocPageRecord, SQLiteStore
+from backend.app.database import DocPageRecord, CodeWikiStore
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_operations import CachedLLMService, LLMOperation
@@ -56,7 +56,7 @@ class WikiPageGenerator:
         retriever: GraphRAGRetriever,
         llm: LLMGateway,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
     ) -> None:
         self.retriever = retriever
         self.llm = llm

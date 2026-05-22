@@ -1,4 +1,4 @@
-from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore
+from backend.app.database import DocCatalogRecord, DocPageRecord, CodeWikiStore
 from backend.app.services.wiki.incremental_strategy import (
     WikiIncrementalStrategy,
     WikiUpdateResult,
@@ -13,7 +13,7 @@ class WikiTranslationOrchestrator:
     def __init__(
         self,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         page_orchestrator: WikiPageOrchestrator,
         translator: WikiTranslator,
         language_config: WikiLanguageConfig,

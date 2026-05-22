@@ -1,11 +1,8 @@
-import json
-
 from sqlalchemy import delete, select
-from sqlalchemy import text
 
+from backend.app.db.batching import chunks, write_batch_size
+from backend.app.db.utils import now_iso
 from backend.app.models import GraphCommunityEdgeRecord, GraphCommunityRecord
-
-SQLITE_SAFE_BATCH_SIZE = 500
 
 
 class GraphCommunityRepositoryMixin:
@@ -32,7 +29,12 @@ class GraphCommunityRepositoryMixin:
         with self.orm_session() as session:
             session.execute(delete(GraphCommunityRecord).where(GraphCommunityRecord.repo_id == repo_id))
             session.commit()
-            _insert_graph_communities(session, communities)
+            _insert_graph_communities(
+                session,
+                self.dialect,
+                communities,
+                write_batch_size(self.dialect_name),
+            )
 
     def replace_graph_community_edges(
         self,
@@ -44,7 +46,12 @@ class GraphCommunityRepositoryMixin:
                 delete(GraphCommunityEdgeRecord).where(GraphCommunityEdgeRecord.repo_id == repo_id)
             )
             session.commit()
-            _insert_graph_community_edges(session, edges)
+            _insert_graph_community_edges(
+                session,
+                self.dialect,
+                edges,
+                write_batch_size(self.dialect_name),
+            )
 
     def list_graph_communities(self, repo_id: str) -> list[GraphCommunityRecord]:
         with self.orm_session() as session:
@@ -79,42 +86,30 @@ def _clone_community_edge(edge: GraphCommunityEdgeRecord) -> GraphCommunityEdgeR
     return GraphCommunityEdgeRecord(**edge.as_record_dict())
 
 
-def _insert_graph_communities(session, communities: list[GraphCommunityRecord]) -> None:
+def _insert_graph_communities(
+    session,
+    dialect,
+    communities: list[GraphCommunityRecord],
+    batch_size: int,
+) -> None:
     if not communities:
         return
-    statement = text(
-        """
-        INSERT OR IGNORE INTO graph_community (
-          id, repo_id, name, level, parent_id, rank, node_ids_json,
-          summary, summary_hash, created_at
-        )
-        VALUES (
-          :id, :repo_id, :name, :level, :parent_id, :rank, :node_ids_json,
-          :summary, :summary_hash, :created_at
-        )
-        """
-    )
-    for batch in _chunks(communities, SQLITE_SAFE_BATCH_SIZE):
+    statement = dialect.insert_ignore(GraphCommunityRecord.__table__, ["id"])
+    for batch in chunks(communities, batch_size):
         session.execute(statement, [_community_mapping(community) for community in batch])
         session.commit()
 
 
-def _insert_graph_community_edges(session, edges: list[GraphCommunityEdgeRecord]) -> None:
+def _insert_graph_community_edges(
+    session,
+    dialect,
+    edges: list[GraphCommunityEdgeRecord],
+    batch_size: int,
+) -> None:
     if not edges:
         return
-    statement = text(
-        """
-        INSERT OR IGNORE INTO graph_community_edge (
-          id, repo_id, source_community_id, target_community_id, type,
-          weight, confidence, reason, evidence_edge_ids_json, created_at
-        )
-        VALUES (
-          :id, :repo_id, :source_community_id, :target_community_id, :type,
-          :weight, :confidence, :reason, :evidence_edge_ids_json, :created_at
-        )
-        """
-    )
-    for batch in _chunks(edges, SQLITE_SAFE_BATCH_SIZE):
+    statement = dialect.insert_ignore(GraphCommunityEdgeRecord.__table__, ["id"])
+    for batch in chunks(edges, batch_size):
         session.execute(statement, [_community_edge_mapping(edge) for edge in batch])
         session.commit()
 
@@ -127,10 +122,10 @@ def _community_mapping(community: GraphCommunityRecord) -> dict[str, object]:
         "level": community.level or 0,
         "parent_id": community.parent_id,
         "rank": community.rank or 0,
-        "node_ids_json": json.dumps(community.node_ids, sort_keys=True),
+        "node_ids_json": community.node_ids,
         "summary": community.summary,
         "summary_hash": community.summary_hash,
-        "created_at": community.created_at,
+        "created_at": community.created_at or now_iso(),
     }
 
 
@@ -144,10 +139,6 @@ def _community_edge_mapping(edge: GraphCommunityEdgeRecord) -> dict[str, object]
         "weight": edge.weight if edge.weight is not None else 1.0,
         "confidence": edge.confidence if edge.confidence is not None else 1.0,
         "reason": edge.reason,
-        "evidence_edge_ids_json": json.dumps(edge.evidence_edge_ids, sort_keys=True),
-        "created_at": edge.created_at,
+        "evidence_edge_ids_json": edge.evidence_edge_ids,
+        "created_at": edge.created_at or now_iso(),
     }
-
-
-def _chunks[T](items: list[T], size: int) -> list[list[T]]:
-    return [items[index:index + size] for index in range(0, len(items), size)]

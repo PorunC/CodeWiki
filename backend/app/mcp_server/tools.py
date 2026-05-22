@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.mcp_server import handlers
 from backend.app.mcp_server.types import ToolSpec
 from backend.app.mcp_server.utils import object_schema
 
 
-def build_tools(store: SQLiteStore) -> dict[str, ToolSpec]:
+def build_tools(store: CodeWikiStore) -> dict[str, ToolSpec]:
     tools = [
         ToolSpec(
             name="codewiki_repos_list",

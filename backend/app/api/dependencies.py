@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import Depends
 
 from backend.app.config import Settings, get_settings
-from backend.app.database import SQLiteStore, get_store
+from backend.app.database import CodeWikiStore, get_store
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.llm_gateway import LLMGateway
@@ -12,7 +12,7 @@ from backend.app.services.wiki import WikiGenerator
 
 
 class ServiceContainer:
-    def __init__(self, *, settings: Settings, store: SQLiteStore) -> None:
+    def __init__(self, *, settings: Settings, store: CodeWikiStore) -> None:
         self.settings = settings
         self.store = store
 
@@ -46,7 +46,7 @@ def get_service_container() -> ServiceContainer:
     return ServiceContainer(settings=get_settings(), store=get_store())
 
 
-def get_store_dependency() -> SQLiteStore:
+def get_store_dependency() -> CodeWikiStore:
     return get_service_container().store
 
 
@@ -58,6 +58,6 @@ def get_incremental_updater() -> IncrementalUpdater:
     return get_service_container().incremental_updater
 
 
-StoreDep = Annotated[SQLiteStore, Depends(get_store_dependency)]
+StoreDep = Annotated[CodeWikiStore, Depends(get_store_dependency)]
 WikiGeneratorDep = Annotated[WikiGenerator, Depends(get_wiki_generator)]
 IncrementalUpdaterDep = Annotated[IncrementalUpdater, Depends(get_incremental_updater)]

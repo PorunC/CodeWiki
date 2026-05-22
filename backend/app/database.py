@@ -8,7 +8,10 @@ from backend.app.db import (
     GraphCommunityEdgeRecord,
     GraphCommunityRecord,
     LLMRunRecord,
+    CodeWikiStore,
+    PostgresStore,
     SQLiteStore,
+    create_store,
     get_store,
 )
 
@@ -22,6 +25,9 @@ __all__ = [
     "GraphCommunityEdgeRecord",
     "GraphCommunityRecord",
     "LLMRunRecord",
+    "CodeWikiStore",
+    "PostgresStore",
     "SQLiteStore",
+    "create_store",
     "get_store",
 ]

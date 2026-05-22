@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, Text, text
+from sqlalchemy import Float, ForeignKey, Index, Integer, Text, false, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.models.base import Base, JSONText, RecordMixin
@@ -24,7 +24,7 @@ class RepoRecord(Base, RecordMixin):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     path: Mapped[str] = mapped_column(Text, nullable=False)
-    source_type: Mapped[str] = mapped_column(Text, nullable=False, default="local", server_default="local")
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, default="local", server_default=text("'local'"))
     git_url: Mapped[str | None] = mapped_column(Text)
     commit_hash: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
@@ -38,7 +38,7 @@ class AnalysisRunRecord(Base, RecordMixin):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     repo_id: Mapped[str] = mapped_column(Text, ForeignKey("repo.id", ondelete="CASCADE"), nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default=text("'pending'"))
     started_at: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
@@ -47,7 +47,7 @@ class AnalysisRunRecord(Base, RecordMixin):
         JSONText(dict),
         nullable=False,
         default=dict,
-        server_default="{}",
+        server_default=text("'{}'"),
     )
 
 
@@ -107,9 +107,9 @@ class LLMRunRecord(Base, RecordMixin):
         JSONText(dict),
         nullable=False,
         default=dict,
-        server_default="{}",
+        server_default=text("'{}'"),
     )
-    cached: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="0")
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="success", server_default="success")
+    cached: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="success", server_default=text("'success'"))
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))

@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from hashlib import sha256
 
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm_gateway import LLMGateway
@@ -26,7 +26,7 @@ class QuestionAnswerer:
         retriever: GraphRAGRetriever,
         llm: LLMGateway,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
     ) -> None:
         self.retriever = retriever
         self.llm = llm

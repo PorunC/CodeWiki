@@ -1,4 +1,4 @@
-from backend.app.database import CodeChunkSearchHit, SQLiteStore
+from backend.app.database import CodeChunkSearchHit, CodeWikiStore
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graphrag.models import ChunkHit
@@ -19,7 +19,7 @@ def _is_ignored_source_file(file_path: str) -> bool:
 
 
 def select_source_chunks(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     *,
     repo_id: str,
     selected_ids: set[str],
@@ -62,7 +62,7 @@ def select_source_chunks(
     return packed
 
 
-def community_summaries(store: SQLiteStore, repo_id: str, selected_ids: set[str]) -> list[dict[str, object]]:
+def community_summaries(store: CodeWikiStore, repo_id: str, selected_ids: set[str]) -> list[dict[str, object]]:
     matched = []
     all_communities = store.list_graph_communities(repo_id)
     by_id = {community.id: community for community in all_communities}
@@ -271,7 +271,7 @@ def edge_payload(edge: CodeGraphEdge) -> dict[str, object]:
 
 
 def community_edge_payloads(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     community_ids: set[str],
 ) -> list[dict[str, object]]:

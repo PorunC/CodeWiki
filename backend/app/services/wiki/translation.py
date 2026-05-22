@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from backend.app.database import DocCatalogRecord, DocPageRecord, SQLiteStore
+from backend.app.database import DocCatalogRecord, DocPageRecord, CodeWikiStore
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.llm_run_recorder import LLMCallError
 from backend.app.services.llm_operations import CachedLLMService, LLMOperation
@@ -31,7 +31,7 @@ class WikiTranslationResult:
 
 
 class WikiTranslator:
-    def __init__(self, llm: LLMGateway, *, store: SQLiteStore) -> None:
+    def __init__(self, llm: LLMGateway, *, store: CodeWikiStore) -> None:
         self.llm = llm
         self.store = store
         self.llm_service = CachedLLMService(store=self.store, llm=self.llm)

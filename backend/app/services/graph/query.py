@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.services.graph.models import (
     CodeGraphEdge,
     CodeGraphNode,
@@ -65,7 +65,7 @@ class ExploreContextResult:
 
 
 class GraphQueryService:
-    def __init__(self, *, store: SQLiteStore) -> None:
+    def __init__(self, *, store: CodeWikiStore) -> None:
         self.store = store
 
     def search(

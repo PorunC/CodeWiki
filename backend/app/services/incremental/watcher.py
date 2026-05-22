@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.services.incremental.updater import IncrementalUpdater
 
 
@@ -29,7 +29,7 @@ class IncrementalUpdateWatcher:
     def __init__(
         self,
         *,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         updater: IncrementalUpdater | None = None,
     ) -> None:
         self.store = store

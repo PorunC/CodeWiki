@@ -1,7 +1,7 @@
 from dataclasses import replace
 from typing import Any
 
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.services.graphrag import RetrievalTrace
 
 MAX_SOURCE_HINT_CHUNKS = 10
@@ -21,7 +21,7 @@ def _source_hints_from_item(item: dict[str, Any]) -> list[str]:
 
 def _trace_with_source_hint_chunks(
     trace: RetrievalTrace,
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     source_hints: list[str],
 ) -> RetrievalTrace:

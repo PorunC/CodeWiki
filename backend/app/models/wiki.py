@@ -15,14 +15,14 @@ class DocCatalogRecord(Base, RecordMixin):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     repo_id: Mapped[str] = mapped_column(Text, ForeignKey("repo.id", ondelete="CASCADE"), nullable=False)
-    language_code: Mapped[str] = mapped_column(Text, nullable=False, default="en", server_default="en")
+    language_code: Mapped[str] = mapped_column(Text, nullable=False, default="en", server_default=text("'en'"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     structure: Mapped[dict[str, Any]] = mapped_column(
         "structure_json",
         JSONText(dict),
         nullable=False,
         default=dict,
-        server_default='{"items":[]}',
+        server_default=text("'{\"items\":[]}'"),
     )
     generated_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))
 
@@ -49,7 +49,7 @@ class DocPageRecord(Base, RecordMixin):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     repo_id: Mapped[str] = mapped_column(Text, ForeignKey("repo.id", ondelete="CASCADE"), nullable=False)
-    language_code: Mapped[str] = mapped_column(Text, nullable=False, default="en", server_default="en")
+    language_code: Mapped[str] = mapped_column(Text, nullable=False, default="en", server_default=text("'en'"))
     slug: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     parent_slug: Mapped[str | None] = mapped_column(Text)
@@ -59,14 +59,14 @@ class DocPageRecord(Base, RecordMixin):
         JSONText(list),
         nullable=False,
         default=list,
-        server_default="[]",
+        server_default=text("'[]'"),
     )
     graph_refs: Mapped[list[str]] = mapped_column(
         "graph_refs_json",
         JSONText(list),
         nullable=False,
         default=list,
-        server_default="[]",
+        server_default=text("'[]'"),
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default="draft")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default=text("'draft'"))
     updated_at: Mapped[str | None] = mapped_column(Text, server_default=text("CURRENT_TIMESTAMP"))

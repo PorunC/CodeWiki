@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.app.config import get_settings
-from backend.app.database import SQLiteStore
+from backend.app.database import CodeWikiStore
 from backend.app.mcp_server.args import (
     bool_arg,
     int_arg,
@@ -23,11 +23,11 @@ from backend.app.services.question_answerer import QuestionAnswerer
 from backend.app.services.repo_scanner import RepoScanner
 
 
-async def repos_list(store: SQLiteStore, _args: JsonObject) -> Any:
+async def repos_list(store: CodeWikiStore, _args: JsonObject) -> Any:
     return [repo_payload(repo) for repo in store.list_repos()]
 
 
-async def repo_add(store: SQLiteStore, args: JsonObject) -> Any:
+async def repo_add(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = RepoScanner().describe(
         required_string(args, "path"),
         name=optional_string(args, "name"),
@@ -36,7 +36,7 @@ async def repo_add(store: SQLiteStore, args: JsonObject) -> Any:
     return repo_payload(store.upsert_repo(repo))
 
 
-async def analyze(store: SQLiteStore, args: JsonObject) -> Any:
+async def analyze(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     analysis = await AnalysisService(store=store).analyze_with_community_summaries(
         repo.id,
@@ -48,7 +48,7 @@ async def analyze(store: SQLiteStore, args: JsonObject) -> Any:
     }
 
 
-async def graphrag_build(store: SQLiteStore, args: JsonObject) -> Any:
+async def graphrag_build(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     result = await GraphRAGRetriever(store=store).build_index(
         repo.id,
@@ -57,7 +57,7 @@ async def graphrag_build(store: SQLiteStore, args: JsonObject) -> Any:
     return jsonable(result)
 
 
-async def retrieve_context(store: SQLiteStore, args: JsonObject) -> Any:
+async def retrieve_context(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     trace = await GraphRAGRetriever(store=store).retrieve(
         repo.id,
@@ -68,7 +68,7 @@ async def retrieve_context(store: SQLiteStore, args: JsonObject) -> Any:
     return jsonable(trace)
 
 
-async def ask(store: SQLiteStore, args: JsonObject) -> Any:
+async def ask(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     settings = get_settings()
     answer = await QuestionAnswerer(
@@ -85,7 +85,7 @@ async def ask(store: SQLiteStore, args: JsonObject) -> Any:
     return jsonable(answer)
 
 
-async def graph_search(store: SQLiteStore, args: JsonObject) -> Any:
+async def graph_search(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     hits = GraphQueryService(store=store).search(
         repo.id,
@@ -99,7 +99,7 @@ async def graph_search(store: SQLiteStore, args: JsonObject) -> Any:
     return jsonable(hits)
 
 
-async def graph_explore(store: SQLiteStore, args: JsonObject) -> Any:
+async def graph_explore(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     result = GraphQueryService(store=store).explore(
         repo.id,
@@ -110,7 +110,7 @@ async def graph_explore(store: SQLiteStore, args: JsonObject) -> Any:
     return jsonable(result)
 
 
-async def graph_affected(store: SQLiteStore, args: JsonObject) -> Any:
+async def graph_affected(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     result = GraphQueryService(store=store).affected(
         repo.id,
@@ -121,7 +121,7 @@ async def graph_affected(store: SQLiteStore, args: JsonObject) -> Any:
     return jsonable(result)
 
 
-async def wiki_pages_list(store: SQLiteStore, args: JsonObject) -> Any:
+async def wiki_pages_list(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     pages = store.list_doc_pages(repo.id, language_code=optional_string(args, "language") or "en")
     return [
@@ -139,7 +139,7 @@ async def wiki_pages_list(store: SQLiteStore, args: JsonObject) -> Any:
     ]
 
 
-async def wiki_page_read(store: SQLiteStore, args: JsonObject) -> Any:
+async def wiki_page_read(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     slug = required_string(args, "slug")
     page = store.get_doc_page(

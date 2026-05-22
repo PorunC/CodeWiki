@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
-from backend.app.database import LLMRunRecord, SQLiteStore
+from backend.app.database import LLMRunRecord, CodeWikiStore
 from backend.app.services.llm_gateway import LLMResult
 
 ERROR_MESSAGE_LIMIT = 1600
@@ -31,7 +31,7 @@ class RecordedLLMResult:
 
 
 async def complete_with_cache(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     *,
     llm: Any,
@@ -113,7 +113,7 @@ async def complete_with_cache(
 
 
 def record_llm_run(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     *,
     task_type: str,
@@ -148,7 +148,7 @@ def record_llm_run(
 
 
 def record_failed_llm_run(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     repo_id: str,
     *,
     task_type: str,

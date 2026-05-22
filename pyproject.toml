@@ -33,6 +33,7 @@ dependencies = [
   "pathspec>=0.12.1",
   "pydantic>=2.10.0",
   "pydantic-settings>=2.7.0",
+  "psycopg[binary]>=3.2.0",
   "python-dotenv>=1.0.1",
   "sqlite-vec>=0.1.9",
   "sqlalchemy>=2.0.35",

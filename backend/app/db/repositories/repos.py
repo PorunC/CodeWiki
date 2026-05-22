@@ -19,6 +19,7 @@ class RepoRepositoryMixin:
                         source_type=repo.source_type,
                         git_url=repo.git_url,
                         commit_hash=repo.commit_hash,
+                        created_at=now,
                         updated_at=now,
                     )
                 )
@@ -49,8 +50,13 @@ class RepoRepositoryMixin:
             if repo is None:
                 return False
 
-            _delete_vector_rows(session, repo_id)
-            session.execute(text("DELETE FROM code_chunk_fts WHERE repo_id = :repo_id"), {"repo_id": repo_id})
+            if self.supports_sqlite_vec:
+                _delete_vector_rows(session, repo_id)
+            if self.supports_fts5:
+                session.execute(
+                    text("DELETE FROM code_chunk_fts WHERE repo_id = :repo_id"),
+                    {"repo_id": repo_id},
+                )
             session.execute(delete(RepoRecord).where(RepoRecord.id == repo_id))
             return True
 

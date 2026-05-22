@@ -4,7 +4,7 @@ from backend.app.database import (
     CodeChunkEmbeddingRecord,
     CodeChunkRecord,
     CodeChunkSearchHit,
-    SQLiteStore,
+    CodeWikiStore,
 )
 from backend.app.services.graphrag.utils import batched, embedding_text, stable_id
 from backend.app.services.llm_gateway import LLMGateway
@@ -19,7 +19,7 @@ class EmbeddingIndexBuildResult:
 class EmbeddingIndex:
     def __init__(
         self,
-        store: SQLiteStore,
+        store: CodeWikiStore,
         llm: LLMGateway,
         *,
         batch_size: int = 32,
@@ -109,7 +109,7 @@ class EmbeddingIndex:
 
 
 async def embed_chunks(
-    store: SQLiteStore,
+    store: CodeWikiStore,
     llm: LLMGateway,
     repo_id: str,
     chunks: list[CodeChunkRecord],

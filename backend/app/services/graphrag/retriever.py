@@ -1,5 +1,5 @@
 from backend.app.config import Settings, get_settings
-from backend.app.database import CodeChunkRecord, SQLiteStore, get_store
+from backend.app.database import CodeChunkRecord, CodeWikiStore, get_store
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import (
     DEFAULT_CONTEXT_TOKENS,
@@ -33,7 +33,7 @@ class GraphRAGRetriever:
     def __init__(
         self,
         *,
-        store: SQLiteStore | None = None,
+        store: CodeWikiStore | None = None,
         llm: LLMGateway | None = None,
         settings: Settings | None = None,
     ) -> None:

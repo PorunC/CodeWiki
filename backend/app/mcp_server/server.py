@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.database import SQLiteStore, get_store
+from backend.app.database import CodeWikiStore, get_store
 from backend.app.mcp_server.protocol import (
     DEFAULT_PROTOCOL_VERSION,
     error,
@@ -16,7 +16,7 @@ from backend.app.mcp_server.utils import package_version
 class CodeWikiMCPServer:
     """Small stdio MCP server exposing CodeWiki workflows as tools."""
 
-    def __init__(self, *, store: SQLiteStore | None = None) -> None:
+    def __init__(self, *, store: CodeWikiStore | None = None) -> None:
         self.store = store or get_store()
         self.tools: dict[str, ToolSpec] = build_tools(self.store)
 

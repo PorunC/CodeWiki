@@ -4,6 +4,7 @@ import click
 
 from backend.app.config import get_settings
 from backend.app.database import get_store
+from backend.app.db.utils import database_backend_from_url
 from backend.app.cli.common import echo_json, echo_table
 from backend.app.env_config import (
     LLM_PROFILES,
@@ -50,6 +51,7 @@ def register(main: click.Group) -> None:
     )
     @click.option("--base-language", help="Set CODEWIKI_WIKI_BASE_LANGUAGE.")
     @click.option("--translation-languages", help="Set CODEWIKI_WIKI_TRANSLATION_LANGUAGES.")
+    @click.option("--database-url", help="Set CODEWIKI_DATABASE_URL.")
     @click.option("--show-secrets", is_flag=True, help="Do not mask secret values in command output.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
     def configure_env(
@@ -67,6 +69,7 @@ def register(main: click.Group) -> None:
         max_tokens: int | None,
         base_language: str | None,
         translation_languages: str | None,
+        database_url: str | None,
         show_secrets: bool,
         as_json: bool,
     ) -> None:
@@ -83,6 +86,7 @@ def register(main: click.Group) -> None:
             max_tokens=max_tokens,
             base_language=base_language,
             translation_languages=translation_languages,
+            database_url=database_url,
         )
         has_read_action = show_path or list_values or bool(get_keys)
         has_write_action = initialize or bool(updates)
@@ -131,6 +135,7 @@ def _config_updates(
     max_tokens: int | None,
     base_language: str | None,
     translation_languages: str | None,
+    database_url: str | None,
 ) -> dict[str, str]:
     updates: dict[str, str] = {}
     for raw_assignment in assignment_values:
@@ -152,6 +157,9 @@ def _config_updates(
         updates["CODEWIKI_WIKI_BASE_LANGUAGE"] = base_language
     if translation_languages is not None:
         updates["CODEWIKI_WIKI_TRANSLATION_LANGUAGES"] = translation_languages
+    if database_url is not None:
+        database_backend_from_url(database_url)
+        updates["CODEWIKI_DATABASE_URL"] = database_url
     return updates
 
 
@@ -195,6 +203,12 @@ def _prompt_config_values(values: dict[str, str]) -> dict[str, str]:
         default=values.get("CODEWIKI_WIKI_TRANSLATION_LANGUAGES", ""),
         show_default=False,
     )
+    database_url = click.prompt(
+        "Database URL",
+        default=values.get("CODEWIKI_DATABASE_URL") or "sqlite+aiosqlite:///./data/codewiki.sqlite3",
+    )
+    database_backend_from_url(database_url)
+    updates["CODEWIKI_DATABASE_URL"] = database_url
     return updates
 
 
@@ -252,5 +266,7 @@ def _echo_config_values(
 
 
 def _clear_cached_settings() -> None:
+    if get_store.cache_info().currsize:
+        get_store().close()
     get_settings.cache_clear()
     get_store.cache_clear()
