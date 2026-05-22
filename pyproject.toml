@@ -1,14 +1,14 @@
 [project]
 name = "codewiki"
 version = "0.4.0"
-description = "Local-first code wiki platform with AST graph analysis, GraphRAG, and LiteLLM."
+description = "Code wiki platform with AST graph analysis, GraphRAG, SQLite/PostgreSQL storage, and LiteLLM."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
   { name = "PorunC", email = "09982.misaka@gmail.com" },
 ]
-keywords = ["code-wiki", "graphrag", "fastapi", "llm", "documentation"]
+keywords = ["code-wiki", "graphrag", "fastapi", "llm", "documentation", "postgresql", "pgvector"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -17,6 +17,7 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
+  "Topic :: Database",
   "Topic :: Documentation",
   "Topic :: Software Development :: Documentation",
   "Topic :: Software Development :: Libraries :: Application Frameworks",
