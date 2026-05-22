@@ -39,7 +39,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CODEWIKI_STORAGE_DIR=/app/storage
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+        libpq5 \
+        postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -51,5 +55,8 @@ RUN pip install --no-index --find-links=/wheels codewiki \
 RUN mkdir -p /app/data /app/storage /workspace
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()" || exit 1
 
 CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
