@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+from inspect import signature
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,12 @@ from click.testing import CliRunner
 from backend.app.cli import main
 from backend.app.config import get_settings
 from backend.app.db.store import get_store
+
+
+def _separate_stderr_runner() -> CliRunner:
+    if "mix_stderr" in signature(CliRunner).parameters:
+        return CliRunner(mix_stderr=False)
+    return CliRunner()
 
 
 def test_cli_help_lists_serve_command() -> None:
@@ -25,7 +32,7 @@ def test_cli_help_lists_serve_command() -> None:
 def test_cli_registers_and_lists_repositories(tmp_path: Path, monkeypatch) -> None:
     _configure_database(tmp_path, monkeypatch)
     repo_dir = _repo(tmp_path)
-    runner = CliRunner(mix_stderr=False)
+    runner = _separate_stderr_runner()
 
     add_result = runner.invoke(
         main,
@@ -100,7 +107,7 @@ def test_cli_analysis_progress_goes_to_stderr_with_json_stdout(
 ) -> None:
     _configure_database(tmp_path, monkeypatch)
     repo_dir = _repo(tmp_path)
-    runner = CliRunner(mix_stderr=False)
+    runner = _separate_stderr_runner()
     add_result = runner.invoke(main, ["repos", "add", str(repo_dir), "--json"])
     repo_id = json.loads(add_result.output)["id"]
 

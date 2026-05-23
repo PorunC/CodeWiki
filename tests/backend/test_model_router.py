@@ -1,3 +1,5 @@
+import os
+
 from backend.app.config import LLMProfileSettings, LLMSettings, Settings
 from backend.app.services.model_router import ModelRouter
 
@@ -183,7 +185,11 @@ def test_task_profile_inherits_default_connection_when_only_model_is_overridden(
     assert profile.api_key == "shared-key"
 
 
-def test_profile_max_tokens_loads_from_nested_env_file(tmp_path) -> None:
+def test_profile_max_tokens_loads_from_nested_env_file(tmp_path, monkeypatch) -> None:
+    for key in list(os.environ):
+        if key.startswith("CODEWIKI_LLM__"):
+            monkeypatch.delenv(key, raising=False)
+
     env_file = tmp_path / ".env"
     env_file.write_text(
         "\n".join(
