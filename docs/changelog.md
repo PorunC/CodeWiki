@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-23
+
+### Added
+
+- **PostgreSQL storage backend** — added `postgresql+psycopg://...` store dispatch,
+  schema creation, SQLAlchemy dialect helpers, PostgreSQL-safe schema patches, and
+  integration coverage for repo, graph, wiki, LLM run, delete, and incremental update
+  workflows.
+- **PostgreSQL native retrieval** — added `websearch_to_tsquery`/`to_tsvector` search
+  paths with GIN indexes for graph node and source chunk search.
+- **pgvector search** — added PostgreSQL vector tables, embedding insert/list/search,
+  HNSW cosine indexes, pgvector schema qualification, and delete cleanup support.
+- **PostgreSQL deployment support** — added Docker runtime dependencies, Compose
+  PostgreSQL service examples, `.env` PostgreSQL URL examples, and package metadata for
+  PostgreSQL/pgvector.
+- **CI test workflow** — added a GitHub Actions test workflow for backend lint/tests,
+  PostgreSQL integration tests, frontend lint/build, and package build checks.
+
+### Changed
+
+- **Store abstraction** — moved application-facing persistence annotations to
+  `CodeWikiStore` while preserving SQLite as the default local backend.
+- **Batching and compatibility** — made write batch sizing backend-aware and guarded
+  SQLite-only FTS/vector SQL behind backend capability checks.
+- **Documentation** — updated README and design notes with PostgreSQL, pgvector,
+  database configuration, and fallback behavior.
+
+### Fixed
+
+- **PostgreSQL defaults** — made timestamp/text defaults and URL password handling safe
+  for PostgreSQL schema creation and smoke tests.
+- **PostgreSQL vector search** — qualified pgvector types, operators, and opclasses so
+  installations outside the active search path continue to work.
+
 ## [0.4.0] - 2026-05-22
 
 ### Added
