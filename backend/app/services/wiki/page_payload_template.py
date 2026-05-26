@@ -45,14 +45,21 @@ class PagePayloadTemplate:
             "name": "DeepWiki",
             "workflow": [
                 "GATHER with mandatory ReadFile evidence, source_chunks, and graph_facts",
-                "think through subsystem boundaries, lifecycle, contracts, and failure paths",
-                "write detailed Markdown with compact tables and inline citations",
+                (
+                    "think through subsystem boundaries, lifecycle, contracts, state changes, "
+                    "extension points, and failure paths"
+                ),
+                (
+                    "write detailed Markdown with compact tables, concrete execution paths, "
+                    "and inline citations"
+                ),
             ],
             "required_sections": [
                 "Purpose and Scope",
                 "Architecture or System Context when relationships are evidenced",
                 "Control Flow or Lifecycle when runtime behavior is evidenced",
                 "Data Model, API Surface, Configuration, or Failure Handling when evidenced",
+                "Extension Points or Operational Notes when change boundaries are evidenced",
             ],
             "server_injected_sections": [
                 "Relevant source files",
@@ -91,7 +98,14 @@ class PagePayloadTemplate:
                 "For non-trivial pages, go beyond a summary. Cover responsibility, "
                 "lifecycle/control flow, dependencies, inputs and outputs, data surfaces, "
                 "APIs or UI routes, configuration, validation, extension points, failure "
-                "handling, and operational implications when those details are present."
+                "handling, operational implications, state transitions, and internal "
+                "tradeoffs when those details are present."
+            ),
+            "section_depth": (
+                "When evidence is sufficient, implementation pages should have 5-8 "
+                "substantive sections and at least four evidence-backed detail blocks. "
+                "Parent pages should synthesize child boundaries, shared contracts, and "
+                "cross-child data/control flow rather than listing children."
             ),
             "preferred_tables": [
                 "component/file/responsibility/evidence",
@@ -99,8 +113,10 @@ class PagePayloadTemplate:
                 "route or API/symbol/purpose/evidence",
                 "data structure/owner/fields or role/evidence",
                 "configuration key/default or source/effect/evidence",
-                "workflow step/owner/input/output/evidence",
+                "workflow step/owner/input/output/side effect/evidence",
                 "failure mode/trigger/handling/evidence",
+                "state transition/current state/trigger/next state/evidence",
+                "extension point/current owner/change path/contract/evidence",
             ],
             "code_examples": (
                 "Use exact source snippets only when source_chunks provide them; otherwise "
@@ -118,8 +134,11 @@ class PagePayloadTemplate:
                 "explain how the subsystem is entered and what it returns or mutates",
                 "name important collaborators and why each boundary exists",
                 "describe data contracts, persistence records, schemas, DTOs, or component props",
-                "trace at least one end-to-end workflow when graph_facts or source_chunks support it",
+                "trace at least two end-to-end workflows when graph_facts or source_chunks support them",
+                "distinguish thin adapters from domain logic and explain handoff points",
+                "explain cache, reuse, recomputation, pruning, or persistence behavior when visible",
                 "call out validation, retry, fallback, draft/error state, or cleanup behavior",
+                "identify extension points and contracts that constrain future changes",
                 "include representative tests only when they clarify observable behavior",
             ],
         }

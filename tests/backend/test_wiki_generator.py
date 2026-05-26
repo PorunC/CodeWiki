@@ -858,6 +858,18 @@ def test_adjacent_citation_markers_render_as_separate_links() -> None:
     assert "S4S16" not in markdown
 
 
+def test_code_wrapped_citation_markers_render_as_links() -> None:
+    source_refs = [
+        {"citation_id": "S1", "file_path": "api.py", "start_line": 1, "end_line": 2},
+    ]
+
+    markdown = _replace_citation_markers("The handler is cited as `[[S1]]`.", source_refs)
+
+    assert '[S1](source-link "api.py:L1-L2")' in markdown
+    assert "`[S1]" not in markdown
+    assert "[S1]`" not in markdown
+
+
 def test_diagram_placeholders_insert_server_diagrams_in_body() -> None:
     diagram = MermaidDiagram(
         slot="data-flow",
@@ -1220,6 +1232,7 @@ class _FakeWikiLLM:
             assert '"readfile_evidence"' in message_text
             assert '"ReadFile"' in message_text
             assert "do not invent wiki pages or links" in message_text
+            assert "at least four evidence-backed detail blocks" in message_text
             request_payload = _request_payload_from_message(messages[-1]["content"])
             self.page_requests.append(request_payload)
             slug = str(request_payload.get("slug") or "")

@@ -212,11 +212,18 @@ def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) 
         title = _source_ref_label(ref).replace('"', "'")
         return f'[{label}]({_source_ref_href(ref)} "{title}")'
 
-    return CITATION_MARKER_RE.sub(replace_marker, _separate_adjacent_citation_markers(markdown))
+    normalized_markdown = _separate_adjacent_citation_markers(
+        _unwrap_code_wrapped_citation_markers(markdown)
+    )
+    return CITATION_MARKER_RE.sub(replace_marker, normalized_markdown)
 
 
 def _separate_adjacent_citation_markers(markdown: str) -> str:
     return re.sub(r"(\]\])(?=\[\[S\d+\]\])", r"\1 ", markdown)
+
+
+def _unwrap_code_wrapped_citation_markers(markdown: str) -> str:
+    return re.sub(r"`(\[\[S\d+\]\])`", r"\1", markdown)
 
 
 def _citation_sort_key(citation_id: str) -> tuple[int, str]:
