@@ -5,7 +5,10 @@ from backend.app.models import RepoRecord
 from backend.app.services.repo_scanner import RepoDescriptor
 
 
-class RepoRepositoryMixin:
+from backend.app.db.repositories.base import RepositorySupportMixin
+
+
+class RepoRepositoryMixin(RepositorySupportMixin):
     def upsert_repo(self, repo: RepoDescriptor) -> RepoDescriptor:
         now = now_iso()
         with self.orm_session() as session:

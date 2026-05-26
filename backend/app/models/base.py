@@ -27,7 +27,7 @@ class JSONText(TypeDecorator):
         return json.dumps(value, sort_keys=True)
 
     def process_result_value(self, value: str | None, dialect) -> Any:
-        if value in (None, ""):
+        if value is None or value == "":
             return self.default_factory()
         return json.loads(value)
 

@@ -200,7 +200,7 @@ class GraphBuilder:
         self,
         symbols: list[AstSymbol],
         state: _GraphBuildState,
-        call_index: dict[str, list[str]],
+        call_index: dict[tuple[str | None, str], list[str]],
         import_scopes: dict[str, set[str]],
     ) -> None:
         for symbol in symbols:
@@ -293,7 +293,7 @@ class GraphBuilder:
         self,
         symbols: list[AstSymbol],
         state: _GraphBuildState,
-        call_index: dict[str, list[str]],
+        call_index: dict[tuple[str | None, str], list[str]],
         import_scopes: dict[str, set[str]],
     ) -> None:
         for symbol in symbols:

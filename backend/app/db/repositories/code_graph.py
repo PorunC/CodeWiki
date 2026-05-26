@@ -6,13 +6,14 @@ from sqlalchemy import delete, select, text
 
 from backend.app.db.batching import chunks, write_batch_size
 from backend.app.db.mappers import edge_from_row, node_from_row
+from backend.app.db.repositories.base import RepositorySupportMixin
 from backend.app.models import CodeEdgeRecord, CodeNodeRecord
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode, CodeGraphNodeSearchHit
 
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
 
 
-class CodeGraphRepositoryMixin:
+class CodeGraphRepositoryMixin(RepositorySupportMixin):
     def replace_graph(
         self,
         repo_id: str,

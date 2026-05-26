@@ -5,7 +5,10 @@ from backend.app.db.utils import now_iso
 from backend.app.models import GraphCommunityEdgeRecord, GraphCommunityRecord
 
 
-class GraphCommunityRepositoryMixin:
+from backend.app.db.repositories.base import RepositorySupportMixin
+
+
+class GraphCommunityRepositoryMixin(RepositorySupportMixin):
     def upsert_graph_community(self, community: GraphCommunityRecord) -> GraphCommunityRecord:
         with self.orm_session() as session:
             record = session.get(GraphCommunityRecord, community.id)

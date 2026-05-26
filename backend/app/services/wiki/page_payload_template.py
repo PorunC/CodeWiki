@@ -254,7 +254,11 @@ def _prompt_community_hierarchy(communities: list[dict[str, object]]) -> list[di
         parent_id = community.get("parent_id")
         if isinstance(parent_id, str) and parent_id in by_id:
             parent = by_id[parent_id]
-            parent.setdefault("children", []).append(item)
+            children = parent.get("children")
+            if not isinstance(children, list):
+                children = []
+                parent["children"] = children
+            children.append(item)
         else:
             roots.append(item)
     return roots

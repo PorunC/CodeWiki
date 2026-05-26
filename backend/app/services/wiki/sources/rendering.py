@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 from backend.app.services.wiki.sources.urls import _source_file_href, _source_ref_href
@@ -15,17 +16,34 @@ DIAGRAM_HEADING_CANDIDATES = {
 
 
 class _DiagramLike(Protocol):
-    slot: str
-    kind: str
-    title: str
-    heading_hint: str
-    reason: str
-    lines: list[str]
+    @property
+    def slot(self) -> str:
+        ...
+
+    @property
+    def kind(self) -> str:
+        ...
+
+    @property
+    def title(self) -> str:
+        ...
+
+    @property
+    def heading_hint(self) -> str:
+        ...
+
+    @property
+    def reason(self) -> str:
+        ...
+
+    @property
+    def lines(self) -> list[str]:
+        ...
 
 
 def _compose_page_markdown(
     markdown: str,
-    mermaid: str | list[_DiagramLike],
+    mermaid: str | Sequence[_DiagramLike],
     source_refs: list[dict[str, Any]],
 ) -> str:
     diagrams = _normalize_diagrams(mermaid)
@@ -86,7 +104,7 @@ def _sources_markdown(source_refs: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _normalize_diagrams(mermaid: str | list[_DiagramLike]) -> list[_DiagramLike]:
+def _normalize_diagrams(mermaid: str | Sequence[_DiagramLike]) -> list[_DiagramLike]:
     if isinstance(mermaid, str):
         stripped = mermaid.strip()
         if not stripped:
@@ -101,7 +119,7 @@ def _normalize_diagrams(mermaid: str | list[_DiagramLike]) -> list[_DiagramLike]
                 lines=stripped.splitlines(),
             )
         ]
-    return mermaid
+    return list(mermaid)
 
 
 def _place_diagrams(

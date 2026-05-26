@@ -98,6 +98,7 @@ codewiki config --profile qa --model openai/gpt-4.1 --api-key "$OPENAI_API_KEY"
 make install
 make start
 make lint
+make typecheck
 make test
 make build
 ```
@@ -106,6 +107,15 @@ Default local URLs:
 
 - Backend: `http://127.0.0.1:8000`
 - Frontend: `http://127.0.0.1:5173`
+
+### Python Typing
+
+Python type checking uses `mypy` with a gradual configuration in `pyproject.toml`.
+New public service, repository, API helper, and CLI helper functions should include
+explicit parameter and return types. Prefer dataclasses, Pydantic models, `TypedDict`,
+or `Protocol` over broad `dict[str, Any]` when data crosses module boundaries. Keep
+`Any` near integration edges such as LLM JSON payloads, SQLAlchemy JSON columns, and
+third-party parser output.
 
 ## License
 

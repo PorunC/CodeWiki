@@ -7,7 +7,10 @@ from backend.app.models import AnalysisRunRecord
 from backend.app.db.utils import now_iso
 
 
-class AnalysisRunRepositoryMixin:
+from backend.app.db.repositories.base import RepositorySupportMixin
+
+
+class AnalysisRunRepositoryMixin(RepositorySupportMixin):
     def create_analysis_run(self, repo_id: str) -> AnalysisRunRecord:
         run = AnalysisRunRecord(
             id=uuid.uuid4().hex,

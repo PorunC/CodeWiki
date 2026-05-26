@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from typing import Any
 
 from backend.app.mcp_server.protocol import error
 from backend.app.mcp_server.server import CodeWikiMCPServer
@@ -17,7 +18,7 @@ async def run_stdio(server: CodeWikiMCPServer | None = None) -> None:
         try:
             message = json.loads(line)
             if not isinstance(message, dict):
-                response = error(None, -32600, "Invalid JSON-RPC request.")
+                response: dict[str, Any] | None = error(None, -32600, "Invalid JSON-RPC request.")
             else:
                 response = await server.handle_message(message)
         except json.JSONDecodeError as exc:

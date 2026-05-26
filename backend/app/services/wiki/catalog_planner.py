@@ -45,14 +45,14 @@ class CatalogModuleCandidatePlanner:
             target_module = node_module.get(edge.target_id)
             if not source_module or source_module != target_module:
                 continue
-            group = groups.get(source_module)
-            if group is not None:
-                group.edge_types[edge.type] += 1
+            edge_group = groups.get(source_module)
+            if edge_group is not None:
+                edge_group.edge_types[edge.type] += 1
 
         candidates = [self._candidate_payload(group) for group in groups.values()]
         return sorted(
             candidates,
-            key=lambda item: (-int(item["file_count"]), str(item["path"])),
+            key=lambda item: (-_candidate_file_count(item), str(item["path"])),
         )[:36]
 
     def _candidate_payload(self, group: ModuleCandidateDraft) -> dict[str, object]:
@@ -94,3 +94,8 @@ class CatalogModuleCandidatePlanner:
         if len(files) >= 3:
             return f"Medium module {path}; use at least one focused implementation leaf page."
         return f"Small module {path}; merge into a nearby broader page unless it is a public surface."
+
+
+def _candidate_file_count(item: dict[str, object]) -> int:
+    value = item.get("file_count")
+    return value if isinstance(value, int) else 0

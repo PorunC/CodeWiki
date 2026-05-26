@@ -56,15 +56,44 @@ def _communities_for_level(
         return [
             community
             for community in communities
-            if int(community.get("level") or 0) == preferred_level
+            if _int_value(community.get("level")) == preferred_level
         ]
-    level = max((int(community.get("level") or 0) for community in communities), default=0)
+    level = max((_int_value(community.get("level")) for community in communities), default=0)
     selected = [
         community
         for community in communities
-        if int(community.get("level") or 0) == level
+        if _int_value(community.get("level")) == level
     ]
     return selected or communities
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _float_value(value: object, default: float = 0.0) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _metadata_dict(item: dict[str, object]) -> dict[str, object]:
+    metadata = item.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
 
 
 def _string_list(value: object) -> list[str]:
@@ -83,7 +112,7 @@ def _abstract_group_for_node(
     if group_mode == "community" and node_id in community_index:
         return community_index[node_id]
 
-    metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+    metadata = _metadata_dict(node)
     name = str(node.get("name") or node_id)
     if str(node.get("type") or "") == "module" and metadata.get("external"):
         return _MermaidGroup(

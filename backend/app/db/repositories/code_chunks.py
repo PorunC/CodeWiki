@@ -8,7 +8,10 @@ from backend.app.db.mappers import code_chunk_from_row
 from backend.app.models import CodeChunkRecord, CodeChunkSearchHit
 
 
-class CodeChunkRepositoryMixin:
+from backend.app.db.repositories.base import RepositorySupportMixin
+
+
+class CodeChunkRepositoryMixin(RepositorySupportMixin):
     def replace_code_chunks(self, repo_id: str, chunks: list[CodeChunkRecord]) -> None:
         with self.orm_session() as session:
             if self.supports_fts5:
@@ -142,7 +145,7 @@ class CodeChunkRepositoryMixin:
             ).mappings().all()
         return [
             CodeChunkSearchHit(
-                chunk=code_chunk_from_row(row),
+                chunk=code_chunk_from_row(dict(row)),
                 score=max(0.1, 1.0 - index * 0.04),
                 match_type="fts",
             )
@@ -181,7 +184,7 @@ class CodeChunkRepositoryMixin:
             ).mappings().all()
         return [
             CodeChunkSearchHit(
-                chunk=code_chunk_from_row(row),
+                chunk=code_chunk_from_row(dict(row)),
                 score=float(row["rank"]),
                 match_type="like",
             )
@@ -230,7 +233,7 @@ class CodeChunkRepositoryMixin:
             ).mappings().all()
         return [
             CodeChunkSearchHit(
-                chunk=code_chunk_from_row(row),
+                chunk=code_chunk_from_row(dict(row)),
                 score=max(0.1, float(row["rank"])),
                 match_type="postgres_fts",
             )

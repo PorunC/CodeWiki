@@ -63,6 +63,7 @@ Issues = "https://github.com/PorunC/CodeWiki/issues"
 
 [project.optional-dependencies]
 dev = [
+  "mypy>=1.14.0",
   "pytest>=8.3.0",
   "pytest-asyncio>=0.25.0",
   "ruff>=0.8.0",
@@ -87,6 +88,18 @@ sdist = "backend.build_frontend.sdist"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+files = ["backend/app"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = false
+disallow_untyped_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

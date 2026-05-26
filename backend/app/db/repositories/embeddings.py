@@ -8,7 +8,10 @@ from backend.app.db.utils import now_iso
 from backend.app.models import CodeChunkEmbeddingRecord, CodeChunkSearchHit
 
 
-class CodeChunkEmbeddingRepositoryMixin:
+from backend.app.db.repositories.base import RepositorySupportMixin
+
+
+class CodeChunkEmbeddingRepositoryMixin(RepositorySupportMixin):
     def replace_code_chunk_embeddings(
         self,
         repo_id: str,

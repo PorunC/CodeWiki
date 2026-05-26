@@ -1,6 +1,6 @@
 import json
 
-from backend.app.database import CodeWikiStore, get_store
+from backend.app.database import CodeWikiStore, GraphCommunityRecord, get_store
 from backend.app.services.community_edges import CommunityEdgeBuilder
 from backend.app.services.community_naming import (
     COMMUNITIES_PER_BATCH,
@@ -146,19 +146,19 @@ _batches = batches
 
 
 def _select_naming_targets(
-    communities,
+    communities: list[GraphCommunityRecord],
     *,
     max_communities: int,
-):
+) -> list[GraphCommunityRecord]:
     limit = max(1, min(max_communities, MAX_COMMUNITIES_PER_LLM_CALL))
-    by_level: dict[int, list] = {}
+    by_level: dict[int, list[GraphCommunityRecord]] = {}
     for community in communities:
         by_level.setdefault(int(community.level or 0), []).append(community)
 
-    selected = []
+    selected: list[GraphCommunityRecord] = []
     seen: set[str] = set()
 
-    def add(candidates) -> None:
+    def add(candidates: list[GraphCommunityRecord]) -> None:
         for community in candidates:
             if len(selected) >= limit:
                 return
@@ -174,13 +174,13 @@ def _select_naming_targets(
     return selected
 
 
-def _parent_target_key(community) -> tuple[int, int, str]:
+def _parent_target_key(community: GraphCommunityRecord) -> tuple[int, int, str]:
     return (int(community.rank or 0), -len(community.node_ids), community.name)
 
 
-def _leaf_target_key(community) -> tuple[int, int, int, str]:
+def _leaf_target_key(community: GraphCommunityRecord) -> tuple[int, int, int, str]:
     return (-len(community.node_ids), -_file_count(community), int(community.rank or 0), community.name)
 
 
-def _file_count(community) -> int:
+def _file_count(community: GraphCommunityRecord) -> int:
     return len({node_id.rsplit(":", 1)[0] for node_id in community.node_ids})

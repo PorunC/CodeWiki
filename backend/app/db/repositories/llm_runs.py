@@ -7,7 +7,10 @@ from backend.app.models import LLMRunRecord
 from backend.app.db.utils import now_iso
 
 
-class LLMRunRepositoryMixin:
+from backend.app.db.repositories.base import RepositorySupportMixin
+
+
+class LLMRunRepositoryMixin(RepositorySupportMixin):
     def record_llm_run(
         self,
         repo_id: str,

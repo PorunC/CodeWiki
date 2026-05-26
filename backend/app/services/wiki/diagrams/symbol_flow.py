@@ -10,6 +10,7 @@ from backend.app.services.wiki.diagrams.rendering import (
     _edge_endpoint,
     _mermaid_edge_text,
     _mermaid_text,
+    _metadata_dict,
 )
 
 SYMBOL_FLOW_EDGE_TYPES = {
@@ -135,7 +136,7 @@ def _symbol_flow_edge_sort_key(edge: dict[str, object]) -> tuple[float, str, str
 
 def _symbol_flow_label(node: dict[str, object]) -> str:
     node_type = str(node.get("type") or "")
-    metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+    metadata = _metadata_dict(node)
     if node_type == "endpoint":
         method = str(metadata.get("route_method") or "").upper()
         route_path = str(metadata.get("route_path") or "")
@@ -153,7 +154,7 @@ def _symbol_flow_label(node: dict[str, object]) -> str:
 
 def _symbol_flow_edge_label(edge: dict[str, object]) -> str:
     edge_type = str(edge.get("type") or "")
-    metadata = edge.get("metadata") if isinstance(edge.get("metadata"), dict) else {}
+    metadata = _metadata_dict(edge)
     if edge_type == "routes_to":
         method = str(metadata.get("route_method") or "").upper()
         route_path = str(metadata.get("route_path") or "")

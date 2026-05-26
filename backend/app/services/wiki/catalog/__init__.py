@@ -62,7 +62,7 @@ def _normalize_catalog_payload(
     *,
     limits: CatalogScaleLimits = DEFAULT_CATALOG_LIMITS,
 ) -> tuple[str, list[dict[str, Any]]]:
-    root = payload.get("catalog") if isinstance(payload.get("catalog"), dict) else payload
+    root = _catalog_root(payload)
     title = str(root.get("title") or f"{repo_name} Wiki")
     raw_items = root.get("items") or root.get("pages") or []
     if not isinstance(raw_items, list):
@@ -87,7 +87,7 @@ def _normalize_catalog_payload(
 
 
 def _validate_catalog_payload(payload: dict[str, Any]) -> None:
-    root = payload.get("catalog") if isinstance(payload.get("catalog"), dict) else payload
+    root = _catalog_root(payload)
     raw_items = root.get("items") or root.get("pages")
     if not isinstance(raw_items, list):
         raise ValueError("Catalog response must contain an items array.")
@@ -112,7 +112,8 @@ def _normalize_catalog_item(
     kind = raw_kind if raw_kind in {"page", "category"} else "page"
     raw_order = raw_item.get("order")
     order = raw_order if isinstance(raw_order, int) and raw_order >= 0 else len(used_slugs) - 1
-    source_hints = raw_item.get("source_hints") if isinstance(raw_item.get("source_hints"), list) else []
+    raw_source_hints = raw_item.get("source_hints")
+    source_hints = raw_source_hints if isinstance(raw_source_hints, list) else []
     raw_children = raw_item.get("children") or []
     children = []
     if isinstance(raw_children, list) and depth < limits.max_depth - 1:
@@ -133,7 +134,12 @@ def _normalize_catalog_item(
         "topic": topic,
         "source_hints": [str(hint) for hint in source_hints[:8]],
         "children": children,
-    }
+}
+
+
+def _catalog_root(payload: dict[str, Any]) -> dict[str, Any]:
+    catalog = payload.get("catalog")
+    return catalog if isinstance(catalog, dict) else payload
 
 
 def _sort_catalog_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

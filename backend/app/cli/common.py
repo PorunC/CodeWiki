@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 import click
 
@@ -131,8 +131,8 @@ def graph_status_payload(repo_id: str, nodes: list[Any], edges: list[Any]) -> di
 
 
 def jsonable(value: Any) -> Any:
-    if is_dataclass(value):
-        return jsonable(asdict(value))
+    if is_dataclass(value) and not isinstance(value, type):
+        return jsonable(asdict(cast(Any, value)))
     if hasattr(value, "model_dump"):
         return jsonable(value.model_dump())
     if isinstance(value, dict):

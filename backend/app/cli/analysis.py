@@ -108,7 +108,9 @@ def register(main: click.Group) -> None:
         if result.stale_pages:
             click.echo(f"Stale wiki pages: {', '.join(result.stale_pages)}")
             if wiki_regeneration.get("requested"):
-                click.echo(f"Regenerated wiki pages: {len(wiki_regeneration.get('pages', []))}")
+                pages = wiki_regeneration.get("pages")
+                regenerated_count = len(pages) if isinstance(pages, list) else 0
+                click.echo(f"Regenerated wiki pages: {regenerated_count}")
 
     @main.command("watch")
     @click.argument("repo", required=False)
@@ -194,8 +196,8 @@ class AnalysisProgressPrinter:
                 f"total={payload.get('total')} reused_symbols={payload.get('reused_files')}"
             )
         if stage == "parse_progress":
-            completed = int(payload.get("completed") or 0)
-            total = int(payload.get("total") or 0)
+            completed = _int_value(payload.get("completed"))
+            total = _int_value(payload.get("total"))
             now = time.monotonic()
             if completed != total and now - self.last_parse_update_at < self.interval_seconds:
                 return None
@@ -241,3 +243,16 @@ class AnalysisProgressPrinter:
             )
         print(f"PROGRESS {stage} {payload}", file=sys.stderr)
         return None
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default

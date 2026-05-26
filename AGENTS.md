@@ -22,6 +22,15 @@
 - TypeScript/React: ESLint + TypeScript checks; components in `PascalCase` files (for example `GraphPage.tsx`), hooks prefixed with `use` (for example `useRepoGraph.ts`).
 - Keep modules focused by domain (graph, wiki, ask, db) and colocate helpers with the feature directory.
 
+## Python Typing Guidelines
+- Use `mypy` for gradual Python type checking; run `make typecheck` when changing typed backend paths.
+- Add explicit parameter and return types for new public service, repository, API helper, CLI helper, and shared utility functions.
+- Prefer domain dataclasses, Pydantic models, `TypedDict`, or `Protocol` over broad `dict[str, Any]` when values cross module boundaries.
+- Keep `Any` at integration edges only, such as LLM JSON payloads, SQLAlchemy JSON columns, tree-sitter parser output, and third-party SDK responses.
+- Use `Protocol` for injectable services in tests when it avoids coupling to concrete implementations.
+- Avoid `cast()` unless the invariant is checked nearby; add a short comment when the reason is not obvious.
+- Tighten legacy modules incrementally rather than making unrelated typing-only rewrites during feature work.
+
 ## Architecture & Responsibility Boundaries
 - Apply responsibility separation across the whole project, not only to a specific file or interface. Each module should have one clear reason to change and should avoid mixing transport, orchestration, domain logic, persistence, formatting, and configuration concerns.
 - Keep entrypoints thin across all transports and runtimes. CLI commands, MCP handlers, FastAPI routes, frontend API wrappers, scripts, and build hooks should parse inputs, call focused services, format outputs, and handle transport-specific errors only.
