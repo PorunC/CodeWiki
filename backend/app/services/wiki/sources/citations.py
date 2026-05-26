@@ -5,6 +5,7 @@ from typing import Any
 from backend.app.services.wiki.sources.urls import _source_ref_href, _source_ref_label, _source_url
 
 CITATION_MARKER_RE = re.compile(r"\[\[(S\d+)\]\]")
+CITATION_LIKE_MARKER_RE = re.compile(r"\[\[(S[^\[\]]*)\]\]")
 
 
 def _source_refs_from_chunks(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -213,7 +214,9 @@ def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) 
         return f'[{label}]({_source_ref_href(ref)} "{title}")'
 
     normalized_markdown = _separate_adjacent_citation_markers(
-        _unwrap_code_wrapped_citation_markers(markdown)
+        _strip_redundant_source_labels(
+            _normalize_citation_like_markers(_unwrap_code_wrapped_citation_markers(markdown))
+        )
     )
     return CITATION_MARKER_RE.sub(replace_marker, normalized_markdown)
 
@@ -224,6 +227,41 @@ def _separate_adjacent_citation_markers(markdown: str) -> str:
 
 def _unwrap_code_wrapped_citation_markers(markdown: str) -> str:
     return re.sub(r"`(\[\[S\d+\]\])`", r"\1", markdown)
+
+
+def _normalize_citation_like_markers(markdown: str) -> str:
+    def replace_marker(match: re.Match[str]) -> str:
+        raw_marker = match.group(0)
+        content = match.group(1)
+        if CITATION_MARKER_RE.fullmatch(raw_marker):
+            return raw_marker
+        citation_ids = re.findall(r"\bS\d+\b", content)
+        return " ".join(f"[[{citation_id}]]" for citation_id in citation_ids)
+
+    return CITATION_LIKE_MARKER_RE.sub(replace_marker, markdown)
+
+
+def _strip_redundant_source_labels(markdown: str) -> str:
+    markdown = re.sub(
+        r"[（(]\s*[^）)\n]*?(?:/|\\)[^）)\n]*?(?:第\s*\d+\s*[–-]\s*\d+\s*行|lines?\s+\d+\s*[–-]\s*\d+)\s*(\[\[S\d+\]\])\s*[）)]",
+        r" \1",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    markdown = re.sub(
+        r"(\[\[S\d+\]\])\s*[（(]\s*(?:[^）)\n]*?\s+)?(?:第\s*)?\d+\s*[–-]\s*\d+\s*行?\s*[）)]",
+        r"\1",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    markdown = re.sub(
+        r"(\[\[S\d+\]\])\s*[（(]\s*(?:[^）)\n]*?\s+)?lines?\s+\d+\s*[–-]\s*\d+\s*[）)]",
+        r"\1",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    markdown = re.sub(r" {2,}(?=\[\[S\d+\]\])", " ", markdown)
+    return markdown
 
 
 def _citation_sort_key(citation_id: str) -> tuple[int, str]:

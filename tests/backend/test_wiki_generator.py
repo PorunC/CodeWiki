@@ -870,6 +870,60 @@ def test_code_wrapped_citation_markers_render_as_links() -> None:
     assert "[S1]`" not in markdown
 
 
+def test_redundant_source_labels_are_removed_around_citations() -> None:
+    source_refs = [
+        {"citation_id": "S1", "file_path": "src/utils/serial-queue.ts", "start_line": 22, "end_line": 125},
+        {"citation_id": "S5", "file_path": "src/utils/serial-queue.ts", "start_line": 59, "end_line": 69},
+    ]
+
+    markdown = _replace_citation_markers(
+        "### `SerialQueue`（src/utils/serial-queue.ts 第22–125行 [[S1]]）\n\n"
+        "The queue calls `drain()` [[S5]]（第59–69行）.",
+        source_refs,
+    )
+
+    assert '### `SerialQueue` [S1](source-link "src/utils/serial-queue.ts:L22-L125")' in markdown
+    assert '`drain()` [S5](source-link "src/utils/serial-queue.ts:L59-L69").' in markdown
+    assert "src/utils/serial-queue.ts 第22" not in markdown
+    assert "第59" not in markdown
+
+
+def test_redundant_english_source_labels_are_removed_around_citations() -> None:
+    source_refs = [
+        {"citation_id": "S1", "file_path": "src/utils/serial-queue.ts", "start_line": 22, "end_line": 125},
+    ]
+
+    markdown = _replace_citation_markers(
+        "### `SerialQueue` (src/utils/serial-queue.ts, lines 22-125 [[S1]])\n\n"
+        "It drains tasks [[S1]] (lines 100-124).",
+        source_refs,
+    )
+
+    assert '### `SerialQueue` [S1](source-link "src/utils/serial-queue.ts:L22-L125")' in markdown
+    assert 'It drains tasks [S1](source-link "src/utils/serial-queue.ts:L22-L125").' in markdown
+    assert "lines 22" not in markdown
+    assert "lines 100" not in markdown
+
+
+def test_malformed_citation_markers_are_normalized_or_removed() -> None:
+    source_refs = [
+        {"citation_id": "S1", "file_path": "index.ts", "start_line": 131, "end_line": 132},
+        {"citation_id": "S13", "file_path": "core.ts", "start_line": 10, "end_line": 12},
+    ]
+
+    markdown = _replace_citation_markers(
+        "Start [[S1:131-132]]. Combined [[S1:281-295, S13]]. "
+        "Graph edge [[S13#edges]]. Missing [[S??]] [[S?]] [[S#]].",
+        source_refs,
+    )
+
+    assert '[S1](source-link "index.ts:L131-L132")' in markdown
+    assert '[S13](source-link "core.ts:L10-L12")' in markdown
+    assert "[[S" not in markdown
+    assert "S??" not in markdown
+    assert "S#" not in markdown
+
+
 def test_diagram_placeholders_insert_server_diagrams_in_body() -> None:
     diagram = MermaidDiagram(
         slot="data-flow",

@@ -7,6 +7,7 @@ from backend.app.services.wiki.markdown import _strip_llm_mermaid, _validate_pag
 from backend.app.services.wiki.sources import (
     _filter_unused_source_refs,
     _include_markdown_citation_refs,
+    _normalize_citation_like_markers,
     _source_url,
     _source_url_base,
     _strip_unknown_citation_markers,
@@ -35,7 +36,9 @@ class PageResponseValidator:
         read_source_refs: list[dict[str, Any]],
         available_diagram_slots: set[str],
     ) -> PageValidationResult:
-        markdown = _strip_llm_mermaid(str(payload.get("markdown") or ""))
+        markdown = _normalize_citation_like_markers(
+            _strip_llm_mermaid(str(payload.get("markdown") or ""))
+        )
         source_url_base = _source_url_base(repo.git_url, repo.commit_hash)
         source_refs, source_ref_errors = _validate_source_refs(
             repo_path=repo.path,
