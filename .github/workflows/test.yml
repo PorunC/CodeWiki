@@ -60,6 +60,9 @@ jobs:
       - name: Lint backend
         run: python -m ruff check backend tests
 
+      - name: Typecheck backend
+        run: python -m mypy backend/app
+
       - name: Test backend
         run: python -m pytest -q
 

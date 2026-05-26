@@ -59,8 +59,9 @@ class LLMGateway:
         choice = response.choices[0]
         content = choice.message.content or ""
         usage_obj = getattr(response, "usage", None)
-        if hasattr(usage_obj, "model_dump"):
-            usage = usage_obj.model_dump()
+        model_dump = getattr(usage_obj, "model_dump", None)
+        if callable(model_dump):
+            usage = model_dump()
         elif isinstance(usage_obj, dict):
             usage = usage_obj
         else:

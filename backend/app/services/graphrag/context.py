@@ -1,4 +1,4 @@
-from backend.app.database import CodeChunkSearchHit, CodeWikiStore
+from backend.app.database import CodeChunkSearchHit, CodeWikiStore, GraphCommunityRecord
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graphrag.models import ChunkHit
@@ -63,7 +63,7 @@ def select_source_chunks(
 
 
 def community_summaries(store: CodeWikiStore, repo_id: str, selected_ids: set[str]) -> list[dict[str, object]]:
-    matched = []
+    matched: list[dict[str, object]] = []
     all_communities = store.list_graph_communities(repo_id)
     by_id = {community.id: community for community in all_communities}
     parent_ids = {
@@ -99,12 +99,19 @@ def community_summaries(store: CodeWikiStore, repo_id: str, selected_ids: set[st
     if not leaves:
         return sorted(
             matched,
-            key=lambda item: (-len(item["matched_node_ids"]), item["level"], item["name"]),
+            key=lambda item: (-_matched_node_count(item), _int_value(item.get("level")), str(item.get("name") or "")),
         )[:MAX_COMMUNITY_SUMMARIES]
 
     selected_leaves: list[dict[str, object]] = []
     siblings_by_parent: dict[str, int] = {}
-    for child in sorted(leaves, key=lambda item: (-len(item["matched_node_ids"]), -int(item.get("level") or 0), item["name"])):
+    for child in sorted(
+        leaves,
+        key=lambda item: (
+            -_matched_node_count(item),
+            -_int_value(item.get("level")),
+            str(item.get("name") or ""),
+        ),
+    ):
         parent_id = str(child.get("parent_id") or "")
         if siblings_by_parent.get(parent_id, 0) >= MAX_CHILDREN_PER_PARENT_IN_PROMPT:
             continue
@@ -120,10 +127,13 @@ def community_summaries(store: CodeWikiStore, repo_id: str, selected_ids: set[st
         if (parent := by_id.get(parent_id)) is not None
     ]
     if len(selected_parents) < MAX_PARENT_SUMMARIES:
-        for parent in sorted(parents, key=lambda item: (-len(item["matched_node_ids"]), item["name"])):
-            if any(parent["id"] == selected["id"] for selected in selected_parents):
+        for parent_summary in sorted(
+            parents,
+            key=lambda item: (-_matched_node_count(item), str(item.get("name") or "")),
+        ):
+            if any(parent_summary["id"] == selected["id"] for selected in selected_parents):
                 continue
-            selected_parents.append(parent)
+            selected_parents.append(parent_summary)
             if len(selected_parents) >= MAX_PARENT_SUMMARIES:
                 break
 
@@ -134,7 +144,7 @@ def community_summaries(store: CodeWikiStore, repo_id: str, selected_ids: set[st
 
 def _ancestor_ids(
     communities: list[dict[str, object]],
-    by_id: dict[str, object],
+    by_id: dict[str, GraphCommunityRecord],
 ) -> list[str]:
     ids: list[str] = []
     seen: set[str] = set()
@@ -151,7 +161,7 @@ def _ancestor_ids(
 
 
 def _community_summary_payload(
-    community,
+    community: GraphCommunityRecord,
     selected_ids: set[str],
     *,
     include_matches: bool,
@@ -167,6 +177,24 @@ def _community_summary_payload(
     if include_matches:
         payload["matched_node_ids"] = sorted(set(community.node_ids) & selected_ids)
     return payload
+
+
+def _matched_node_count(item: dict[str, object]) -> int:
+    matched_node_ids = item.get("matched_node_ids")
+    return len(matched_node_ids) if isinstance(matched_node_ids, list) else 0
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def context_pack(
@@ -186,9 +214,13 @@ def context_pack(
         parts.append("")
     if communities:
         parts.append("Community Summaries:")
-        parent_ids = {str(community.get("id")) for community in communities if int(community.get("level") or 0) == 0}
+        parent_ids = {
+            str(community.get("id"))
+            for community in communities
+            if _int_value(community.get("level")) == 0
+        }
         for community in communities[:MAX_COMMUNITY_SUMMARIES]:
-            level = int(community.get("level") or 0)
+            level = _int_value(community.get("level"))
             label = "Architecture" if level == 0 else "Implementation" if level == 1 else "Detail"
             indent = "  " if level > 0 and str(community.get("parent_id") or "") in parent_ids else ""
             parts.append(

@@ -132,6 +132,7 @@ class WikiCatalogGenerator:
     ) -> dict[str, Any]:
         repo_context = self.context_builder.build(repo.path)
         graph_facts = prompt_graph_facts(trace)
+        expanded_nodes = _list_value(graph_facts.get("expanded_nodes"))
         return {
             "repo": {
                 "id": repo.id,
@@ -222,10 +223,10 @@ class WikiCatalogGenerator:
             "module_candidates": self.candidate_planner.build(nodes, edges),
             "context_pack": _catalog_context_pack(trace.context_pack),
             "seed_nodes": graph_facts["seed_nodes"],
-            "expanded_nodes": graph_facts["expanded_nodes"][:80],
-            "community_edges": graph_facts.get("community_edges", []),
+            "expanded_nodes": expanded_nodes[:80],
+            "community_edges": _list_value(graph_facts.get("community_edges")),
             "community_summaries": graph_facts["community_summaries"],
-            "community_hierarchy": graph_facts.get("community_hierarchy", []),
+            "community_hierarchy": _list_value(graph_facts.get("community_hierarchy")),
             "source_chunks": _source_chunk_summaries(trace.source_chunks),
             "required_json_shape": {
                 "title": "Code Wiki",
@@ -306,3 +307,7 @@ def _catalog_context_pack(context_pack: dict[str, object]) -> dict[str, object]:
         )
         if key in context_pack
     }
+
+
+def _list_value(value: object) -> list[object]:
+    return value if isinstance(value, list) else []

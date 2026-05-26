@@ -1,10 +1,18 @@
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from backend.app.services.wiki.sources.urls import _source_ref_href, _source_ref_label, _source_url
 
 CITATION_MARKER_RE = re.compile(r"\[\[(S\d+)\]\]")
+CITATION_LIKE_MARKER_RE = re.compile(r"\[\[(S[^\[\]]*)\]\]")
+
+
+class _ChunkRange(TypedDict):
+    id: object
+    start_line: int
+    end_line: int
+    content: str
 
 
 def _source_refs_from_chunks(chunks: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -97,7 +105,7 @@ def _validate_source_refs(
         if key in seen:
             continue
         seen.add(key)
-        citation_id = citation_id or _citation_id_for_range(
+        resolved_citation_id = citation_id or _citation_id_for_range(
             allowed_source_refs,
             file_path,
             start_line,
@@ -109,8 +117,8 @@ def _validate_source_refs(
             "end_line": end_line,
             "chunk_id": matching_chunk["id"],
         }
-        if citation_id:
-            ref["citation_id"] = citation_id
+        if resolved_citation_id:
+            ref["citation_id"] = resolved_citation_id
         if source_url_base:
             ref["source_url"] = _source_url(source_url_base, file_path, start_line, end_line)
         valid_refs.append(ref)
@@ -212,7 +220,55 @@ def _replace_citation_markers(markdown: str, source_refs: list[dict[str, Any]]) 
         title = _source_ref_label(ref).replace('"', "'")
         return f'[{label}]({_source_ref_href(ref)} "{title}")'
 
-    return CITATION_MARKER_RE.sub(replace_marker, markdown)
+    normalized_markdown = _separate_adjacent_citation_markers(
+        _strip_redundant_source_labels(
+            _normalize_citation_like_markers(_unwrap_code_wrapped_citation_markers(markdown))
+        )
+    )
+    return CITATION_MARKER_RE.sub(replace_marker, normalized_markdown)
+
+
+def _separate_adjacent_citation_markers(markdown: str) -> str:
+    return re.sub(r"(\]\])(?=\[\[S\d+\]\])", r"\1 ", markdown)
+
+
+def _unwrap_code_wrapped_citation_markers(markdown: str) -> str:
+    return re.sub(r"`(\[\[S\d+\]\])`", r"\1", markdown)
+
+
+def _normalize_citation_like_markers(markdown: str) -> str:
+    def replace_marker(match: re.Match[str]) -> str:
+        raw_marker = match.group(0)
+        content = match.group(1)
+        if CITATION_MARKER_RE.fullmatch(raw_marker):
+            return raw_marker
+        citation_ids = re.findall(r"\bS\d+\b", content)
+        return " ".join(f"[[{citation_id}]]" for citation_id in citation_ids)
+
+    return CITATION_LIKE_MARKER_RE.sub(replace_marker, markdown)
+
+
+def _strip_redundant_source_labels(markdown: str) -> str:
+    markdown = re.sub(
+        r"[（(]\s*[^）)\n]*?(?:/|\\)[^）)\n]*?(?:第\s*\d+\s*[–-]\s*\d+\s*行|lines?\s+\d+\s*[–-]\s*\d+)\s*(\[\[S\d+\]\])\s*[）)]",
+        r" \1",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    markdown = re.sub(
+        r"(\[\[S\d+\]\])\s*[（(]\s*(?:[^）)\n]*?\s+)?(?:第\s*)?\d+\s*[–-]\s*\d+\s*行?\s*[）)]",
+        r"\1",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    markdown = re.sub(
+        r"(\[\[S\d+\]\])\s*[（(]\s*(?:[^）)\n]*?\s+)?lines?\s+\d+\s*[–-]\s*\d+\s*[）)]",
+        r"\1",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    markdown = re.sub(r" {2,}(?=\[\[S\d+\]\])", " ", markdown)
+    return markdown
 
 
 def _citation_sort_key(citation_id: str) -> tuple[int, str]:
@@ -248,8 +304,8 @@ def _citation_id_for_range(
     return None
 
 
-def _chunk_ranges(chunks: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
-    ranges: dict[str, list[dict[str, object]]] = {}
+def _chunk_ranges(chunks: list[dict[str, object]]) -> dict[str, list[_ChunkRange]]:
+    ranges: dict[str, list[_ChunkRange]] = {}
     for chunk in chunks:
         file_path = chunk.get("file_path")
         start_line = chunk.get("start_line")

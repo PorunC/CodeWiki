@@ -7,7 +7,10 @@ from backend.app.models import DocCatalogRecord, DocPageRecord
 from backend.app.db.utils import now_iso
 
 
-class WikiRepositoryMixin:
+from backend.app.db.repositories.base import RepositorySupportMixin
+
+
+class WikiRepositoryMixin(RepositorySupportMixin):
     def save_doc_catalog(
         self,
         repo_id: str,
@@ -133,7 +136,7 @@ class WikiRepositoryMixin:
                     DocPageRecord.slug.not_in(slugs),
                 )
             )
-        return int(result.rowcount or 0)
+        return int(getattr(result, "rowcount", 0) or 0)
 
     def mark_doc_pages_stale(
         self,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.metadata
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel
 
@@ -61,8 +61,8 @@ def object_schema(properties: JsonObject, *, required: list[str] | None = None) 
 
 
 def jsonable(value: Any) -> Any:
-    if is_dataclass(value):
-        return jsonable(asdict(value))
+    if is_dataclass(value) and not isinstance(value, type):
+        return jsonable(asdict(cast(Any, value)))
     if isinstance(value, BaseModel):
         return jsonable(value.model_dump())
     if isinstance(value, dict):

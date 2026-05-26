@@ -28,7 +28,7 @@ export FRONTEND_PORT
 export NPM
 export PYTHON_VERSION
 
-.PHONY: help install ensure-venv-python312 install-backend ensure-backend-python ensure-backend-pip install-frontend start dev restart check-ports backend frontend kill test lint lint-backend lint-frontend build clean
+.PHONY: help install ensure-venv-python312 install-backend ensure-backend-python ensure-backend-pip install-frontend start dev restart check-ports backend frontend kill test lint lint-backend typecheck lint-frontend build clean
 
 help:
 	@echo "Code Wiki Platform"
@@ -43,6 +43,7 @@ help:
 	@echo "  make kill             Kill processes listening on ports 8000 and 5173"
 	@echo "  make test             Run backend tests"
 	@echo "  make lint             Run backend and frontend lint checks"
+	@echo "  make typecheck        Run Python type checks with mypy"
 	@echo "  make build            Build the frontend"
 	@echo "  make clean            Remove local build/test caches"
 	@echo ""
@@ -107,6 +108,9 @@ lint: lint-backend lint-frontend
 
 lint-backend: ensure-backend-python
 	$(PYTHON) -m ruff check backend tests
+
+typecheck: ensure-backend-python
+	$(PYTHON) -m mypy backend/app
 
 lint-frontend:
 	$(FRONTEND_NPM) run lint

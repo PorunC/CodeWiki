@@ -16,7 +16,9 @@ class GenerationNode:
 
 
 class _PageResultLike(Protocol):
-    page: DocPageRecord
+    @property
+    def page(self) -> DocPageRecord:
+        ...
 
 
 def generation_nodes(

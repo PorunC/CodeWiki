@@ -12,13 +12,19 @@ def register(main: click.Group) -> None:
         """Start the CodeWiki FastAPI server."""
         import uvicorn
 
-        reload_kwargs: dict[str, object] = {}
+        reload_dirs: list[str] | None = None
+        reload_excludes: list[str] | None = None
         if reload:
-            reload_kwargs = {
-                "reload_dirs": [str(Path(__file__).resolve().parents[2])],
-                "reload_excludes": ["storage/*", "data/*"],
-            }
-        uvicorn.run("backend.app.main:app", host=host, port=port, reload=reload, **reload_kwargs)
+            reload_dirs = [str(Path(__file__).resolve().parents[2])]
+            reload_excludes = ["storage/*", "data/*"]
+        uvicorn.run(
+            "backend.app.main:app",
+            host=host,
+            port=port,
+            reload=reload,
+            reload_dirs=reload_dirs,
+            reload_excludes=reload_excludes,
+        )
 
     @main.command("mcp")
     def serve_mcp() -> None:

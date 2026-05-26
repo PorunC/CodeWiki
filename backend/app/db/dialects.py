@@ -19,20 +19,20 @@ class DatabaseDialect:
 
     def insert_ignore(self, table: Table, conflict_columns: list[str] | None = None):
         if self.name == "postgresql":
-            statement = postgresql.insert(table)
+            pg_statement: Any = postgresql.insert(table)
             if conflict_columns:
-                return statement.on_conflict_do_nothing(index_elements=conflict_columns)
-            return statement.on_conflict_do_nothing()
+                return pg_statement.on_conflict_do_nothing(index_elements=conflict_columns)
+            return pg_statement.on_conflict_do_nothing()
         if self.name == "sqlite":
-            statement = sqlite.insert(table)
+            sqlite_statement: Any = sqlite.insert(table)
             if conflict_columns:
-                return statement.on_conflict_do_nothing(index_elements=conflict_columns)
-            return statement.on_conflict_do_nothing()
+                return sqlite_statement.on_conflict_do_nothing(index_elements=conflict_columns)
+            return sqlite_statement.on_conflict_do_nothing()
         raise ValueError(f"Unsupported database dialect: {self.name}")
 
     def upsert(self, table: Table, conflict_columns: list[str], update_columns: list[str]):
         if self.name == "postgresql":
-            statement = postgresql.insert(table)
+            statement: Any = postgresql.insert(table)
         elif self.name == "sqlite":
             statement = sqlite.insert(table)
         else:

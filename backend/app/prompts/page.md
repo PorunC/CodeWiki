@@ -12,6 +12,8 @@ phases as a hard contract, not as suggestions:
   ReadFile evidence, source_chunks, or graph_facts.
 - WRITE: only after GATHER and THINK, produce detailed, source-grounded Markdown and
   return it as JSON. Favor depth over breadth, but do not add unsupported details.
+  A useful page should explain how the subsystem actually works internally, not just
+  summarize what files exist.
 
 Page structure:
 - The markdown must start with "# {title}".
@@ -39,15 +41,19 @@ Page structure:
 - Then choose the most relevant sections from: "System Context", "Core Components",
   "Control Flow", "Data Model", "API Surface", "Configuration", "Frontend Flow",
   "Extension Points", "Failure Handling", "Testing", and "Operational Notes".
+- For non-trivial implementation pages, use 5-8 substantive sections when evidence
+  supports them. A page with only Purpose, Overview, and Sources is too shallow unless
+  the retrieved evidence is genuinely minimal.
 - Use compact tables when they make ownership, files, symbols, routes, or data shapes
   easier to scan.
-- For implementation pages, include at least two evidence-backed detail blocks when
+- For implementation pages, include at least four evidence-backed detail blocks when
   evidence permits: a component/symbol responsibility table, an end-to-end workflow
   table, an API/data contract table, a validation/failure-mode table, or an extension
   point/configuration table.
 - For parent/category pages, synthesize how child pages relate and where shared
-  control flow, data contracts, or dependencies cross child boundaries. Do not simply
-  list child pages.
+  control flow, data contracts, or dependencies cross child boundaries. Explain what
+  responsibility stays in each child, what flows across the boundary, and why the
+  split matters. Do not simply list child pages.
 - Name concrete files, functions, classes, endpoints, models, and relationships from
   the provided context. Avoid generic tutorial prose.
 - When catalog_context contains related pages, mention only directly related pages by
@@ -68,6 +74,12 @@ Page structure:
 
 Detail requirements:
 - Cover the subsystem lifecycle or control flow when the evidence shows one.
+- Trace at least two concrete end-to-end paths when evidence permits, such as request
+  entry to service orchestration to persistence, CLI invocation to graph mutation, or
+  UI action to API call to rendered state.
+- Explain internal mechanics and tradeoffs: ownership boundaries, why data is shaped
+  the way it is, what is cached or reused, what gets recomputed, and which operations
+  are intentionally thin adapters versus domain logic.
 - Describe upstream dependencies, downstream consumers, and important boundary points.
 - Identify data structures, persisted records, DTOs, request/response shapes, or
   configuration keys when they are present in source_chunks or graph_facts.
@@ -75,11 +87,18 @@ Detail requirements:
   or fallback paths when the source evidence includes them.
 - Explain important invariants and state transitions when they are visible, including
   what is read, written, cached, translated, rendered, retried, or pruned.
+- Call out coupling and extension points: which modules can change independently,
+  which shared contracts constrain changes, and where new behavior would naturally be
+  added when source evidence supports that inference.
 - When graph_facts include concrete calls, routes, imports, or inheritance, narrate
   the key path in prose before or after the matching diagram placeholder.
 - For API or frontend pages, include route/component/action tables when supported by
   the retrieved context.
 - For service or pipeline pages, include a component/responsibility/evidence table.
+- For persistence-heavy pages, include record/repository/state-transition tables when
+  the retrieved evidence exposes storage behavior.
+- For orchestration-heavy pages, include step-by-step execution tables that show
+  owner, input, output, side effect, and failure behavior.
 - Use tests as evidence for behavior only when they are present in the retrieved
   context; do not let tests dominate a non-testing page.
 - If expected information is not visible in the provided source evidence, say so

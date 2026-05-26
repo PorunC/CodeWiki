@@ -1,4 +1,5 @@
 import click
+from typing import cast
 
 from backend.app.cli.common import (
     echo_json,
@@ -226,7 +227,8 @@ def register(main: click.Group) -> None:
             f"{payload['node_count']} nodes, {payload['edge_count']} edges, "
             f"{payload['file_count']} files"
         )
-        echo_table(["type", "count"], [[key, value] for key, value in payload["nodes_by_type"].items()])
+        nodes_by_type = cast(dict[str, int], payload["nodes_by_type"])
+        echo_table(["type", "count"], [[key, value] for key, value in nodes_by_type.items()])
 
 
 def _echo_relationships(

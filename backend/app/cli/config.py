@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import click
 
@@ -225,6 +226,7 @@ def _echo_config_update(
         "created": created,
         "updated": mask_config_values(updates, show_secrets=show_secrets),
     }
+    updated_values = cast(dict[str, str], payload["updated"])
     if as_json:
         echo_json(payload)
         return
@@ -235,7 +237,7 @@ def _echo_config_update(
         click.echo(f"Updated {env_file}")
         echo_table(
             ["key", "value"],
-            [[key, value] for key, value in payload["updated"].items()],
+            [[key, value] for key, value in updated_values.items()],
         )
         return
     click.echo(f"No changes made to {env_file}")

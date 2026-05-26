@@ -12,9 +12,12 @@ from backend.app.services.wiki.diagrams.rendering import (
     _abstract_group_for_node,
     _community_index,
     _edge_endpoint,
+    _float_value,
+    _int_value,
     _mermaid_class_text,
     _mermaid_label,
     _mermaid_text,
+    _metadata_dict,
 )
 
 
@@ -127,8 +130,8 @@ def _select_surface_nodes(nodes: list[dict[str, object]]) -> list[dict[str, obje
         candidates,
         key=lambda node: (
             _surface_rank(str(node.get("type") or "")),
-            int(node.get("hop") or 0),
-            -float(node.get("score") or 0.0),
+            _int_value(node.get("hop")),
+            -_float_value(node.get("score")),
             str(node.get("file_path") or ""),
             str(node.get("name") or ""),
         ),
@@ -145,8 +148,8 @@ def _select_data_nodes(nodes: list[dict[str, object]]) -> list[dict[str, object]
         candidates,
         key=lambda node: (
             _surface_rank(str(node.get("type") or "")),
-            int(node.get("hop") or 0),
-            -float(node.get("score") or 0.0),
+            _int_value(node.get("hop")),
+            -_float_value(node.get("score")),
             str(node.get("file_path") or ""),
             str(node.get("name") or ""),
         ),
@@ -164,7 +167,7 @@ def _surface_rank(node_type: str) -> int:
 
 def _surface_label(node: dict[str, object]) -> str:
     node_type = str(node.get("type") or "")
-    metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+    metadata = _metadata_dict(node)
     if node_type == "endpoint":
         method = str(metadata.get("route_method") or "").upper()
         route_path = str(metadata.get("route_path") or "")
@@ -207,7 +210,7 @@ def _class_display_label(node: dict[str, object]) -> str:
 
 
 def _data_node_fields(node: dict[str, object]) -> list[str]:
-    metadata = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+    metadata = _metadata_dict(node)
     fields = metadata.get("fields")
     if isinstance(fields, list):
         return [str(field) for field in fields if field is not None and str(field).strip()]
