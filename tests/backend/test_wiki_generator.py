@@ -846,6 +846,18 @@ def test_source_refs_accept_citation_ids_and_replace_markers(tmp_path: Path) -> 
     assert '[S1](source-link "api.py:L1-L2")' in markdown
 
 
+def test_adjacent_citation_markers_render_as_separate_links() -> None:
+    source_refs = [
+        {"citation_id": "S4", "file_path": "api.py", "start_line": 4, "end_line": 8},
+        {"citation_id": "S16", "file_path": "service.py", "start_line": 16, "end_line": 22},
+    ]
+
+    markdown = _replace_citation_markers("The flow crosses both modules. [[S4]][[S16]]", source_refs)
+
+    assert '[S4](source-link "api.py:L4-L8") [S16](source-link "service.py:L16-L22")' in markdown
+    assert "S4S16" not in markdown
+
+
 def test_diagram_placeholders_insert_server_diagrams_in_body() -> None:
     diagram = MermaidDiagram(
         slot="data-flow",
@@ -874,6 +886,8 @@ def test_diagram_placeholders_insert_server_diagrams_in_body() -> None:
     assert "[[DIAGRAM:" not in rendered
     assert rendered.index("## Control Flow") < rendered.index("### Handler data and call flow")
     assert rendered.index("### Handler data and call flow") < rendered.index("The flow ends")
+    assert "Diagram rationale:" not in rendered
+    assert "test diagram" not in rendered
     assert "Sources:" not in rendered
     assert "## Sources" in rendered
     assert "- api.py" in rendered

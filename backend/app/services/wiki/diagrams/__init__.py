@@ -63,8 +63,6 @@ def _mermaid_from_trace(
         lines.extend(["", f"### {diagram.title}", "", "```mermaid"])
         lines.extend(diagram.lines)
         lines.append("```")
-        if diagram.reason:
-            lines.extend(["", f"Diagram rationale: {diagram.reason}"])
     source_line = _section_sources_line(source_refs or [])
     if source_line:
         lines.extend(["", source_line])

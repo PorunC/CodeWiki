@@ -192,10 +192,7 @@ def _insert_after_heading(markdown: str, heading: str, insertion: str) -> tuple[
 
 
 def _diagram_markdown(diagram: _DiagramLike, source_refs: list[dict[str, Any]]) -> str:
-    lines = [f"### {diagram.title}", "", "```mermaid", *diagram.lines, "```"]
-    if diagram.reason:
-        lines.extend(["", f"Diagram rationale: {diagram.reason}"])
-    return "\n".join(lines)
+    return "\n".join([f"### {diagram.title}", "", "```mermaid", *diagram.lines, "```"])
 
 
 def _group_source_refs(source_refs: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
