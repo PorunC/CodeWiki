@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-26
+
+### Added
+
+- **Deeper wiki generation controls** — exposed GraphRAG retrieval depth and source
+  budget settings through environment configuration so generated wiki pages can use
+  broader repository context when needed.
+- **Python type checking workflow** — added mypy as a development dependency, a
+  `make typecheck` target, typing guidance in the project docs, and backend typecheck
+  coverage in GitHub Actions.
+
+### Changed
+
+- **Wiki page analysis depth** — strengthened page generation prompts to produce more
+  detailed subsystem explanations, implementation reasoning, workflows, data contracts,
+  operational notes, and source-grounded trade-offs.
+- **Backend typing coverage** — cleaned up typing across wiki generation, GraphRAG
+  context packing, graph building, repository mixins, CLI/MCP helpers, and LLM gateway
+  boundaries so backend mypy checks run without broad error-code suppression.
+
+### Fixed
+
+- **Wiki citation rendering** — normalized malformed source markers, removed unresolved
+  `[[S??]]` placeholders, and prevented adjacent source labels from collapsing into
+  ambiguous single-link text.
+- **Wiki diagram output** — removed generated diagram explanation blocks from rendered
+  pages while preserving validated Mermaid diagrams and source references.
+
 ## [0.5.0] - 2026-05-23
 
 ### Added
