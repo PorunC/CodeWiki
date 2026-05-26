@@ -29,6 +29,14 @@ def test_mcp_initialize_and_lists_tools(tmp_path: Path) -> None:
     assert tools is not None
     tool_names = {tool["name"] for tool in tools["result"]["tools"]}
     assert "codewiki_repo_add" in tool_names
+    assert "codewiki_repo_delete" in tool_names
+    assert "codewiki_repo_scan" in tool_names
+    assert "codewiki_files_tree" in tool_names
+    assert "codewiki_update" in tool_names
+    assert "codewiki_graph_status" in tool_names
+    assert "codewiki_graph_callers" in tool_names
+    assert "codewiki_wiki_catalog_generate" in tool_names
+    assert "codewiki_wiki_translate" in tool_names
     assert "codewiki_graph_search" in tool_names
     assert "codewiki_ask" in tool_names
 
@@ -73,6 +81,15 @@ def test_mcp_repo_add_analyze_and_graph_search(tmp_path: Path) -> None:
     )
     assert hits
     assert hits[0]["node"]["name"] == "answer"
+
+    files = _call_tool(server, "codewiki_files_tree", {"repo": added["id"]})
+    assert files["files"][0]["path"] == "main.py"
+
+    status = _call_tool(server, "codewiki_graph_status", {"repo": added["id"]})
+    assert status["node_count"] >= 2
+
+    deleted = _call_tool(server, "codewiki_repo_delete", {"repo": added["id"]})
+    assert deleted == {"repo_id": added["id"], "deleted": True}
 
 
 def _call_tool(server: CodeWikiMCPServer, name: str, arguments: dict[str, object]):

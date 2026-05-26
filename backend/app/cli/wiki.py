@@ -13,14 +13,22 @@ def register(main: click.Group) -> None:
 
     @wiki_group.command("catalog")
     @click.argument("repo", required=False)
+    @click.option("--language", default="en", show_default=True, help="Wiki language to generate.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
     @click.pass_context
-    def generate_catalog(ctx: click.Context, repo: str | None, as_json: bool) -> None:
+    def generate_catalog(
+        ctx: click.Context,
+        repo: str | None,
+        language: str,
+        as_json: bool,
+    ) -> None:
         """Generate a wiki catalog for REPO."""
         store = store_from_context(ctx)
         selected_repo = run_click_errors(lambda: resolve_repo(store, repo))
         catalog = run_click_errors(
-            lambda: asyncio.run(wiki_generator(store).generate_catalog(selected_repo.id)),
+            lambda: asyncio.run(
+                wiki_generator(store).generate_catalog(selected_repo.id, language_code=language)
+            ),
             capture_stdout=as_json,
         )
         if as_json:
@@ -30,14 +38,22 @@ def register(main: click.Group) -> None:
 
     @wiki_group.command("pages")
     @click.argument("repo", required=False)
+    @click.option("--language", default="en", show_default=True, help="Wiki language to generate.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
     @click.pass_context
-    def generate_pages(ctx: click.Context, repo: str | None, as_json: bool) -> None:
+    def generate_pages(
+        ctx: click.Context,
+        repo: str | None,
+        language: str,
+        as_json: bool,
+    ) -> None:
         """Generate all wiki pages for REPO."""
         store = store_from_context(ctx)
         selected_repo = run_click_errors(lambda: resolve_repo(store, repo))
         results = run_click_errors(
-            lambda: asyncio.run(wiki_generator(store).generate_all_pages(selected_repo.id)),
+            lambda: asyncio.run(
+                wiki_generator(store).generate_all_pages(selected_repo.id, language_code=language)
+            ),
             capture_stdout=as_json,
         )
         payload = [page_result_payload(result) for result in results]
@@ -87,6 +103,7 @@ def register(main: click.Group) -> None:
     @click.argument("slug")
     @click.argument("repo", required=False)
     @click.option("--repo", "repo_option", help="Repository id, name, or path.")
+    @click.option("--language", default="en", show_default=True, help="Wiki language to regenerate.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
     @click.pass_context
     def regenerate_page(
@@ -94,13 +111,20 @@ def register(main: click.Group) -> None:
         slug: str,
         repo: str | None,
         repo_option: str | None,
+        language: str,
         as_json: bool,
     ) -> None:
         """Regenerate one wiki page by SLUG."""
         store = store_from_context(ctx)
         selected_repo = run_click_errors(lambda: resolve_repo(store, repo_option or repo))
         result = run_click_errors(
-            lambda: asyncio.run(wiki_generator(store).regenerate_page(selected_repo.id, slug)),
+            lambda: asyncio.run(
+                wiki_generator(store).regenerate_page(
+                    selected_repo.id,
+                    slug,
+                    language_code=language,
+                )
+            ),
             capture_stdout=as_json,
         )
         payload = page_result_payload(result)
@@ -108,3 +132,108 @@ def register(main: click.Group) -> None:
             echo_json(payload)
             return
         click.echo(f"Page {result.page.status}: {result.page.slug}")
+
+    @wiki_group.command("list")
+    @click.argument("repo", required=False)
+    @click.option("--repo", "repo_option", help="Repository id, name, or path.")
+    @click.option("--language", default="en", show_default=True, help="Wiki language to read.")
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    @click.pass_context
+    def list_wiki(
+        ctx: click.Context,
+        repo: str | None,
+        repo_option: str | None,
+        language: str,
+        as_json: bool,
+    ) -> None:
+        """List generated wiki pages for REPO."""
+        store = store_from_context(ctx)
+        selected_repo = run_click_errors(lambda: resolve_repo(store, repo_option or repo))
+        catalog = store.get_latest_doc_catalog(selected_repo.id, language_code=language)
+        pages = store.list_doc_pages(selected_repo.id, language_code=language)
+        payload = {
+            "repo_id": selected_repo.id,
+            "catalog": catalog,
+            "items": catalog.structure.get("items", []) if catalog else [],
+            "pages": pages,
+        }
+        if as_json:
+            echo_json(payload)
+            return
+        if catalog:
+            click.echo(f"{catalog.title} ({catalog.language_code})")
+        if not pages:
+            click.echo("No wiki pages generated.")
+            return
+        for page in pages:
+            click.echo(f"{page.slug}  {page.title}  {page.status}")
+
+    @wiki_group.command("read")
+    @click.argument("slug")
+    @click.argument("repo", required=False)
+    @click.option("--repo", "repo_option", help="Repository id, name, or path.")
+    @click.option("--language", default="en", show_default=True, help="Wiki language to read.")
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    @click.pass_context
+    def read_wiki_page(
+        ctx: click.Context,
+        slug: str,
+        repo: str | None,
+        repo_option: str | None,
+        language: str,
+        as_json: bool,
+    ) -> None:
+        """Read a generated wiki page by SLUG."""
+        store = store_from_context(ctx)
+        selected_repo = run_click_errors(lambda: resolve_repo(store, repo_option or repo))
+        page = store.get_doc_page(selected_repo.id, slug, language_code=language)
+        if page is None:
+            raise click.ClickException(f"Wiki page not found: {slug}")
+        if as_json:
+            echo_json(page)
+            return
+        click.echo(page.markdown)
+
+    @wiki_group.command("translate")
+    @click.argument("target_language")
+    @click.argument("repo", required=False)
+    @click.option("--repo", "repo_option", help="Repository id, name, or path.")
+    @click.option("--source-language", default="en", show_default=True, help="Source wiki language.")
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    @click.pass_context
+    def translate_wiki(
+        ctx: click.Context,
+        target_language: str,
+        repo: str | None,
+        repo_option: str | None,
+        source_language: str,
+        as_json: bool,
+    ) -> None:
+        """Translate a generated wiki into TARGET_LANGUAGE."""
+        store = store_from_context(ctx)
+        selected_repo = run_click_errors(lambda: resolve_repo(store, repo_option or repo))
+        result = run_click_errors(
+            lambda: asyncio.run(
+                wiki_generator(store).translate_wiki(
+                    selected_repo.id,
+                    source_language=source_language,
+                    target_language=target_language,
+                )
+            ),
+            capture_stdout=as_json,
+        )
+        payload = {
+            "repo_id": selected_repo.id,
+            "source_language": result.source_language,
+            "target_language": result.target_language,
+            "catalog": result.catalog,
+            "page_count": len(result.pages),
+            "pages": result.pages,
+        }
+        if as_json:
+            echo_json(payload)
+            return
+        click.echo(
+            f"Translated {len(result.pages)} pages "
+            f"from {result.source_language} to {result.target_language}"
+        )

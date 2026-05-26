@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 from backend.app.cli import main
 from backend.app.config import get_settings
+from backend.app.database import DocPageRecord
 from backend.app.db.store import get_store
 
 
@@ -62,6 +63,77 @@ def test_cli_scans_repository_as_json(tmp_path: Path, monkeypatch) -> None:
     scan = json.loads(result.output)
     assert scan["scanned_count"] == 2
     assert {file["path"] for file in scan["files"]} == {"README.md", "main.py"}
+
+
+def test_cli_lists_file_tree_for_registered_repo(tmp_path: Path, monkeypatch) -> None:
+    _configure_database(tmp_path, monkeypatch)
+    repo_dir = _repo(tmp_path)
+    runner = CliRunner()
+    add_result = runner.invoke(main, ["repos", "add", str(repo_dir), "--json"])
+    repo_id = json.loads(add_result.output)["id"]
+
+    result = runner.invoke(main, ["files", "tree", repo_id, "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["repo_id"] == repo_id
+    assert {file["path"] for file in payload["files"]} == {"README.md", "main.py"}
+    assert payload["root"]["children"][0]["name"] == "main.py"
+
+
+def test_cli_deletes_registered_repository(tmp_path: Path, monkeypatch) -> None:
+    _configure_database(tmp_path, monkeypatch)
+    repo_dir = _repo(tmp_path)
+    runner = CliRunner()
+    add_result = runner.invoke(main, ["repos", "add", str(repo_dir), "--json"])
+    repo_id = json.loads(add_result.output)["id"]
+
+    result = runner.invoke(main, ["repos", "delete", repo_id, "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {"deleted": True, "repo_id": repo_id}
+    assert get_store().get_repo(repo_id) is None
+
+
+def test_cli_reads_wiki_pages_by_language(tmp_path: Path, monkeypatch) -> None:
+    _configure_database(tmp_path, monkeypatch)
+    repo_dir = _repo(tmp_path)
+    runner = CliRunner()
+    add_result = runner.invoke(main, ["repos", "add", str(repo_dir), "--json"])
+    repo_id = json.loads(add_result.output)["id"]
+    store = get_store()
+    store.save_doc_catalog(
+        repo_id,
+        title="文档",
+        structure={"items": [{"slug": "overview", "title": "概览"}]},
+        language_code="zh",
+        catalog_id="catalog-zh",
+    )
+    store.upsert_doc_page(
+        DocPageRecord(
+            id="page-zh",
+            repo_id=repo_id,
+            language_code="zh",
+            slug="overview",
+            title="概览",
+            parent_slug=None,
+            markdown="# 概览\n",
+            source_refs=[],
+            graph_refs=[],
+            status="generated",
+            updated_at="2026-05-26T00:00:00Z",
+        )
+    )
+
+    list_result = runner.invoke(main, ["wiki", "list", repo_id, "--language", "zh", "--json"])
+    read_result = runner.invoke(main, ["wiki", "read", "overview", repo_id, "--language", "zh"])
+
+    assert list_result.exit_code == 0, list_result.output
+    payload = json.loads(list_result.output)
+    assert payload["catalog"]["language_code"] == "zh"
+    assert payload["pages"][0]["title"] == "概览"
+    assert read_result.exit_code == 0, read_result.output
+    assert read_result.output == "# 概览\n\n"
 
 
 def test_cli_registers_git_url(tmp_path: Path, monkeypatch) -> None:

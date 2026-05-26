@@ -4,15 +4,20 @@ import time
 
 import click
 
+from backend.app.config import get_settings
+from backend.app.database import CodeWikiStore
 from backend.app.cli.common import echo_json, jsonable, resolve_repo, run_click_errors, store_from_context
-from backend.app.services.analyzer import AnalysisService
+from backend.app.services.analyzer import AnalysisService, _llm_configured
+from backend.app.services.community_namer import CommunityNamer
+from backend.app.services.community_naming import CommunityNamingResult
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.incremental.watcher import IncrementalUpdateWatcher, WatchIterationResult
+from backend.app.services.llm_gateway import LLMGateway
 
 def register(main: click.Group) -> None:
     @main.command("analyze")
     @click.argument("repo", required=False)
-    @click.option("--community-summaries/--no-community-summaries", default=False, show_default=True)
+    @click.option("--community-summaries/--no-community-summaries", default=True, show_default=True)
     @click.option("--force", is_flag=True, help="Ignore the incremental fast path and rebuild the graph.")
     @click.option("--progress", is_flag=True, help="Print analysis progress to stderr.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
@@ -69,6 +74,7 @@ def register(main: click.Group) -> None:
     @click.argument("repo", required=False)
     @click.option("--refresh-chunks/--no-refresh-chunks", default=True, show_default=True)
     @click.option("--regenerate-wiki/--no-regenerate-wiki", default=True, show_default=True)
+    @click.option("--community-summaries/--no-community-summaries", default=True, show_default=True)
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
     @click.pass_context
     def update_repo(
@@ -76,6 +82,7 @@ def register(main: click.Group) -> None:
         repo: str | None,
         refresh_chunks: bool,
         regenerate_wiki: bool,
+        community_summaries: bool,
         as_json: bool,
     ) -> None:
         """Run incremental graph update for REPO."""
@@ -98,6 +105,12 @@ def register(main: click.Group) -> None:
             **result.stats(),
             "wiki_regeneration": wiki_regeneration,
         }
+        if community_summaries:
+            naming_result = run_click_errors(
+                lambda: asyncio.run(_name_communities(store, selected_repo.id)),
+                capture_stdout=as_json,
+            )
+            payload["community_naming"] = jsonable(naming_result)
         if as_json:
             echo_json(payload)
             return
@@ -111,6 +124,8 @@ def register(main: click.Group) -> None:
                 pages = wiki_regeneration.get("pages")
                 regenerated_count = len(pages) if isinstance(pages, list) else 0
                 click.echo(f"Regenerated wiki pages: {regenerated_count}")
+        if community_summaries:
+            click.echo(f"Community summaries: {payload['community_naming']['status']}")
 
     @main.command("watch")
     @click.argument("repo", required=False)
@@ -256,3 +271,16 @@ def _int_value(value: object, default: int = 0) -> int:
         except ValueError:
             return default
     return default
+
+
+async def _name_communities(store: CodeWikiStore, repo_id: str) -> CommunityNamingResult:
+    settings = get_settings()
+    if not _llm_configured(settings):
+        return CommunityNamingResult(
+            repo_id=repo_id,
+            status="skipped",
+            renamed_count=0,
+            community_count=len(store.list_graph_communities(repo_id)),
+            errors=["LLM community naming skipped because no LLM endpoint or API key is configured."],
+        )
+    return await CommunityNamer(LLMGateway(settings), store=store).summarize_communities(repo_id)

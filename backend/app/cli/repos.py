@@ -8,7 +8,8 @@ from backend.app.cli.common import (
     scan_payload,
     store_from_context,
 )
-from backend.app.services.repo_scanner import RepoScanner
+from backend.app.database import CodeWikiStore
+from backend.app.services.repo_scanner import RepoDescriptor, RepoScanner
 
 
 def register(main: click.Group) -> None:
@@ -56,6 +57,23 @@ def register(main: click.Group) -> None:
             [[repo.id, repo.name, repo.source_type, repo.path] for repo in repos],
         )
 
+    @repos_group.command("delete")
+    @click.argument("repo")
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    @click.pass_context
+    def delete_repo(ctx: click.Context, repo: str, as_json: bool) -> None:
+        """Delete a registered repository and its indexed data."""
+        store = store_from_context(ctx)
+        selected_repo = run_click_errors(lambda: store.get_repo(repo))
+        if selected_repo is None:
+            selected_repo = run_click_errors(lambda: _resolve_delete_repo(store, repo))
+        deleted = store.delete_repo(selected_repo.id)
+        payload = {"repo_id": selected_repo.id, "deleted": deleted}
+        if as_json:
+            echo_json(payload)
+            return
+        click.echo(f"Deleted {selected_repo.name} ({selected_repo.id})")
+
     @repos_group.command("scan")
     @click.argument("path", type=str)
     @click.option("--name", help="Repository display name.")
@@ -71,3 +89,18 @@ def register(main: click.Group) -> None:
         click.echo(f"Scanned: {scan.scanned_count}")
         click.echo(f"Ignored: {scan.ignored_count}")
         click.echo(f"Skipped: {scan.skipped_count}")
+
+
+def _resolve_delete_repo(store: CodeWikiStore, selector: str) -> RepoDescriptor:
+    repos = store.list_repos()
+    name_matches = [repo for repo in repos if repo.name == selector]
+    if len(name_matches) == 1:
+        return name_matches[0]
+    if len(name_matches) > 1:
+        raise ValueError(f"Repository name is ambiguous: {selector}")
+    prefix_matches = [repo for repo in repos if repo.id.startswith(selector)]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    if len(prefix_matches) > 1:
+        raise ValueError(f"Repository id prefix is ambiguous: {selector}")
+    raise ValueError(f"Repository not found: {selector}")

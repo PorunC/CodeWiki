@@ -135,6 +135,8 @@ def jsonable(value: Any) -> Any:
         return jsonable(asdict(cast(Any, value)))
     if hasattr(value, "model_dump"):
         return jsonable(value.model_dump())
+    if hasattr(value, "as_record_dict"):
+        return jsonable(value.as_record_dict())
     if isinstance(value, dict):
         return {str(key): jsonable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
