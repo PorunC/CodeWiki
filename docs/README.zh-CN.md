@@ -113,6 +113,14 @@ CODEWIKI_LLM__MAX_RETRIES=3
 CODEWIKI_LLM__CACHE_ENABLED=true
 ```
 
+GraphRAG 检索上下文会直接影响 Wiki 页面生成可用的源码证据量。模型上下文窗口足够时，
+可以在 `.env` 中调高这些值，让 Wiki 页面更深入：
+
+```bash
+CODEWIKI_GRAPHRAG_CONTEXT_TOKEN_BUDGET=8000
+CODEWIKI_GRAPHRAG_MAX_SOURCE_CHUNKS=20
+```
+
 每类 LLM 任务都可以单独覆盖 model、provider type、endpoint、API key 和最大输出 token 数：
 
 ```bash
