@@ -212,6 +212,12 @@ def test_cli_lite_indexes_and_queries_project_local_database(tmp_path: Path) -> 
     impact = json.loads(impact_result.output)
     assert any(node["name"] == "main" for node in impact["nodes"])
 
+    files_result = runner.invoke(main, ["lite", "files", str(repo_dir), "--json"])
+    assert files_result.exit_code == 0, files_result.output
+    files_payload = json.loads(files_result.output)
+    assert files_payload["source"] == "index"
+    assert [file["path"] for file in files_payload["files"]] == ["app.py"]
+
     status_result = runner.invoke(main, ["lite", "status", str(repo_dir), "--json"])
     assert status_result.exit_code == 0, status_result.output
     assert json.loads(status_result.output)["pending_sync"] is False

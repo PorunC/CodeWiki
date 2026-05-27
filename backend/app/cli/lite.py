@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import click
 
@@ -298,19 +299,12 @@ def register(main: click.Group) -> None:
     @click.argument("path", required=False, default=".")
     @click.option("--source-only", is_flag=True, help="Only show source files.")
     @click.option("--tree", "as_tree", is_flag=True, help="Print a tree instead of a flat list.")
+    @click.option("--live", is_flag=True, help="Scan the file system instead of reading indexed files.")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
-    def files(path: str, source_only: bool, as_tree: bool, as_json: bool) -> None:
-        """List or tree files for the lightweight repository."""
+    def files(path: str, source_only: bool, as_tree: bool, live: bool, as_json: bool) -> None:
+        """List or tree indexed files for the lightweight repository."""
         store, repo = _lite_repo(path)
-        scan = run_click_errors(lambda: RepoScanner().scan(repo.path, name=repo.name, source_type=repo.source_type))
-        payload = {
-            "repo_id": repo.id,
-            "root": file_tree_payload(repo, scan.files),
-            "files": [file_payload(scanned_file) for scanned_file in scan.files],
-            "scanned_count": scan.scanned_count,
-            "ignored_count": scan.ignored_count,
-            "skipped_count": scan.skipped_count,
-        }
+        payload = _live_files_payload(repo) if live else _indexed_files_payload(store, repo.id, repo.name)
         store.close()
         if source_only:
             payload["files"] = [item for item in payload["files"] if item["is_source"]]
@@ -387,6 +381,107 @@ def _lite_status(path: str):
     payload["detection_strategy"] = plan.detection_strategy
     payload["database_path"] = str(lite_database_path(path))
     return store, repo, payload
+
+
+def _live_files_payload(repo) -> dict[str, Any]:
+    scan = run_click_errors(lambda: RepoScanner().scan(repo.path, name=repo.name, source_type=repo.source_type))
+    return {
+        "repo_id": repo.id,
+        "root": file_tree_payload(repo, scan.files),
+        "files": [file_payload(scanned_file) for scanned_file in scan.files],
+        "scanned_count": scan.scanned_count,
+        "ignored_count": scan.ignored_count,
+        "skipped_count": scan.skipped_count,
+        "source": "live",
+    }
+
+
+def _indexed_files_payload(store: CodeWikiStore, repo_id: str, repo_name: str) -> dict[str, Any]:
+    nodes, _edges = run_click_errors(lambda: store.get_graph(repo_id))
+    file_nodes = sorted(
+        [node for node in nodes if node.type in {"file", "config"}],
+        key=lambda node: node.file_path,
+    )
+    files = [
+        {
+            "path": node.file_path,
+            "absolute_path": node.metadata.get("absolute_path", ""),
+            "language": node.language,
+            "is_source": bool(node.metadata.get("is_source", node.type == "file")),
+            "size_bytes": _int_metadata(node.metadata.get("size_bytes")),
+            "sha256": node.hash,
+            "modified_at": node.metadata.get("modified_at", ""),
+            "type": node.type,
+        }
+        for node in file_nodes
+    ]
+    return {
+        "repo_id": repo_id,
+        "root": _indexed_file_tree(repo_name, files),
+        "files": files,
+        "scanned_count": len(files),
+        "ignored_count": 0,
+        "skipped_count": 0,
+        "source": "index",
+    }
+
+
+def _indexed_file_tree(repo_name: str, files: list[dict[str, Any]]) -> dict[str, object]:
+    root: dict[str, object] = {"name": repo_name, "type": "directory", "children": []}
+    for item in files:
+        path = str(item["path"])
+        current = root
+        parts = path.split("/")
+        for part in parts[:-1]:
+            children = current.setdefault("children", [])
+            assert isinstance(children, list)
+            child = next(
+                (
+                    entry for entry in children
+                    if isinstance(entry, dict) and entry.get("name") == part and entry.get("type") == "directory"
+                ),
+                None,
+            )
+            if child is None:
+                child = {"name": part, "type": "directory", "children": []}
+                children.append(child)
+            current = child
+        children = current.setdefault("children", [])
+        assert isinstance(children, list)
+        children.append(
+            {
+                "name": parts[-1],
+                "type": "file",
+                "path": path,
+                "language": item.get("language"),
+                "is_source": item.get("is_source"),
+            }
+        )
+    _sort_tree(root)
+    return root
+
+
+def _int_metadata(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return 0
+
+
+def _sort_tree(node: dict[str, object]) -> None:
+    children = node.get("children")
+    if not isinstance(children, list):
+        return
+    children.sort(
+        key=lambda child: (
+            0 if isinstance(child, dict) and child.get("type") == "directory" else 1,
+            str(child.get("name") if isinstance(child, dict) else child),
+        )
+    )
+    for child in children:
+        if isinstance(child, dict):
+            _sort_tree(child)
 
 
 def _echo_lite_relationships(
