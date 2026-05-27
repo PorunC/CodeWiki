@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-27
+
+### Added
+
+- **Lite Mode** — added project-local `.codewiki/codewiki-lite.sqlite3` indexes for
+  lightweight agent workflows without registering repositories in the main CodeWiki
+  database.
+- **Lite CLI** — added `codewiki lite init`, `index`, `sync`, `watch`, `status`,
+  `query`, `context`, `trace`, `node`, `files`, `callers`, `callees`, `impact`, and
+  `affected` commands.
+- **Lite MCP support** — added `codewiki mcp --lite --path ...` plus agent-facing
+  context, trace, node, and graph tools backed by the Lite index.
+- **Lite Mode benchmarking** — added a synthetic stress runner and documented
+  600-module and 2,000-module Lite Mode benchmark results.
+
+### Changed
+
+- **Indexed file reads** — `codewiki lite files` now reads indexed file nodes by
+  default, with `--live` available for filesystem scans.
+- **Service organization** — grouped community services under
+  `backend.app.services.community`, grouped LLM services under
+  `backend.app.services.llm`, and split affected-file helpers from graph query logic.
+- **Root npm wrapper** — removed the redundant root `package.json`; frontend package
+  metadata remains under `frontend/`.
+
+### Fixed
+
+- **Lite sync freshness** — Lite and MCP context responses now report pending sync
+  status and pending files when graph context is stale.
+- **Incremental containment recovery** — preserved file-to-symbol `contains` edges
+  during incremental sync so reused files keep stable graph containment.
+- **Repository scanning** — ignored `.codewiki/` Lite Mode state during source scans.
+
 ## [0.5.1] - 2026-05-26
 
 ### Added
