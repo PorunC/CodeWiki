@@ -4,6 +4,9 @@ from pathlib import Path
 
 from backend.app.database import SQLiteStore
 from backend.app.mcp_server import CodeWikiMCPServer
+from backend.app.services.analyzer import AnalysisService
+from backend.app.services.graph.query import GraphQueryService
+from backend.app.services.lite import init_lite_repo, prepare_lite_mcp_store
 
 
 def test_mcp_initialize_and_lists_tools(tmp_path: Path) -> None:
@@ -105,6 +108,31 @@ def test_mcp_repo_add_analyze_and_graph_search(tmp_path: Path) -> None:
 
     deleted = _call_tool(server, "codewiki_repo_delete", {"repo": added["id"]})
     assert deleted == {"repo_id": added["id"], "deleted": True}
+
+
+def test_lite_mcp_store_catches_up_existing_index(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "lite-repo"
+    repo_dir.mkdir()
+    source = repo_dir / "main.py"
+    source.write_text("def answer():\n    return 42\n", encoding="utf-8")
+    store, repo, _db_path = init_lite_repo(path=repo_dir)
+    analysis = asyncio.run(
+        AnalysisService(store=store).analyze_with_community_summaries(
+            repo.id,
+            name_communities=False,
+        )
+    )
+    assert analysis.analysis.status == "done"
+    store.close()
+
+    source.write_text("def answer():\n    return 43\n", encoding="utf-8")
+    caught_up_store = prepare_lite_mcp_store(path=repo_dir)
+    try:
+        context = GraphQueryService(store=caught_up_store).node_context(repo.id, "answer")
+    finally:
+        caught_up_store.close()
+
+    assert "return 43" in context.text
 
 
 def _call_tool(server: CodeWikiMCPServer, name: str, arguments: dict[str, object]):

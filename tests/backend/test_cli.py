@@ -197,6 +197,21 @@ def test_cli_lite_indexes_and_queries_project_local_database(tmp_path: Path) -> 
     hits = json.loads(query_result.output)
     assert hits[0]["node"]["name"] == "helper"
 
+    callers_result = runner.invoke(main, ["lite", "callers", "helper", str(repo_dir), "--json"])
+    assert callers_result.exit_code == 0, callers_result.output
+    callers = json.loads(callers_result.output)
+    assert callers[0]["source"]["name"] == "main"
+
+    callees_result = runner.invoke(main, ["lite", "callees", "main", str(repo_dir), "--json"])
+    assert callees_result.exit_code == 0, callees_result.output
+    callees = json.loads(callees_result.output)
+    assert callees[0]["target"]["name"] == "helper"
+
+    impact_result = runner.invoke(main, ["lite", "impact", "helper", str(repo_dir), "--json"])
+    assert impact_result.exit_code == 0, impact_result.output
+    impact = json.loads(impact_result.output)
+    assert any(node["name"] == "main" for node in impact["nodes"])
+
     status_result = runner.invoke(main, ["lite", "status", str(repo_dir), "--json"])
     assert status_result.exit_code == 0, status_result.output
     assert json.loads(status_result.output)["pending_sync"] is False
@@ -219,6 +234,11 @@ def test_cli_lite_indexes_and_queries_project_local_database(tmp_path: Path) -> 
     assert trace_result.exit_code == 0, trace_result.output
     assert "main -> helper" in trace_result.output
     assert "-> calls" in trace_result.output
+
+    uninit_result = runner.invoke(main, ["lite", "uninit", str(repo_dir), "--force", "--json"])
+    assert uninit_result.exit_code == 0, uninit_result.output
+    assert json.loads(uninit_result.output)["deleted"] is True
+    assert not (repo_dir / ".codewiki").exists()
 
 
 def test_cli_analysis_progress_goes_to_stderr_with_json_stdout(

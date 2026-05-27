@@ -10,7 +10,7 @@ from backend.app.services.analyzer import AnalysisService
 from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.incremental.watcher import IncrementalUpdateWatcher, WatchIterationResult
-from backend.app.services.lite import create_lite_store, init_lite_repo, lite_database_path
+from backend.app.services.lite import create_lite_store, init_lite_repo, lite_database_path, uninit_lite_repo
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.repo_scanner.tree import file_payload, file_tree_payload
 
@@ -34,6 +34,22 @@ def register(main: click.Group) -> None:
             return
         click.echo(f"Initialized lite index for {repo.name}")
         click.echo(str(db_path))
+
+    @lite_group.command("uninit")
+    @click.argument("path", required=False, default=".")
+    @click.option("--force", is_flag=True, help="Remove the lite index without prompting.")
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    def uninit(path: str, force: bool, as_json: bool) -> None:
+        """Remove the lightweight .codewiki index for PATH."""
+        db_path = lite_database_path(path)
+        if not force and not as_json:
+            click.confirm(f"Remove lite index at {db_path.parent}?", abort=True)
+        deleted = run_click_errors(lambda: uninit_lite_repo(path))
+        payload = {"database_path": db_path, "deleted": deleted}
+        if as_json:
+            echo_json(payload)
+            return
+        click.echo(f"Removed {db_path.parent}" if deleted else f"No lite index found at {db_path.parent}")
 
     @lite_group.command("index")
     @click.argument("path", required=False, default=".")
@@ -174,6 +190,42 @@ def register(main: click.Group) -> None:
             node = hit.node
             location = f"{node.file_path}:{node.start_line}" if node.file_path else node.id
             click.echo(f"{hit.score:.2f}  {node.name} ({node.type})  {location}")
+
+    @lite_group.command("callers")
+    @click.argument("symbol")
+    @click.argument("path", required=False, default=".")
+    @click.option("--limit", default=20, show_default=True, type=int)
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    def callers(symbol: str, path: str, limit: int, as_json: bool) -> None:
+        """List graph nodes that call or reference SYMBOL."""
+        _echo_lite_relationships(path, symbol, "callers", limit, as_json)
+
+    @lite_group.command("callees")
+    @click.argument("symbol")
+    @click.argument("path", required=False, default=".")
+    @click.option("--limit", default=20, show_default=True, type=int)
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    def callees(symbol: str, path: str, limit: int, as_json: bool) -> None:
+        """List graph nodes called or referenced by SYMBOL."""
+        _echo_lite_relationships(path, symbol, "callees", limit, as_json)
+
+    @lite_group.command("impact")
+    @click.argument("symbol")
+    @click.argument("path", required=False, default=".")
+    @click.option("--depth", default=2, show_default=True, type=int)
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    def impact(symbol: str, path: str, depth: int, as_json: bool) -> None:
+        """Show symbols potentially affected by changing SYMBOL."""
+        store, repo = _lite_repo(path)
+        result = run_click_errors(lambda: GraphQueryService(store=store).impact(repo.id, symbol, depth=depth))
+        store.close()
+        if as_json:
+            echo_json(result)
+            return
+        click.echo(f"Impact: {len(result.nodes)} nodes, {len(result.edges)} edges")
+        for item in sorted(result.nodes, key=lambda node: (node.file_path, node.start_line or 0, node.name))[:80]:
+            location = f"{item.file_path}:{item.start_line}" if item.file_path else item.id
+            click.echo(f"- {item.name} ({item.type}) {location}")
 
     @lite_group.command("context")
     @click.argument("task")
@@ -335,6 +387,33 @@ def _lite_status(path: str):
     payload["detection_strategy"] = plan.detection_strategy
     payload["database_path"] = str(lite_database_path(path))
     return store, repo, payload
+
+
+def _echo_lite_relationships(
+    path: str,
+    symbol: str,
+    mode: str,
+    limit: int,
+    as_json: bool,
+) -> None:
+    store, repo = _lite_repo(path)
+    service = GraphQueryService(store=store)
+    relationships = run_click_errors(
+        lambda: (
+            service.callers(repo.id, symbol, limit=limit)
+            if mode == "callers"
+            else service.callees(repo.id, symbol, limit=limit)
+        )
+    )
+    store.close()
+    if as_json:
+        echo_json(relationships)
+        return
+    for item in relationships:
+        click.echo(
+            f"{item.source.name} ({item.source.type}) -[{item.edge.type}]-> "
+            f"{item.target.name} ({item.target.type})"
+        )
 
 
 def _print_tree(node: object, prefix: str = "") -> None:

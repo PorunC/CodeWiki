@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from backend.app.database import CodeWikiStore, create_store
@@ -41,3 +42,32 @@ def init_lite_repo(
     store = create_lite_store(root)
     repo = store.upsert_repo(RepoScanner().describe(str(root), name=name, source_type=source_type))
     return store, repo, lite_database_path(root)
+
+
+def prepare_lite_mcp_store(
+    *,
+    path: str | Path | None = None,
+    sync: bool = True,
+) -> CodeWikiStore:
+    store, repo, _db_path = init_lite_repo(path=path)
+    if not sync:
+        return store
+    nodes, _edges = store.get_graph(repo.id)
+    if not nodes:
+        return store
+
+    from backend.app.services.incremental import IncrementalUpdater
+
+    updater = IncrementalUpdater(store=store)
+    plan = updater.plan(repo.id)
+    if plan.affected_files:
+        updater.update(repo.id, refresh_chunks=False)
+    return store
+
+
+def uninit_lite_repo(path: str | Path | None = None) -> bool:
+    directory = lite_dir(path)
+    if not directory.exists():
+        return False
+    shutil.rmtree(directory)
+    return True
