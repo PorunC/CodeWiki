@@ -53,6 +53,8 @@ def test_scan_respects_nested_gitignore(tmp_path: Path) -> None:
 
 def test_scan_ignores_lockfiles_by_default(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n")
+    (tmp_path / ".codewiki").mkdir()
+    (tmp_path / ".codewiki" / "codewiki-lite.sqlite3").write_text("local index\n")
     (tmp_path / "uv.lock").write_text("version = 1\n")
     (tmp_path / "package-lock.json").write_text('{"name":"demo"}\n')
     (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")
@@ -62,6 +64,7 @@ def test_scan_ignores_lockfiles_by_default(tmp_path: Path) -> None:
     paths = {item.path for item in result.files}
 
     assert "main.py" in paths
+    assert ".codewiki/codewiki-lite.sqlite3" not in paths
     assert "uv.lock" not in paths
     assert "package-lock.json" not in paths
     assert "pnpm-lock.yaml" not in paths

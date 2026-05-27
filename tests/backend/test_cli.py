@@ -197,6 +197,24 @@ def test_cli_lite_indexes_and_queries_project_local_database(tmp_path: Path) -> 
     hits = json.loads(query_result.output)
     assert hits[0]["node"]["name"] == "helper"
 
+    status_result = runner.invoke(main, ["lite", "status", str(repo_dir), "--json"])
+    assert status_result.exit_code == 0, status_result.output
+    assert json.loads(status_result.output)["pending_sync"] is False
+
+    (repo_dir / "app.py").write_text(
+        "def helper(x):\n"
+        "    return x + 2\n"
+        "\n"
+        "def main():\n"
+        "    return helper(40)\n",
+        encoding="utf-8",
+    )
+    stale_status_result = runner.invoke(main, ["lite", "status", str(repo_dir), "--json"])
+    assert stale_status_result.exit_code == 0, stale_status_result.output
+    stale_status = json.loads(stale_status_result.output)
+    assert stale_status["pending_sync"] is True
+    assert stale_status["changed_files"] == ["app.py"]
+
     trace_result = runner.invoke(main, ["lite", "trace", "main", "helper", str(repo_dir)])
     assert trace_result.exit_code == 0, trace_result.output
     assert "main -> helper" in trace_result.output

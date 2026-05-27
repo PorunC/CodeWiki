@@ -9,6 +9,7 @@ from backend.app.database import CodeWikiStore
 from backend.app.services.analyzer import AnalysisService
 from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.incremental import IncrementalUpdater
+from backend.app.services.incremental.watcher import IncrementalUpdateWatcher, WatchIterationResult
 from backend.app.services.lite import create_lite_store, init_lite_repo, lite_database_path
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.repo_scanner.tree import file_payload, file_tree_payload
@@ -89,6 +90,36 @@ def register(main: click.Group) -> None:
             f"{result.node_count} nodes, {result.edge_count} edges"
         )
 
+    @lite_group.command("watch")
+    @click.argument("path", required=False, default=".")
+    @click.option("--interval", default=2.0, show_default=True, type=float, help="Polling interval in seconds.")
+    @click.option("--debounce", default=2.0, show_default=True, type=float, help="Quiet period before syncing.")
+    def watch(path: str, interval: float, debounce: float) -> None:
+        """Watch PATH and keep the lightweight graph index fresh."""
+        store, repo = _lite_repo(path)
+        click.echo(f"Watching lite index for {repo.name}. Press Ctrl-C to stop.")
+
+        def on_iteration(result: WatchIterationResult) -> None:
+            if not result.changed:
+                return
+            click.echo(
+                f"Synced {len(result.affected_files)} files: "
+                f"{result.node_count} nodes, {result.edge_count} edges (run {result.run_id})"
+            )
+
+        try:
+            IncrementalUpdateWatcher(store=store).run(
+                repo.id,
+                interval_seconds=interval,
+                debounce_seconds=debounce,
+                refresh_chunks=False,
+                on_iteration=on_iteration,
+            )
+        except KeyboardInterrupt:
+            click.echo("Stopped watching.")
+        finally:
+            store.close()
+
     @lite_group.command("status")
     @click.argument("path", required=False, default=".")
     @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
@@ -103,6 +134,10 @@ def register(main: click.Group) -> None:
             f"{payload['node_count']} nodes, {payload['edge_count']} edges, "
             f"{payload['file_count']} files"
         )
+        if payload["pending_sync"]:
+            click.echo(f"Pending sync: {len(payload['pending_files'])} files")
+        else:
+            click.echo("Pending sync: none")
         click.echo(str(lite_database_path(path)))
 
     @lite_group.command("query")
@@ -291,6 +326,13 @@ def _lite_status(path: str):
     store, repo = _lite_repo(path)
     nodes, edges = run_click_errors(lambda: store.get_graph(repo.id))
     payload = graph_status_payload(repo.id, nodes, edges)
+    plan = run_click_errors(lambda: IncrementalUpdater(store=store).plan(repo.id))
+    payload["pending_sync"] = bool(plan.affected_files)
+    payload["pending_files"] = plan.affected_files
+    payload["changed_files"] = plan.changed_files
+    payload["new_files"] = plan.new_files
+    payload["deleted_files"] = plan.deleted_files
+    payload["detection_strategy"] = plan.detection_strategy
     payload["database_path"] = str(lite_database_path(path))
     return store, repo, payload
 

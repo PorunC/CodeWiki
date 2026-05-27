@@ -6,6 +6,7 @@ from pathspec.patterns.gitignore.spec import GitIgnoreSpecPattern
 
 DEFAULT_IGNORE_PATTERNS = [
     ".git/",
+    ".codewiki/",
     ".hg/",
     ".svn/",
     ".idea/",
