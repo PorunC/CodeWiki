@@ -53,3 +53,20 @@ def test_kill_process_ignores_already_exited_process(monkeypatch) -> None:
     monkeypatch.setattr(kill_ports.os, "kill", raise_process_lookup_error)
 
     kill_ports.kill_process(1234)
+
+
+def test_kill_process_falls_back_to_pid_when_process_group_is_denied(monkeypatch) -> None:
+    if os.name == "nt":
+        return
+
+    def raise_permission_error(_pgid: int, _signal: int) -> None:
+        raise PermissionError
+
+    def raise_process_lookup_error(_pid: int, _signal: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr(kill_ports, "signal_target", lambda _pid: ("pgid", 4321))
+    monkeypatch.setattr(kill_ports.os, "killpg", raise_permission_error)
+    monkeypatch.setattr(kill_ports.os, "kill", raise_process_lookup_error)
+
+    kill_ports.kill_process(1234)

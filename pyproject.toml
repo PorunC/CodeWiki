@@ -1,6 +1,6 @@
 [project]
 name = "codewiki"
-version = "0.6.1"
+version = "0.6.2"
 description = "Code wiki platform with AST graph analysis, GraphRAG, SQLite/PostgreSQL storage, and LiteLLM."
 readme = "README.md"
 license = "MIT"

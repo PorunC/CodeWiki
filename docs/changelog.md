@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-05-27
+
+### Fixed
+
+- **Port cleanup on Linux** — `scripts/kill_ports.py` now falls back from process-group
+  signaling to PID signaling when the process group cannot be signaled, while still
+  ignoring already-exited listeners.
+
 ## [0.6.1] - 2026-05-27
 
 ### Added

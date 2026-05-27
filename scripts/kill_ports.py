@@ -221,7 +221,10 @@ def kill_process(pid: int, sig: signal.Signals = signal.SIGTERM) -> None:
     try:
         target = signal_target(pid)
         if target[0] == "pgid":
-            os.killpg(target[1], sig)
+            try:
+                os.killpg(target[1], sig)
+            except PermissionError:
+                os.kill(pid, sig)
         else:
             os.kill(target[1], sig)
     except ProcessLookupError:
