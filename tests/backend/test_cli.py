@@ -28,6 +28,9 @@ def test_cli_help_lists_serve_command() -> None:
     assert "config" in result.output
     assert "mcp" in result.output
     assert "serve" in result.output
+    assert "Lite mode keeps a no-LLM index" in result.output
+    assert "codewiki lite index ." in result.output
+    assert "codewiki mcp --lite --path ." in result.output
 
 
 def test_cli_registers_and_lists_repositories(tmp_path: Path, monkeypatch) -> None:
@@ -245,6 +248,75 @@ def test_cli_lite_indexes_and_queries_project_local_database(tmp_path: Path) -> 
     assert uninit_result.exit_code == 0, uninit_result.output
     assert json.loads(uninit_result.output)["deleted"] is True
     assert not (repo_dir / ".codewiki").exists()
+
+
+def test_cli_lite_agents_install_claude_local_config(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main,
+        [
+            "lite",
+            "agents",
+            "install",
+            str(repo_dir),
+            "--target",
+            "claude",
+            "--location",
+            "local",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload[0]["target"] == "claude"
+    assert (repo_dir / ".mcp.json").exists()
+    mcp_config = json.loads((repo_dir / ".mcp.json").read_text(encoding="utf-8"))
+    server = mcp_config["mcpServers"]["codewiki-lite"]
+    assert server["command"] == "codewiki"
+    assert server["args"] == ["mcp", "--lite", "--path", str(repo_dir.resolve())]
+
+    settings = json.loads((repo_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert "mcp__codewiki-lite__codewiki_context" in settings["permissions"]["allow"]
+    instructions = (repo_dir / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "<!-- CODEWIKI_LITE_START -->" in instructions
+    assert "CodeWiki Lite" in instructions
+
+
+def test_cli_lite_agents_install_codex_global_config(tmp_path: Path, monkeypatch) -> None:
+    repo_dir = tmp_path / "repo"
+    home_dir = tmp_path / "home"
+    repo_dir.mkdir()
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main,
+        [
+            "lite",
+            "agents",
+            "install",
+            str(repo_dir),
+            "--target",
+            "codex",
+            "--location",
+            "global",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = (home_dir / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert "[mcp_servers.codewiki-lite]" in config
+    assert 'command = "codewiki"' in config
+    assert f'"{repo_dir.resolve()}"' in config
+    instructions = (home_dir / ".codex" / "AGENTS.md").read_text(encoding="utf-8")
+    assert "<!-- CODEWIKI_LITE_START -->" in instructions
+    assert "codewiki lite sync ." in instructions
 
 
 def test_cli_analysis_progress_goes_to_stderr_with_json_stdout(

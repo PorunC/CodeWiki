@@ -18,7 +18,16 @@ from backend.app.cli import analysis, ask, config, files, graph, graphrag, lite,
 )
 @click.pass_context
 def main(ctx: click.Context, database_url: str | None) -> None:
-    """Code Wiki command line tools."""
+    """Code Wiki command line tools.
+
+    Lite mode keeps a no-LLM index in the current project's .codewiki directory:
+
+    \b
+      codewiki lite index .
+      codewiki lite status .
+      codewiki lite sync .   # or: codewiki lite watch .
+      codewiki mcp --lite --path .
+    """
     if database_url:
         if get_store.cache_info().currsize:
             get_store().close()

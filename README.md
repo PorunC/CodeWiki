@@ -73,12 +73,15 @@ codewiki lite context "how authentication works"
 codewiki lite trace LoginForm createSession
 codewiki lite callers generate_page
 codewiki lite affected src/auth.py
+codewiki lite agents install . --target all
 codewiki mcp --lite --path .
 ```
 
 `codewiki lite status` reports pending file changes. `codewiki lite sync` refreshes the
 index, and `codewiki lite watch` keeps it fresh with a polling watcher. MCP Lite Mode
 catches up an existing index on startup unless `--no-sync` is passed.
+`codewiki lite agents install` can write Codex CLI and Claude Code MCP config plus
+agent instructions for the project.
 
 ## Configuration
 

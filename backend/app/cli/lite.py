@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import click
 
@@ -12,6 +12,15 @@ from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.incremental.watcher import IncrementalUpdateWatcher, WatchIterationResult
 from backend.app.services.lite import create_lite_store, init_lite_repo, lite_database_path, uninit_lite_repo
+from backend.app.services.lite_agents import (
+    AgentInstallResult,
+    AgentTarget,
+    InstallLocation,
+    install_lite_agents,
+    print_lite_agent_config,
+    resolve_agent_targets,
+    uninstall_lite_agents,
+)
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.repo_scanner.tree import file_payload, file_tree_payload
 
@@ -20,6 +29,114 @@ def register(main: click.Group) -> None:
     @main.group("lite")
     def lite_group() -> None:
         """Use a project-local, no-LLM CodeWiki index for agent workflows."""
+
+    @lite_group.group("agents")
+    def agents_group() -> None:
+        """Configure Codex and Claude Code to use Lite Mode over MCP."""
+
+    @agents_group.command("install")
+    @click.argument("path", required=False, default=".")
+    @click.option(
+        "--target",
+        default="all",
+        show_default=True,
+        help="Agent target: claude, codex, all, auto, none, or comma-separated values.",
+    )
+    @click.option(
+        "--location",
+        type=click.Choice(["global", "local"]),
+        default="local",
+        show_default=True,
+        help="Write user-wide or project-local agent config.",
+    )
+    @click.option(
+        "--auto-allow/--no-auto-allow",
+        default=True,
+        show_default=True,
+        help="Add Claude Code MCP permissions for CodeWiki Lite tools.",
+    )
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    def agents_install(
+        path: str,
+        target: str,
+        location: str,
+        auto_allow: bool,
+        as_json: bool,
+    ) -> None:
+        """Install Lite Mode MCP config for agent CLIs."""
+        install_location = cast(InstallLocation, location)
+        targets = run_click_errors(lambda: resolve_agent_targets(target, location=install_location))
+        results = run_click_errors(
+            lambda: install_lite_agents(
+                targets=targets,
+                location=install_location,
+                project_path=path,
+                auto_allow=auto_allow,
+            )
+        )
+        if as_json:
+            echo_json(results)
+            return
+        _echo_agent_results(results)
+        if location == "local" and "codex" in target.lower():
+            click.echo("Codex CLI has no project-local config; use --location global for Codex.")
+
+    @agents_group.command("uninstall")
+    @click.argument("path", required=False, default=".")
+    @click.option(
+        "--target",
+        default="all",
+        show_default=True,
+        help="Agent target: claude, codex, all, auto, none, or comma-separated values.",
+    )
+    @click.option(
+        "--location",
+        type=click.Choice(["global", "local"]),
+        default="local",
+        show_default=True,
+        help="Remove user-wide or project-local agent config.",
+    )
+    @click.option("--json", "as_json", is_flag=True, help="Print JSON output.")
+    def agents_uninstall(path: str, target: str, location: str, as_json: bool) -> None:
+        """Remove Lite Mode MCP config from agent CLIs."""
+        install_location = cast(InstallLocation, location)
+        targets = run_click_errors(lambda: resolve_agent_targets(target, location=install_location))
+        results = run_click_errors(
+            lambda: uninstall_lite_agents(
+                targets=targets,
+                location=install_location,
+                project_path=path,
+            )
+        )
+        if as_json:
+            echo_json(results)
+            return
+        _echo_agent_results(results)
+
+    @agents_group.command("print-config")
+    @click.argument("target", type=click.Choice(["claude", "codex"]))
+    @click.argument("path", required=False, default=".")
+    @click.option(
+        "--location",
+        type=click.Choice(["global", "local"]),
+        default="local",
+        show_default=True,
+        help="Print user-wide or project-local config.",
+    )
+    def agents_print_config(target: str, path: str, location: str) -> None:
+        """Print a Lite Mode MCP config snippet without writing files."""
+        agent_target = cast(AgentTarget, target)
+        install_location = cast(InstallLocation, location)
+        click.echo(
+            run_click_errors(
+                lambda: print_lite_agent_config(
+                    target=agent_target,
+                    location=install_location,
+                    project_path=path,
+                )
+            ),
+            nl=False,
+        )
 
     @lite_group.command("init")
     @click.argument("path", required=False, default=".")
@@ -509,6 +626,17 @@ def _echo_lite_relationships(
             f"{item.source.name} ({item.source.type}) -[{item.edge.type}]-> "
             f"{item.target.name} ({item.target.type})"
         )
+
+
+def _echo_agent_results(results: list[AgentInstallResult]) -> None:
+    if not results:
+        click.echo("No agent targets selected.")
+        return
+    for result in results:
+        for file in result.files:
+            click.echo(f"{result.target}: {file.action} {file.path}")
+        for note in result.notes:
+            click.echo(f"{result.target}: {note}")
 
 
 def _print_tree(node: object, prefix: str = "") -> None:

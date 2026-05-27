@@ -334,6 +334,17 @@ pages or source chunks.
 
 To expose the lite index over MCP:
 
+```bash
+# Configure Claude Code for this project and Codex CLI globally
+codewiki lite agents install . --target claude --location local
+codewiki lite agents install . --target codex --location global
+```
+
+The agent installer writes the MCP server entry, a marked CodeWiki Lite instructions
+section, and Claude Code permissions when `--auto-allow` is enabled. Use
+`codewiki lite agents print-config claude` or `codewiki lite agents print-config codex
+--location global` to inspect snippets without writing files.
+
 ```json
 {
   "mcpServers": {

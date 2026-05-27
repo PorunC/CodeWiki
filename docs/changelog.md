@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-05-27
+
+### Added
+
+- **Lite agent setup** — added `codewiki lite agents install`, `uninstall`, and
+  `print-config` for wiring CodeWiki Lite MCP into Claude Code and Codex CLI.
+- **Claude Code support** — local installs now write `.mcp.json`, `.claude/CLAUDE.md`,
+  and optional MCP allow-list permissions for CodeWiki Lite tools.
+- **Codex CLI support** — global installs now write `~/.codex/config.toml` and
+  `~/.codex/AGENTS.md` entries for the `codewiki-lite` MCP server.
+- **Lite Mode help** — top-level CLI help now includes a quick Lite Mode workflow.
+
+### Changed
+
+- **Lite agent internals** — split agent setup into focused target, registry, template,
+  MCP config, type, and file I/O modules.
+- **Lite docs** — documented Codex and Claude Code agent setup in the README and usage
+  guides.
+
 ## [0.6.0] - 2026-05-27
 
 ### Added

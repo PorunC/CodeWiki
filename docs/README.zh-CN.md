@@ -287,6 +287,17 @@ codewiki lite uninit . --force
 
 Lite Mode 也可以通过 MCP 暴露：
 
+```bash
+# 为当前项目配置 Claude Code，并为 Codex CLI 写入全局配置
+codewiki lite agents install . --target claude --location local
+codewiki lite agents install . --target codex --location global
+```
+
+agent 安装器会写入 MCP server 配置、带标记的 CodeWiki Lite 使用说明，并在启用
+`--auto-allow` 时写入 Claude Code 权限。可以用 `codewiki lite agents print-config
+claude` 或 `codewiki lite agents print-config codex --location global` 只查看配置片段，
+不写文件。
+
 ```json
 {
   "mcpServers": {
