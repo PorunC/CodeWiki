@@ -239,7 +239,7 @@ async def graph_explore(store: CodeWikiStore, args: JsonObject) -> Any:
         max_files=int_arg(args, "max_files", 12),
         max_nodes=int_arg(args, "max_nodes", 160),
     )
-    return jsonable(result)
+    return _with_pending_sync(store, repo.id, jsonable(result))
 
 
 async def graph_context(store: CodeWikiStore, args: JsonObject) -> Any:
@@ -250,7 +250,7 @@ async def graph_context(store: CodeWikiStore, args: JsonObject) -> Any:
         max_files=int_arg(args, "max_files", 12),
         max_nodes=int_arg(args, "max_nodes", 160),
     )
-    return jsonable(result)
+    return _with_pending_sync(store, repo.id, jsonable(result))
 
 
 async def graph_trace(store: CodeWikiStore, args: JsonObject) -> Any:
@@ -261,7 +261,7 @@ async def graph_trace(store: CodeWikiStore, args: JsonObject) -> Any:
         required_string(args, "to_symbol"),
         max_depth=int_arg(args, "max_depth", 8),
     )
-    return jsonable(result)
+    return _with_pending_sync(store, repo.id, jsonable(result))
 
 
 async def graph_node_context(store: CodeWikiStore, args: JsonObject) -> Any:
@@ -271,7 +271,7 @@ async def graph_node_context(store: CodeWikiStore, args: JsonObject) -> Any:
         required_string(args, "symbol"),
         include_code=bool_arg(args, "include_code", True),
     )
-    return jsonable(result)
+    return _with_pending_sync(store, repo.id, jsonable(result))
 
 
 async def graph_status(store: CodeWikiStore, args: JsonObject) -> Any:
@@ -286,7 +286,7 @@ async def graph_status(store: CodeWikiStore, args: JsonObject) -> Any:
             languages[node.language] = languages.get(node.language, 0) + 1
     for edge in edges:
         edges_by_type[edge.type] = edges_by_type.get(edge.type, 0) + 1
-    return {
+    payload = {
         "repo_id": repo.id,
         "file_count": sum(1 for node in nodes if node.type in {"file", "config"}),
         "node_count": len(nodes),
@@ -296,6 +296,7 @@ async def graph_status(store: CodeWikiStore, args: JsonObject) -> Any:
         "edges_by_type": dict(sorted(edges_by_type.items())),
         "languages": dict(sorted(languages.items())),
     }
+    return _with_pending_sync(store, repo.id, payload, prefix_text=False)
 
 
 async def graph_node_read(store: CodeWikiStore, args: JsonObject) -> Any:
@@ -334,6 +335,30 @@ async def graph_affected(store: CodeWikiStore, args: JsonObject) -> Any:
         test_glob=optional_string(args, "test_glob"),
     )
     return jsonable(result)
+
+
+def _with_pending_sync(
+    store: CodeWikiStore,
+    repo_id: str,
+    payload: Any,
+    *,
+    prefix_text: bool = True,
+) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    plan = IncrementalUpdater(store=store).plan(repo_id)
+    pending_files = plan.affected_files
+    payload["pending_sync"] = bool(pending_files)
+    payload["pending_files"] = pending_files
+    if pending_files and prefix_text and isinstance(payload.get("text"), str):
+        shown = ", ".join(pending_files[:12])
+        suffix = "" if len(pending_files) <= 12 else f", ... (+{len(pending_files) - 12} more)"
+        payload["text"] = (
+            "WARNING: index has pending file changes. Run codewiki_update or "
+            f"`codewiki lite sync` before relying on this context. Pending: {shown}{suffix}\n\n"
+            f"{payload['text']}"
+        )
+    return payload
 
 
 async def wiki_catalog_generate(store: CodeWikiStore, args: JsonObject) -> Any:

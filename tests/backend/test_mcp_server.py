@@ -97,6 +97,12 @@ def test_mcp_repo_add_analyze_and_graph_search(tmp_path: Path) -> None:
     node = _call_tool(server, "codewiki_node", {"repo": added["id"], "symbol": "answer"})
     assert node["node"]["name"] == "answer"
 
+    (repo_dir / "main.py").write_text("def answer():\n    return 43\n", encoding="utf-8")
+    stale_context = _call_tool(server, "codewiki_context", {"repo": added["id"], "task": "answer"})
+    assert stale_context["pending_sync"] is True
+    assert stale_context["pending_files"] == ["main.py"]
+    assert stale_context["text"].startswith("WARNING: index has pending file changes.")
+
     deleted = _call_tool(server, "codewiki_repo_delete", {"repo": added["id"]})
     assert deleted == {"repo_id": added["id"], "deleted": True}
 
