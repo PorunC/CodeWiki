@@ -230,10 +230,79 @@ codewiki ask --repo my-repo "Where are wiki pages generated?"
 # 面向本地 AI 助手的 MCP server
 codewiki mcp
 # 或：codewiki-mcp
+
+# Lite Mode：项目本地、无 LLM 的 agent 索引
+codewiki lite index .
+codewiki lite query AuthService
+codewiki lite context "how authentication works"
+codewiki lite trace LoginForm createSession
+codewiki lite affected src/auth.py
+codewiki mcp --lite --path .
 ```
 
 大多数命令都接受仓库 id、id 前缀、注册名、路径或 Git URL。
 需要机器可读输出时，可以为 CLI 命令添加 `--json`。
+
+## Lite Mode
+
+Lite Mode 面向本地 AI 助手和脚本。它在项目内创建
+`.codewiki/codewiki-lite.sqlite3`，复用 CodeWiki 的 AST 图谱事实，但跳过 LLM 调用、
+Wiki 生成、GraphRAG chunk 构建、PostgreSQL 和 Web UI 流程。适合把 CodeWiki 当作
+本地代码智能索引使用。
+
+```bash
+# 初始化或重建本地 lite 索引
+codewiki lite init .
+codewiki lite index .
+
+# 查看新鲜度并更新索引
+codewiki lite status .
+codewiki lite sync .
+codewiki lite watch .
+
+# 搜索和读取索引内容
+codewiki lite query AuthService
+codewiki lite files .
+codewiki lite files . --tree
+codewiki lite node generate_page
+codewiki lite context "wiki page generation"
+
+# 关系和影响分析
+codewiki lite callers generate_page
+codewiki lite callees GraphRAGRetriever
+codewiki lite impact GraphRAGRetriever
+codewiki lite trace WikiGenerator PageGenerator
+git diff --name-only | codewiki lite affected --stdin
+
+# 删除项目内 lite 索引
+codewiki lite uninit . --force
+```
+
+`codewiki lite files` 默认从索引读取文件结构，便于 AI 助手快速查看已知项目树；
+需要实时扫描文件系统时可以加 `--live`。
+
+`codewiki lite status` 会报告索引是否落后于文件系统；JSON 输出包含 changed/new/deleted
+文件列表。`codewiki lite sync` 执行一次增量更新，`codewiki lite watch` 用轮询方式保持
+图谱新鲜，并且不会生成 Wiki 页面或源码 chunk。
+
+Lite Mode 也可以通过 MCP 暴露：
+
+```json
+{
+  "mcpServers": {
+    "codewiki-lite": {
+      "command": "codewiki",
+      "args": ["mcp", "--lite", "--path", "."]
+    }
+  }
+}
+```
+
+`codewiki mcp --lite` 启动时会按需注册目标路径，并在服务工具前自动 catch up 已有索引。
+如果不希望启动时同步，可以传 `--no-sync`。Lite MCP 工具包含 `codewiki_context`、
+`codewiki_trace`、`codewiki_node`、图谱搜索/调用方/被调用方/影响面/探索/状态、索引文件
+和受影响文件分析。如果索引后文件发生变化，context 类 MCP 响应会包含 pending-sync 提示
+和受影响路径。
 
 ## MCP Server
 

@@ -19,6 +19,8 @@ GraphRAG retrieval, source-grounded wiki generation, and LiteLLM-powered Q&A.
 - Generate DeepWiki-style catalogs and pages with source citations, diagrams,
   translations, incremental updates, and browser-side exports.
 - Ask GraphRAG-grounded questions through the Web UI, CLI, HTTP API, or MCP server.
+- Use Lite Mode for a project-local, no-LLM graph index optimized for AI agent context,
+  traces, impact analysis, and MCP tools.
 - Use SQLite by default, or PostgreSQL with full-text search and optional pgvector
   vector search.
 
@@ -57,6 +59,26 @@ codewiki mcp
 
 Most repository arguments accept an id, id prefix, registered name, path, or Git URL.
 Use `--json` for machine-readable output.
+
+### Lite Mode
+
+Lite Mode creates a project-local `.codewiki/codewiki-lite.sqlite3` index and skips
+LLM, Wiki, GraphRAG chunk, and Web UI workflows. It is intended for local AI assistants
+that need fast symbol search, source context, call traces, and affected-file analysis.
+
+```bash
+codewiki lite index .
+codewiki lite query AuthService
+codewiki lite context "how authentication works"
+codewiki lite trace LoginForm createSession
+codewiki lite callers generate_page
+codewiki lite affected src/auth.py
+codewiki mcp --lite --path .
+```
+
+`codewiki lite status` reports pending file changes. `codewiki lite sync` refreshes the
+index, and `codewiki lite watch` keeps it fresh with a polling watcher. MCP Lite Mode
+catches up an existing index on startup unless `--no-sync` is passed.
 
 ## Configuration
 

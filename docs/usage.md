@@ -274,10 +274,83 @@ codewiki ask --repo my-repo "Where are wiki pages generated?"
 # MCP server for local AI assistants
 codewiki mcp
 # or: codewiki-mcp
+
+# Lite Mode: project-local, no-LLM agent index
+codewiki lite index .
+codewiki lite query AuthService
+codewiki lite context "how authentication works"
+codewiki lite trace LoginForm createSession
+codewiki lite affected src/auth.py
+codewiki mcp --lite --path .
 ```
 
 Most commands accept a repository id, id prefix, registered name, path, or Git URL.
 Use `--json` on CLI commands when machine-readable output is useful.
+
+## Lite Mode
+
+Lite Mode is the lightweight path for local AI assistants and scripts. It creates a
+project-local SQLite index at `.codewiki/codewiki-lite.sqlite3` and uses the same AST
+graph facts as the full platform, but skips LLM calls, Wiki generation, GraphRAG chunk
+building, PostgreSQL, and the Web UI. Use it when you want CodeWiki to behave like a
+local code-intelligence index for agent context.
+
+```bash
+# Initialize or rebuild the local lite index
+codewiki lite init .
+codewiki lite index .
+
+# Inspect freshness and keep the index updated
+codewiki lite status .
+codewiki lite sync .
+codewiki lite watch .
+
+# Search and inspect indexed code
+codewiki lite query AuthService
+codewiki lite files .
+codewiki lite files . --tree
+codewiki lite node generate_page
+codewiki lite context "wiki page generation"
+
+# Relationship and impact analysis
+codewiki lite callers generate_page
+codewiki lite callees GraphRAGRetriever
+codewiki lite impact GraphRAGRetriever
+codewiki lite trace WikiGenerator PageGenerator
+git diff --name-only | codewiki lite affected --stdin
+
+# Remove the project-local lite index
+codewiki lite uninit . --force
+```
+
+`codewiki lite files` reads from the index by default so assistants can inspect the
+known project tree without scanning the filesystem. Add `--live` when you explicitly
+want a fresh filesystem scan.
+
+`codewiki lite status` reports whether the index has pending file changes and lists
+changed, new, and deleted files in JSON output. `codewiki lite sync` updates once, while
+`codewiki lite watch` polls for changes and refreshes the graph without generating wiki
+pages or source chunks.
+
+To expose the lite index over MCP:
+
+```json
+{
+  "mcpServers": {
+    "codewiki-lite": {
+      "command": "codewiki",
+      "args": ["mcp", "--lite", "--path", "."]
+    }
+  }
+}
+```
+
+When `codewiki mcp --lite` starts, it registers the target path if needed and catches up
+an existing index before serving tools. Pass `--no-sync` to skip startup catch-up. Lite
+MCP tools include `codewiki_context`, `codewiki_trace`, `codewiki_node`, graph
+search/callers/callees/impact/explore/status, indexed files, and affected-file
+analysis. If files changed after indexing, context-style MCP responses include a
+pending-sync warning and the affected paths.
 
 ## MCP Server
 
