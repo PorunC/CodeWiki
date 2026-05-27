@@ -97,3 +97,30 @@ python scripts/benchmark_repos.py list
 ```
 
 Use the listed `key` values with `--repos`.
+
+## Lite Mode stress test
+
+Lite Mode has a separate synthetic stress runner because it focuses on project-local
+agent workflows rather than full Wiki/GraphRAG generation. The runner generates a
+Python repository with configurable module count and call fanout, then measures:
+
+- cold `codewiki lite index`
+- `status`, `query`, `context`, `trace`, `node`, and indexed `files`
+- stale `affected` and `status`
+- incremental `sync` and fresh `status`
+
+```bash
+python scripts/benchmark_lite_mode.py --files 600 --fanout 3
+```
+
+Results are written under:
+
+```bash
+~/CodeWikiLiteBench/results/<timestamp>/
+```
+
+Use a larger module count for heavier local stress runs:
+
+```bash
+python scripts/benchmark_lite_mode.py --files 2000 --fanout 4 --timeout-seconds 900
+```

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from scripts import benchmark_repos
+from scripts import benchmark_lite_mode
 
 
 def test_default_run_repos_match_layered_baseline() -> None:
@@ -120,3 +121,39 @@ def test_run_command_emits_periodic_status(tmp_path) -> None:
     assert result.exit_code == 0
     assert result.stdout.strip() == "{}"
     assert statuses
+
+
+def test_lite_benchmark_generates_synthetic_repo(tmp_path: Path) -> None:
+    repo = tmp_path / "synthetic"
+
+    benchmark_lite_mode.generate_python_repo(repo, files=4, fanout=2)
+
+    assert (repo / "pkg" / "module_0000.py").is_file()
+    text = (repo / "pkg" / "module_0000.py").read_text(encoding="utf-8")
+    assert "from pkg.module_0001 import func_1" in text
+    assert "from pkg.module_0002 import func_2" in text
+    assert (repo / "tests" / "test_smoke.py").is_file()
+
+
+def test_lite_benchmark_summary_flattens_metrics(tmp_path: Path) -> None:
+    csv_path = tmp_path / "lite-summary.csv"
+    benchmark_lite_mode.write_summary(
+        csv_path,
+        [
+            benchmark_lite_mode.LiteCommandResult(
+                scenario="cold-index",
+                command=["codewiki", "lite", "index", "."],
+                elapsed_seconds=1.25,
+                exit_code=0,
+                payload={"node_count": 10, "edge_count": 20, "pending_files": ["a.py"]},
+                stderr_tail="",
+            )
+        ],
+        files=4,
+        fanout=2,
+    )
+
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    assert rows[0]["scenario"] == "cold-index"
+    assert rows[0]["node_count"] == "10"
+    assert rows[0]["pending_files"] == "1"
