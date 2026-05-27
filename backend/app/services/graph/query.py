@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.database import CodeWikiStore
+from backend.app.services.graph.affected import (
+    file_dependents,
+    is_test_file,
+    page_source_files,
+    transitive_file_dependents,
+)
 from backend.app.services.graph.models import (
     CodeGraphEdge,
     CodeGraphNode,
@@ -316,20 +322,24 @@ class GraphQueryService:
         self._require_repo(repo_id)
         nodes, edges = self._graph(repo_id)
         normalized_files = sorted({path.strip().replace("\\", "/") for path in file_paths if path.strip()})
-        file_dependents = _file_dependents(edges, {node.id: node for node in nodes})
-        affected_files = _transitive_file_dependents(normalized_files, file_dependents, max_depth=max(1, depth))
+        dependents_by_file = file_dependents(edges, {node.id: node for node in nodes})
+        affected_files = transitive_file_dependents(
+            normalized_files,
+            dependents_by_file,
+            max_depth=max(1, depth),
+        )
         affected_file_set = set(affected_files) | set(normalized_files)
         affected_node_ids = sorted(
             node.id for node in nodes if node.file_path in affected_file_set
         )
         affected_tests = sorted(
             file_path for file_path in affected_file_set
-            if _is_test_file(file_path, test_glob)
+            if is_test_file(file_path, test_glob)
         )
         affected_wiki_pages = [
             page.slug
             for page in self.store.list_doc_pages(repo_id, language_code=None)
-            if _page_source_files(page.source_refs) & affected_file_set
+            if page_source_files(page.source_refs) & affected_file_set
             or set(page.graph_refs) & set(affected_node_ids)
         ]
         return AffectedAnalysisResult(
@@ -480,7 +490,7 @@ class GraphQueryService:
         sorted_groups = sorted(
             groups.items(),
             key=lambda item: (
-                _is_test_file(item[0], None),
+                is_test_file(item[0], None),
                 -int(item[1]["score"]),
                 item[0],
             ),
@@ -564,67 +574,6 @@ def _edge_priority(edge: CodeGraphEdge) -> tuple[int, float, str]:
         "implements": 6,
     }.get(edge.type, 9)
     return priority, -edge.confidence, edge.id
-
-
-def _file_dependents(
-    edges: list[CodeGraphEdge],
-    node_by_id: dict[str, CodeGraphNode],
-) -> dict[str, set[str]]:
-    dependents: dict[str, set[str]] = {}
-    for edge in edges:
-        if edge.type not in {"imports", "calls", "references", "routes_to", "inherits", "implements"}:
-            continue
-        source = node_by_id.get(edge.source_id)
-        target = node_by_id.get(edge.target_id)
-        if source is None or target is None:
-            continue
-        if not source.file_path or not target.file_path or source.file_path == target.file_path:
-            continue
-        dependents.setdefault(target.file_path, set()).add(source.file_path)
-    return dependents
-
-
-def _transitive_file_dependents(
-    changed_files: list[str],
-    file_dependents: dict[str, set[str]],
-    *,
-    max_depth: int,
-) -> list[str]:
-    affected: set[str] = set()
-    queue: deque[tuple[str, int]] = deque((file_path, 0) for file_path in changed_files)
-    visited = set(changed_files)
-    while queue:
-        file_path, depth = queue.popleft()
-        if depth >= max_depth:
-            continue
-        for dependent in sorted(file_dependents.get(file_path, set())):
-            if dependent in visited:
-                continue
-            visited.add(dependent)
-            affected.add(dependent)
-            queue.append((dependent, depth + 1))
-    return sorted(affected)
-
-
-def _is_test_file(file_path: str, test_glob: str | None) -> bool:
-    normalized = file_path.lower().replace("\\", "/")
-    if test_glob:
-        from fnmatch import fnmatch
-
-        return fnmatch(file_path, test_glob)
-    name = normalized.rsplit("/", 1)[-1]
-    return (
-        name.startswith("test_")
-        or ".test." in name
-        or ".spec." in name
-        or name.endswith("_test.go")
-        or name.endswith("_test.py")
-        or "/tests/" in normalized
-        or "/test/" in normalized
-        or "/__tests__/" in normalized
-        or "/e2e/" in normalized
-        or "/spec/" in normalized
-    )
 
 
 def _read_node_sections(
@@ -776,11 +725,3 @@ def _format_node_context_text(
             parts.append("```")
     return "\n".join(parts)
 
-
-def _page_source_files(source_refs: list[dict[str, Any]]) -> set[str]:
-    files: set[str] = set()
-    for ref in source_refs:
-        file_path = ref.get("file_path")
-        if isinstance(file_path, str) and file_path:
-            files.add(file_path)
-    return files
