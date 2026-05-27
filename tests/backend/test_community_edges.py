@@ -1,5 +1,5 @@
 from backend.app.database import GraphCommunityRecord
-from backend.app.services.community_edges import CommunityEdgeBuilder
+from backend.app.services.community.edges import CommunityEdgeBuilder
 from backend.app.services.graph import CodeGraphEdge
 
 

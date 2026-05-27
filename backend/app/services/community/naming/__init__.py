@@ -1,25 +1,27 @@
-from backend.app.services.community.naming import (
+from backend.app.services.community.naming.batching import batches
+from backend.app.services.community.naming.constants import (
     COMMUNITIES_PER_BATCH,
     MAX_COMMUNITIES_PER_LLM_CALL,
     MAX_COMMUNITY_EDGES,
     MAX_COMMUNITY_FILES,
     MAX_COMMUNITY_SYMBOLS,
     MAX_NAME_LENGTH,
-    CommunityNamingResult,
-    apply_llm_names,
-    batches,
-    community_payload,
-    dedupe_name,
-    edge_payload,
+)
+from backend.app.services.community.naming.fallback import (
     fallback_name_from_payload,
     humanize_name,
+    unique_preserve_order,
+)
+from backend.app.services.community.naming.models import CommunityNamingResult
+from backend.app.services.community.naming.payloads import community_payload, edge_payload, naming_payload
+from backend.app.services.community.naming.response import (
+    apply_llm_names,
+    dedupe_name,
     is_generic_name,
     json_object,
-    naming_payload,
     normalize_name,
     normalize_summary,
     renamed_count,
-    unique_preserve_order,
 )
 
 __all__ = [

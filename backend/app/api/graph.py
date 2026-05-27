@@ -23,7 +23,7 @@ from backend.app.schemas.graph import (
     GraphSubgraphResponse,
 )
 from backend.app.services.async_tasks import repo_write_lock
-from backend.app.services.community_namer import CommunityNamer
+from backend.app.services.community.namer import CommunityNamer
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.graphrag import GraphRAGRetriever

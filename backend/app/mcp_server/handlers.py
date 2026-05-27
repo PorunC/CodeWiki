@@ -16,8 +16,8 @@ from backend.app.mcp_server.types import JsonObject
 from backend.app.mcp_server.utils import jsonable, repo_payload, resolve_repo
 from backend.app.schemas.ask import AskRequest
 from backend.app.services.analyzer import AnalysisService, _llm_configured
-from backend.app.services.community_namer import CommunityNamer
-from backend.app.services.community_naming import CommunityNamingResult
+from backend.app.services.community.namer import CommunityNamer
+from backend.app.services.community.naming import CommunityNamingResult
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.incremental import IncrementalUpdater

@@ -4,7 +4,7 @@ from backend.app.database import CodeWikiStore
 from backend.app.services.analysis_pipeline import AnalysisPipeline
 from backend.app.services.ast_parser import AstParser
 from backend.app.services.async_tasks import run_blocking
-from backend.app.services.community_detector import CommunityDetector
+from backend.app.services.community.detector import CommunityDetector
 from backend.app.services.analyzer import (
     _community_count_by_level,
     _known_file_metadata_from_nodes,

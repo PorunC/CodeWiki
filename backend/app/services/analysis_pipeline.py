@@ -4,9 +4,9 @@ from collections.abc import Callable, Mapping
 
 from backend.app.database import GraphCommunityEdgeRecord, GraphCommunityRecord, CodeWikiStore
 from backend.app.services.ast_parser import AstParser, AstSymbol, parse_scanned_files
-from backend.app.services.community_detector import CommunityDetector
-from backend.app.services.community_edges import CommunityEdgeBuilder
-from backend.app.services.community_records import CommunityRecordBuilder
+from backend.app.services.community.detector import CommunityDetector
+from backend.app.services.community.edges import CommunityEdgeBuilder
+from backend.app.services.community.records import CommunityRecordBuilder
 from backend.app.services.graph import CodeGraph, GraphBuilder
 from backend.app.services.repo_scanner import RepoDescriptor, RepoScanResult, RepoScanner
 from backend.app.services.source_file_cache import SourceFileContentProvider

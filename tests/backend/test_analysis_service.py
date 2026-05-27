@@ -5,9 +5,9 @@ import pytest
 from backend.app.config import LLMProfileSettings, LLMSettings, Settings
 from backend.app.database import SQLiteStore
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.community_detector import DetectedCommunity
-from backend.app.services.community_records import CommunityRecordBuilder
-from backend.app.services.community_naming import CommunityNamingResult
+from backend.app.services.community.detector import DetectedCommunity
+from backend.app.services.community.records import CommunityRecordBuilder
+from backend.app.services.community.naming import CommunityNamingResult
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.repo_scanner import RepoScanner
 

@@ -1,12 +1,3 @@
-from dataclasses import dataclass
+from backend.app.services.community.naming.models import CommunityNamingResult
 
-
-@dataclass(frozen=True)
-class CommunityNamingResult:
-    repo_id: str
-    status: str
-    renamed_count: int
-    community_count: int
-    llm_run_id: str | None = None
-    llm_run_ids: list[str] | None = None
-    errors: list[str] | None = None
+__all__ = ["CommunityNamingResult"]

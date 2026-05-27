@@ -7,9 +7,9 @@ from backend.app.database import CodeWikiStore
 from backend.app.services.analysis_pipeline import AnalysisPipeline
 from backend.app.services.ast_parser import AstParser
 from backend.app.services.async_tasks import run_blocking
-from backend.app.services.community_detector import CommunityDetector
-from backend.app.services.community_namer import CommunityNamer
-from backend.app.services.community_naming import CommunityNamingResult
+from backend.app.services.community.detector import CommunityDetector
+from backend.app.services.community.namer import CommunityNamer
+from backend.app.services.community.naming import CommunityNamingResult
 from backend.app.services.graph import CodeGraph, CodeGraphNode, GraphBuilder
 from backend.app.services.llm_gateway import LLMGateway
 from backend.app.services.model_router import ModelRouter
