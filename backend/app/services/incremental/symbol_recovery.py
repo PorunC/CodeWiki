@@ -23,7 +23,12 @@ def _symbols_from_existing_graph(
                 file_imports.setdefault(source.file_path, set()).add(import_name)
         elif edge.type == "exports" and source.type == "file" and source.file_path in file_paths:
             file_exports.setdefault(source.file_path, set()).add(target.name)
-        elif edge.type == "contains" and source.symbol_id and target.symbol_id:
+        elif (
+            edge.type == "contains"
+            and source.type != "file"
+            and source.symbol_id
+            and target.symbol_id
+        ):
             parent_symbol_by_node_id[target.id] = source.symbol_id
 
     symbols: list[AstSymbol] = []

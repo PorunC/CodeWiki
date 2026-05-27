@@ -99,6 +99,44 @@ def test_incremental_update_removes_deleted_files_and_chunks(tmp_path: Path) -> 
     assert not any(chunk.file_path == "service.py" for chunk in store.list_code_chunks(repo.id))
 
 
+def test_incremental_update_preserves_file_symbol_contains_edges(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "service.py").write_text("def answer():\n    return 42\n", encoding="utf-8")
+    (repo_dir / "api.py").write_text(
+        "from service import answer\n\n"
+        "def handler():\n"
+        "    return answer()\n",
+        encoding="utf-8",
+    )
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    AnalysisService(store=store).analyze(repo.id)
+    _nodes_before, edges_before = store.get_graph(repo.id)
+    contains_before = sum(1 for edge in edges_before if edge.type == "contains")
+
+    (repo_dir / "api.py").write_text(
+        "from service import answer\n\n"
+        "def handler():\n"
+        "    return answer() + 1\n",
+        encoding="utf-8",
+    )
+    IncrementalUpdater(store=store).update(repo.id)
+    nodes_after, edges_after = store.get_graph(repo.id)
+    contains_after = sum(1 for edge in edges_after if edge.type == "contains")
+    service_file = next(node for node in nodes_after if node.type == "file" and node.file_path == "service.py")
+    answer = next(node for node in nodes_after if node.name == "answer")
+
+    assert contains_after == contains_before
+    assert any(
+        edge.type == "contains"
+        and edge.source_id == service_file.id
+        and edge.target_id == answer.id
+        for edge in edges_after
+    )
+
+
 def test_incremental_update_uses_metadata_git_diff_candidates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
