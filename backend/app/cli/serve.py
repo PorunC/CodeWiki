@@ -27,8 +27,15 @@ def register(main: click.Group) -> None:
         )
 
     @main.command("mcp")
-    def serve_mcp() -> None:
+    @click.option("--lite", is_flag=True, help="Use the project-local .codewiki lite database.")
+    @click.option("--path", default=".", show_default=True, help="Repository path for --lite.")
+    def serve_mcp(lite: bool, path: str) -> None:
         """Start the CodeWiki MCP server over stdio."""
-        from backend.app.mcp_server import main as mcp_main
+        import asyncio
 
-        mcp_main()
+        from backend.app.mcp_server.server import CodeWikiMCPServer
+        from backend.app.mcp_server.transport import run_stdio
+        from backend.app.services.lite import create_lite_store
+
+        store = create_lite_store(path) if lite else None
+        asyncio.run(run_stdio(CodeWikiMCPServer(store=store)))

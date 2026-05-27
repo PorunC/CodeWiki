@@ -242,6 +242,38 @@ async def graph_explore(store: CodeWikiStore, args: JsonObject) -> Any:
     return jsonable(result)
 
 
+async def graph_context(store: CodeWikiStore, args: JsonObject) -> Any:
+    repo = resolve_repo(store, optional_string(args, "repo"))
+    result = GraphQueryService(store=store).explore(
+        repo.id,
+        required_string(args, "task"),
+        max_files=int_arg(args, "max_files", 12),
+        max_nodes=int_arg(args, "max_nodes", 160),
+    )
+    return jsonable(result)
+
+
+async def graph_trace(store: CodeWikiStore, args: JsonObject) -> Any:
+    repo = resolve_repo(store, optional_string(args, "repo"))
+    result = GraphQueryService(store=store).trace(
+        repo.id,
+        required_string(args, "from_symbol"),
+        required_string(args, "to_symbol"),
+        max_depth=int_arg(args, "max_depth", 8),
+    )
+    return jsonable(result)
+
+
+async def graph_node_context(store: CodeWikiStore, args: JsonObject) -> Any:
+    repo = resolve_repo(store, optional_string(args, "repo"))
+    result = GraphQueryService(store=store).node_context(
+        repo.id,
+        required_string(args, "symbol"),
+        include_code=bool_arg(args, "include_code", True),
+    )
+    return jsonable(result)
+
+
 async def graph_status(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     nodes, edges = store.get_graph(repo.id)

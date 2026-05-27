@@ -173,6 +173,36 @@ def test_cli_runs_analysis(tmp_path: Path, monkeypatch) -> None:
     assert analysis["edge_count"] >= 1
 
 
+def test_cli_lite_indexes_and_queries_project_local_database(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "lite-repo"
+    repo_dir.mkdir()
+    (repo_dir / "app.py").write_text(
+        "def helper(x):\n"
+        "    return x + 1\n"
+        "\n"
+        "def main():\n"
+        "    return helper(41)\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+
+    index_result = runner.invoke(main, ["lite", "index", str(repo_dir), "--json"])
+    assert index_result.exit_code == 0, index_result.output
+    index_payload = json.loads(index_result.output)
+    assert index_payload["status"] == "done"
+    assert Path(index_payload["database_path"]) == repo_dir / ".codewiki" / "codewiki-lite.sqlite3"
+
+    query_result = runner.invoke(main, ["lite", "query", "helper", str(repo_dir), "--json"])
+    assert query_result.exit_code == 0, query_result.output
+    hits = json.loads(query_result.output)
+    assert hits[0]["node"]["name"] == "helper"
+
+    trace_result = runner.invoke(main, ["lite", "trace", "main", "helper", str(repo_dir)])
+    assert trace_result.exit_code == 0, trace_result.output
+    assert "main -> helper" in trace_result.output
+    assert "-> calls" in trace_result.output
+
+
 def test_cli_analysis_progress_goes_to_stderr_with_json_stdout(
     tmp_path: Path,
     monkeypatch,

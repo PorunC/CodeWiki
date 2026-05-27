@@ -35,6 +35,9 @@ def test_mcp_initialize_and_lists_tools(tmp_path: Path) -> None:
     assert "codewiki_update" in tool_names
     assert "codewiki_graph_status" in tool_names
     assert "codewiki_graph_callers" in tool_names
+    assert "codewiki_context" in tool_names
+    assert "codewiki_trace" in tool_names
+    assert "codewiki_node" in tool_names
     assert "codewiki_wiki_catalog_generate" in tool_names
     assert "codewiki_wiki_translate" in tool_names
     assert "codewiki_graph_search" in tool_names
@@ -87,6 +90,12 @@ def test_mcp_repo_add_analyze_and_graph_search(tmp_path: Path) -> None:
 
     status = _call_tool(server, "codewiki_graph_status", {"repo": added["id"]})
     assert status["node_count"] >= 2
+
+    context = _call_tool(server, "codewiki_context", {"repo": added["id"], "task": "answer"})
+    assert "answer" in context["text"]
+
+    node = _call_tool(server, "codewiki_node", {"repo": added["id"], "symbol": "answer"})
+    assert node["node"]["name"] == "answer"
 
     deleted = _call_tool(server, "codewiki_repo_delete", {"repo": added["id"]})
     assert deleted == {"repo_id": added["id"], "deleted": True}

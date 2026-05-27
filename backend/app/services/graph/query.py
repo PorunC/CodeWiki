@@ -64,6 +64,32 @@ class ExploreContextResult:
     stats: dict[str, int]
 
 
+@dataclass(frozen=True)
+class GraphTraceStep:
+    node: CodeGraphNode
+    outgoing_edge: CodeGraphEdge | None
+
+
+@dataclass(frozen=True)
+class GraphTraceResult:
+    repo_id: str
+    from_symbol: str
+    to_symbol: str
+    found: bool
+    steps: list[GraphTraceStep]
+    text: str
+
+
+@dataclass(frozen=True)
+class GraphNodeContextResult:
+    repo_id: str
+    node: CodeGraphNode
+    callers: list[GraphRelationship]
+    callees: list[GraphRelationship]
+    source_sections: list[ExploreFileSection]
+    text: str
+
+
 class GraphQueryService:
     def __init__(self, *, store: CodeWikiStore) -> None:
         self.store = store
@@ -136,6 +162,92 @@ class GraphQueryService:
         nodes, edges = self._graph(repo_id)
         roots = self._symbol_matches(repo_id, symbol, nodes)
         return self._impact_from_roots(nodes, edges, [node.id for node in roots], depth=max(1, depth))
+
+    def trace(
+        self,
+        repo_id: str,
+        from_symbol: str,
+        to_symbol: str,
+        *,
+        max_depth: int = 8,
+    ) -> GraphTraceResult:
+        nodes, edges = self._graph(repo_id)
+        start_nodes = self._symbol_matches(repo_id, from_symbol, nodes)
+        target_nodes = self._symbol_matches(repo_id, to_symbol, nodes)
+        node_by_id = {node.id: node for node in nodes}
+        target_ids = {node.id for node in target_nodes}
+        adjacency: dict[str, list[CodeGraphEdge]] = {}
+        for edge in edges:
+            if edge.type in DEFAULT_FLOW_EDGE_TYPES:
+                adjacency.setdefault(edge.source_id, []).append(edge)
+
+        queue: deque[tuple[str, str, list[CodeGraphEdge]]] = deque(
+            (node.id, node.id, []) for node in start_nodes
+        )
+        visited = {node.id for node in start_nodes}
+        path: list[CodeGraphEdge] | None = None
+        path_start_id: str | None = None
+        while queue:
+            start_id, node_id, edge_path = queue.popleft()
+            if node_id in target_ids:
+                path = edge_path
+                path_start_id = start_id
+                break
+            if len(edge_path) >= max(1, max_depth):
+                continue
+            for edge in sorted(adjacency.get(node_id, []), key=_edge_priority):
+                if edge.target_id in visited or edge.target_id not in node_by_id:
+                    continue
+                visited.add(edge.target_id)
+                queue.append((start_id, edge.target_id, [*edge_path, edge]))
+
+        steps: list[GraphTraceStep] = []
+        if path is not None and path_start_id is not None:
+            current_id = path_start_id if not path else path[0].source_id
+            if current_id in node_by_id:
+                for edge in path:
+                    steps.append(GraphTraceStep(node=node_by_id[current_id], outgoing_edge=edge))
+                    current_id = edge.target_id
+                if current_id in node_by_id:
+                    steps.append(GraphTraceStep(node=node_by_id[current_id], outgoing_edge=None))
+        text = _format_trace_text(from_symbol, to_symbol, steps)
+        return GraphTraceResult(
+            repo_id=repo_id,
+            from_symbol=from_symbol,
+            to_symbol=to_symbol,
+            found=bool(steps),
+            steps=steps,
+            text=text,
+        )
+
+    def node_context(
+        self,
+        repo_id: str,
+        symbol: str,
+        *,
+        include_code: bool = True,
+        limit: int = 20,
+    ) -> GraphNodeContextResult:
+        repo = self._require_repo(repo_id)
+        nodes, edges = self._graph(repo_id)
+        matches = self._symbol_matches(repo_id, symbol, nodes)
+        if not matches:
+            raise ValueError(f"Node not found: {symbol}")
+        node = matches[0]
+        callers = self.callers(repo_id, node.id, limit=limit)
+        callees = self.callees(repo_id, node.id, limit=limit)
+        sections: list[ExploreFileSection] = []
+        if include_code and node.file_path:
+            sections = _read_node_sections(Path(repo.path).resolve(), node.file_path, [node])
+        text = _format_node_context_text(node, callers, callees, sections)
+        return GraphNodeContextResult(
+            repo_id=repo_id,
+            node=node,
+            callers=callers,
+            callees=callees,
+            source_sections=sections,
+            text=text,
+        )
 
     def explore(
         self,
@@ -261,7 +373,8 @@ class GraphQueryService:
         symbol_lower = symbol.lower()
         return [
             node for node in nodes
-            if node.name.lower() == symbol_lower
+            if node.id.lower() == symbol_lower
+            or node.name.lower() == symbol_lower
             or (node.symbol_id and symbol_lower in node.symbol_id.lower())
         ][:50]
 
@@ -426,6 +539,8 @@ def _edge_payload(edge: CodeGraphEdge, node_by_id: dict[str, CodeGraphNode]) -> 
 
 def _matches_symbol(node: CodeGraphNode, symbol: str) -> bool:
     symbol_lower = symbol.lower()
+    if node.id.lower() == symbol_lower:
+        return True
     if node.name.lower() == symbol_lower:
         return True
     if node.type == "file" and node.name.rsplit(".", 1)[0].lower() == symbol_lower:
@@ -609,6 +724,57 @@ def _format_explore_text(
             )
             parts.append(f"- {item['file_path']}: {symbols}")
     return "\n".join(parts).strip()
+
+
+def _format_trace_text(
+    from_symbol: str,
+    to_symbol: str,
+    steps: list[GraphTraceStep],
+) -> str:
+    if not steps:
+        return f"No static call/reference path found from {from_symbol!r} to {to_symbol!r}."
+    parts = [f"## Trace: {from_symbol} -> {to_symbol}", ""]
+    for index, step in enumerate(steps, start=1):
+        node = step.node
+        location = f"{node.file_path}:{node.start_line}" if node.file_path else node.id
+        parts.append(f"{index}. {node.name} ({node.type}) {location}")
+        if step.outgoing_edge is not None:
+            parts.append(f"   -> {step.outgoing_edge.type}")
+    return "\n".join(parts)
+
+
+def _format_node_context_text(
+    node: CodeGraphNode,
+    callers: list[GraphRelationship],
+    callees: list[GraphRelationship],
+    sections: list[ExploreFileSection],
+) -> str:
+    location = f"{node.file_path}:{node.start_line}" if node.file_path else node.id
+    parts = [f"## Node: {node.name}", "", f"- Type: {node.type}", f"- Location: {location}"]
+    if node.symbol_id:
+        parts.append(f"- Symbol: {node.symbol_id}")
+    if callers:
+        parts.extend(["", "### Callers"])
+        for rel in callers[:20]:
+            source_location = (
+                f"{rel.source.file_path}:{rel.source.start_line}" if rel.source.file_path else rel.source.id
+            )
+            parts.append(f"- {rel.source.name} ({rel.source.type}) {source_location}")
+    if callees:
+        parts.extend(["", "### Callees"])
+        for rel in callees[:20]:
+            target_location = (
+                f"{rel.target.file_path}:{rel.target.start_line}" if rel.target.file_path else rel.target.id
+            )
+            parts.append(f"- {rel.target.name} ({rel.target.type}) {target_location}")
+    if sections:
+        parts.extend(["", "### Source"])
+        for section in sections:
+            parts.append(f"#### {section.file_path}:{section.start_line}-{section.end_line}")
+            parts.append("```")
+            parts.append(section.content)
+            parts.append("```")
+    return "\n".join(parts)
 
 
 def _page_source_files(source_refs: list[dict[str, Any]]) -> set[str]:

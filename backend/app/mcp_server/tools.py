@@ -237,6 +237,50 @@ def build_tools(store: CodeWikiStore) -> dict[str, ToolSpec]:
             handler=lambda args: handlers.graph_explore(store, args),
         ),
         ToolSpec(
+            name="codewiki_context",
+            description=(
+                "Lite/agent tool: build relevant source context for a task in one call. "
+                "This is the preferred first tool for architecture and how-does-this-work questions."
+            ),
+            input_schema=object_schema(
+                {
+                    "repo": {"type": "string", "description": "Repo id, name, path, or Git URL."},
+                    "task": {"type": "string", "description": "Task, question, or code terms."},
+                    "max_files": {"type": "integer", "default": 12},
+                    "max_nodes": {"type": "integer", "default": 160},
+                },
+                required=["task"],
+            ),
+            handler=lambda args: handlers.graph_context(store, args),
+        ),
+        ToolSpec(
+            name="codewiki_trace",
+            description="Lite/agent tool: trace a static call/reference path between two symbols.",
+            input_schema=object_schema(
+                {
+                    "repo": {"type": "string", "description": "Repo id, name, path, or Git URL."},
+                    "from_symbol": {"type": "string", "description": "Starting symbol."},
+                    "to_symbol": {"type": "string", "description": "Destination symbol."},
+                    "max_depth": {"type": "integer", "default": 8},
+                },
+                required=["from_symbol", "to_symbol"],
+            ),
+            handler=lambda args: handlers.graph_trace(store, args),
+        ),
+        ToolSpec(
+            name="codewiki_node",
+            description="Lite/agent tool: read one symbol plus callers, callees, and optional source.",
+            input_schema=object_schema(
+                {
+                    "repo": {"type": "string", "description": "Repo id, name, path, or Git URL."},
+                    "symbol": {"type": "string", "description": "Symbol name, id, or qualified name."},
+                    "include_code": {"type": "boolean", "default": True},
+                },
+                required=["symbol"],
+            ),
+            handler=lambda args: handlers.graph_node_context(store, args),
+        ),
+        ToolSpec(
             name="codewiki_graph_status",
             description="Show graph index statistics for a repository.",
             input_schema=object_schema(
