@@ -1,7 +1,7 @@
 import networkx as nx
 
-import backend.app.services.community_detector as community_detector
-from backend.app.services.community_detector import CommunityDetector, _partition
+import backend.app.services.community.detector as community_detector
+from backend.app.services.community.detector import CommunityDetector, _partition
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 
 
