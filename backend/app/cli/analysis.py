@@ -12,7 +12,7 @@ from backend.app.services.community.namer import CommunityNamer
 from backend.app.services.community.naming import CommunityNamingResult
 from backend.app.services.incremental import IncrementalUpdater
 from backend.app.services.incremental.watcher import IncrementalUpdateWatcher, WatchIterationResult
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 
 def register(main: click.Group) -> None:
     @main.command("analyze")

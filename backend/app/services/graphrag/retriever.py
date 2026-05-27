@@ -26,7 +26,7 @@ from backend.app.services.graphrag.search import (
     seed_from_symbols,
 )
 from backend.app.services.graphrag.utils import stable_id
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 
 
 class GraphRAGRetriever:

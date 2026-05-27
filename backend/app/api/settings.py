@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from backend.app.config import get_settings
-from backend.app.services.model_router import ModelRouter
+from backend.app.services.llm.model_router import ModelRouter
 
 router = APIRouter()
 

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.database import SQLiteStore
-from backend.app.services.llm_gateway import LLMResult
-from backend.app.services.llm_run_recorder import LLMCallError, complete_with_cache, unique_cache_key
+from backend.app.services.llm.gateway import LLMResult
+from backend.app.services.llm.run_recorder import LLMCallError, complete_with_cache, unique_cache_key
 from backend.app.services.repo_scanner import RepoScanner
 
 

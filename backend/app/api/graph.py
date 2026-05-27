@@ -27,7 +27,7 @@ from backend.app.services.community.namer import CommunityNamer
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.graphrag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 
 router = APIRouter()
 

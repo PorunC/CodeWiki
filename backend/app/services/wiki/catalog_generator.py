@@ -3,8 +3,8 @@ from typing import Any
 from backend.app.database import DocCatalogRecord, CodeWikiStore
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_operations import CachedLLMService, LLMOperation
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.repo_context import RepositoryContextBuilder
 from backend.app.services.wiki.catalog import (
     _normalize_catalog_payload,

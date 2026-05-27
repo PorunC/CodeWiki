@@ -4,8 +4,8 @@ from backend.app.config import get_settings
 from backend.app.database import get_store
 from backend.app.schemas.ask import AskRequest, AskResponse
 from backend.app.services.graphrag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import LLMCallError
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.run_recorder import LLMCallError
 from backend.app.services.question_answerer import QuestionAnswerer
 
 router = APIRouter()

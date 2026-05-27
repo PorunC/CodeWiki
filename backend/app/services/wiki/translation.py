@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.app.database import DocCatalogRecord, DocPageRecord, CodeWikiStore
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_run_recorder import LLMCallError
-from backend.app.services.llm_operations import CachedLLMService, LLMOperation
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.run_recorder import LLMCallError
+from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.wiki.catalog import _validate_catalog_payload
 from backend.app.services.wiki.language import normalize_language
 from backend.app.services.wiki.prompts import _json_object

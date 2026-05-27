@@ -3,7 +3,7 @@ from typing import Any
 from backend.app.config import Settings
 from backend.app.database import DocCatalogRecord, DocPageRecord, CodeWikiStore, get_store
 from backend.app.services.graphrag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 from backend.app.services.repo_context import RepositoryContextBuilder
 from backend.app.services.wiki.catalog_generator import WikiCatalogGenerator
 from backend.app.services.wiki.incremental_strategy import WikiIncrementalStrategy, WikiUpdateResult

@@ -12,8 +12,8 @@ from backend.app.services.community.naming import (
     naming_payload,
     renamed_count,
 )
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_operations import CachedLLMService, LLMOperation
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.prompts import load_prompt
 
 

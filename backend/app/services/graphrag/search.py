@@ -4,7 +4,7 @@ from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import SEED_NODE_TYPES
 from backend.app.services.graphrag.models import NodeHit
 from backend.app.services.graphrag.utils import fts_query, node_haystack, node_type_boost, terms
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 
 
 def seed_from_symbols(

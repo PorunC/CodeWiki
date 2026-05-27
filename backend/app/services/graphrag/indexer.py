@@ -5,7 +5,7 @@ from backend.app.services.chunk_builder import ChunkBuilder
 from backend.app.services.embedding_index import EmbeddingIndex
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.models import GraphRAGBuildResult
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 from backend.app.services.source_file_cache import SourceFileContentProvider
 
 

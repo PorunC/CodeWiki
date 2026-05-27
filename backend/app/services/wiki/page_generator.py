@@ -5,9 +5,9 @@ from typing import Any
 
 from backend.app.database import DocPageRecord, CodeWikiStore
 from backend.app.services.graphrag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_operations import CachedLLMService, LLMOperation
-from backend.app.services.llm_run_recorder import LLMCallError
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.operations import CachedLLMService, LLMOperation
+from backend.app.services.llm.run_recorder import LLMCallError
 from backend.app.services.wiki.agent_tools import readfile_evidence_for_page
 from backend.app.services.wiki.catalog import (
     _source_hints_from_item,

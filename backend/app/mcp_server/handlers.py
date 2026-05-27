@@ -21,8 +21,8 @@ from backend.app.services.community.naming import CommunityNamingResult
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graph.query import GraphQueryService
 from backend.app.services.incremental import IncrementalUpdater
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.model_router import ModelRouter
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.model_router import ModelRouter
 from backend.app.services.question_answerer import QuestionAnswerer
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.repo_scanner.tree import file_payload, file_tree_payload

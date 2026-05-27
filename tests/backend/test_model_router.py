@@ -1,7 +1,7 @@
 import os
 
 from backend.app.config import LLMProfileSettings, LLMSettings, Settings
-from backend.app.services.model_router import ModelRouter
+from backend.app.services.llm.model_router import ModelRouter
 
 
 def _test_settings(

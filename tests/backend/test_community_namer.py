@@ -9,7 +9,7 @@ from backend.app.services.community.edges import CommunityEdgeBuilder
 from backend.app.services.community.namer import CommunityNamer, _select_naming_targets
 from backend.app.services.community.naming import apply_llm_names, fallback_name_from_payload, naming_payload
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
-from backend.app.services.llm_gateway import LLMResult
+from backend.app.services.llm.gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 
 

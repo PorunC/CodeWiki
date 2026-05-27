@@ -11,8 +11,8 @@ from backend.app.services.community.detector import CommunityDetector
 from backend.app.services.community.namer import CommunityNamer
 from backend.app.services.community.naming import CommunityNamingResult
 from backend.app.services.graph import CodeGraph, CodeGraphNode, GraphBuilder
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.model_router import ModelRouter
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.model_router import ModelRouter
 from backend.app.services.repo_metadata import read_repo_metadata, write_repo_metadata
 from backend.app.services.repo_scanner import (
     RepoDescriptor,

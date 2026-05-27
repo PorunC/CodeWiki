@@ -1,7 +1,7 @@
 from backend.app.config import get_settings
 from backend.app.database import CodeWikiStore
 from backend.app.services.graphrag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 from backend.app.services.question_answerer import QuestionAnswerer
 from backend.app.services.wiki import WikiGenerator
 

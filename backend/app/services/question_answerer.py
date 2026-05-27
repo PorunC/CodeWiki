@@ -5,8 +5,8 @@ from hashlib import sha256
 from backend.app.database import CodeWikiStore
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
 from backend.app.services.graphrag import GraphRAGRetriever
-from backend.app.services.llm_gateway import LLMGateway
-from backend.app.services.llm_operations import CachedLLMService, LLMOperation
+from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.prompts import load_prompt
 
 

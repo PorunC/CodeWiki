@@ -7,7 +7,7 @@ from backend.app.config import Settings, get_settings
 from backend.app.database import CodeWikiStore, get_store
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.incremental import IncrementalUpdater
-from backend.app.services.llm_gateway import LLMGateway
+from backend.app.services.llm.gateway import LLMGateway
 from backend.app.services.wiki import WikiGenerator
 
 

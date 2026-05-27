@@ -6,7 +6,7 @@ import pytest
 from backend.app.config import Settings
 from backend.app.database import DocPageRecord, SQLiteStore
 from backend.app.services.analyzer import AnalysisService
-from backend.app.services.llm_gateway import LLMResult
+from backend.app.services.llm.gateway import LLMResult
 from backend.app.services.repo_scanner import RepoScanner
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode

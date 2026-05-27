@@ -5,7 +5,7 @@ from backend.app.api.dependencies import IncrementalUpdaterDep, StoreDep, WikiGe
 from backend.app.database import DocCatalogRecord, DocPageRecord
 from backend.app.services.async_tasks import repo_write_lock, run_blocking
 from backend.app.services.incremental.models import IncrementalUpdateResult
-from backend.app.services.llm_run_recorder import LLMCallError
+from backend.app.services.llm.run_recorder import LLMCallError
 from backend.app.services.wiki import PageGenerationResult, WikiUpdateResult
 
 router = APIRouter()
