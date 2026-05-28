@@ -19,6 +19,38 @@ def git_file_commit_times(repo_path: Path, file_paths: list[str]) -> dict[str, s
     return commit_times
 
 
+def git_list_files(repo_path: Path) -> list[str] | None:
+    if not (repo_path / ".git").is_dir():
+        return None
+    try:
+        process = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"safe.directory={repo_path}",
+                "-C",
+                str(repo_path),
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except OSError:
+        return None
+    if process.returncode != 0:
+        return None
+    return sorted(
+        item.decode("utf-8", errors="replace")
+        for item in process.stdout.split(b"\0")
+        if item
+    )
+
+
 def git_diff_changed_paths(
     repo_path: Path,
     base_commit: str | None,
@@ -32,6 +64,8 @@ def git_diff_changed_paths(
         process = subprocess.run(
             [
                 "git",
+                "-c",
+                f"safe.directory={repo_path}",
                 "-C",
                 str(repo_path),
                 "diff",
@@ -114,6 +148,8 @@ def _git_file_commit_times_batch(repo_path: Path, file_paths: list[str]) -> dict
         process = subprocess.Popen(
             [
                 "git",
+                "-c",
+                f"safe.directory={repo_path}",
                 "-C",
                 str(repo_path),
                 "log",

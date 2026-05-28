@@ -14,8 +14,9 @@ class FileSystemWalkResult:
 
 
 class FileSystemWalker:
-    def __init__(self, *, max_file_size_bytes: int = 2_000_000) -> None:
+    def __init__(self, *, max_file_size_bytes: int = 2_000_000, detect_binary: bool = True) -> None:
         self.max_file_size_bytes = max_file_size_bytes
+        self.detect_binary = detect_binary
 
     def walk(self, root: Path) -> FileSystemWalkResult:
         matcher = IgnoreMatcher(root)
@@ -49,7 +50,10 @@ class FileSystemWalker:
                 if not file_path.is_file():
                     skipped_count += 1
                     continue
-                if file_path.stat().st_size > self.max_file_size_bytes or is_probably_binary(file_path):
+                if file_path.stat().st_size > self.max_file_size_bytes:
+                    skipped_count += 1
+                    continue
+                if self.detect_binary and is_probably_binary(file_path):
                     skipped_count += 1
                     continue
                 file_paths.append(file_path)

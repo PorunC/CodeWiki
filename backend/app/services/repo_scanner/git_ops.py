@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-from backend.app.services.repo_scanner.git import git_file_commit_times, git_metadata
+from backend.app.services.repo_scanner.git import git_file_commit_times, git_list_files, git_metadata
 
 
 class GitOperations:
@@ -10,6 +10,9 @@ class GitOperations:
 
     def file_commit_times(self, repo_path: Path, file_paths: list[str]) -> dict[str, str]:
         return git_file_commit_times(repo_path, file_paths)
+
+    def list_files(self, repo_path: Path) -> list[str] | None:
+        return git_list_files(repo_path)
 
     def clone(self, git_url: str, destination: Path) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)

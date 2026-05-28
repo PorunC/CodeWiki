@@ -12,15 +12,28 @@ class RepoDescriptor:
 
 
 @dataclass(frozen=True)
-class ScannedFile:
+class RepoFile:
     path: str
     absolute_path: str
     language: str
     is_source: bool
     size_bytes: int
-    sha256: str
     modified_at: str
+
+
+@dataclass(frozen=True)
+class ScannedFile(RepoFile):
+    sha256: str
     last_commit_at: str | None = None
+
+
+@dataclass(frozen=True)
+class RepoFileScanResult:
+    repo: RepoDescriptor
+    files: list[RepoFile]
+    scanned_count: int
+    ignored_count: int
+    skipped_count: int
 
 
 @dataclass(frozen=True)

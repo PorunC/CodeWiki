@@ -17,7 +17,7 @@ async def list_repo_files(repo_id: str) -> dict[str, object]:
 
     try:
         scan = await run_blocking(
-            RepoScanner().scan,
+            RepoScanner().scan_files,
             repo.path,
             name=repo.name,
             source_type=repo.source_type,

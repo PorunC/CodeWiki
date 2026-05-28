@@ -1,9 +1,9 @@
 from typing import Any
 
-from backend.app.services.repo_scanner.models import RepoDescriptor, ScannedFile
+from backend.app.services.repo_scanner.models import RepoDescriptor, RepoFile
 
 
-def file_tree_payload(repo: RepoDescriptor, files: list[ScannedFile]) -> dict[str, Any]:
+def file_tree_payload(repo: RepoDescriptor, files: list[RepoFile]) -> dict[str, Any]:
     root = _directory_node(repo.name, "")
     directory_by_path: dict[str, dict[str, Any]] = {"": root}
 
@@ -28,18 +28,21 @@ def file_tree_payload(repo: RepoDescriptor, files: list[ScannedFile]) -> dict[st
     return root
 
 
-def file_payload(scanned_file: ScannedFile) -> dict[str, object]:
-    return {
+def file_payload(scanned_file: RepoFile) -> dict[str, object]:
+    payload = {
         "path": scanned_file.path,
         "language": scanned_file.language,
         "is_source": scanned_file.is_source,
         "size_bytes": scanned_file.size_bytes,
-        "sha256": scanned_file.sha256,
         "modified_at": scanned_file.modified_at,
     }
+    sha256 = getattr(scanned_file, "sha256", None)
+    if sha256 is not None:
+        payload["sha256"] = sha256
+    return payload
 
 
-def _file_tree_node(scanned_file: ScannedFile) -> dict[str, object]:
+def _file_tree_node(scanned_file: RepoFile) -> dict[str, object]:
     return {
         "type": "file",
         "name": scanned_file.path.rsplit("/", 1)[-1],

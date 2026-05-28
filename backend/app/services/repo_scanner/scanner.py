@@ -7,10 +7,10 @@ from urllib.parse import urlparse
 
 from backend.app.config import get_settings
 from backend.app.services.language_detector import LanguageDetector
-from backend.app.services.repo_scanner.file_info import modified_at_iso, scan_file
+from backend.app.services.repo_scanner.file_info import modified_at_iso, scan_file, scan_file_metadata
 from backend.app.services.repo_scanner.filesystem import FileSystemWalker
 from backend.app.services.repo_scanner.git_ops import GitOperations
-from backend.app.services.repo_scanner.models import RepoDescriptor, RepoScanResult
+from backend.app.services.repo_scanner.models import RepoDescriptor, RepoFileScanResult, RepoScanResult
 
 GIT_URL_SCHEMES = {"http", "https", "ssh", "git", "file"}
 SCP_LIKE_GIT_URL = re.compile(r"^[A-Za-z0-9_.-]+@[^:]+:.+")
@@ -66,7 +66,7 @@ class RepoScanner:
         known_hashes: Mapping[str, str] | None = None,
         known_file_metadata: Mapping[str, tuple[int | None, str | None]] | None = None,
         hash_paths: set[str] | None = None,
-    ) -> RepoScanResult:
+        ) -> RepoScanResult:
         repo = self.describe(path, name=name, source_type=source_type)
         root = Path(repo.path)
         walk = self.file_walker.walk(root)
@@ -105,6 +105,56 @@ class RepoScanner:
             scanned_count=len(files),
             ignored_count=walk.ignored_count,
             skipped_count=walk.skipped_count,
+        )
+
+    def scan_files(
+        self,
+        path: str,
+        *,
+        name: str | None = None,
+        source_type: str = "local",
+    ) -> RepoFileScanResult:
+        repo = self.describe(path, name=name, source_type=source_type)
+        root = Path(repo.path)
+        git_files = self.git.list_files(root)
+        if git_files is None:
+            walk = FileSystemWalker(
+                max_file_size_bytes=self.max_file_size_bytes,
+                detect_binary=False,
+            ).walk(root)
+            file_paths = walk.file_paths
+            ignored_count = walk.ignored_count
+            skipped_count = walk.skipped_count
+        else:
+            file_paths = []
+            skipped_count = 0
+            for relative_path in git_files:
+                file_path = root / relative_path
+                try:
+                    stat = file_path.stat()
+                except OSError:
+                    skipped_count += 1
+                    continue
+                if not file_path.is_file() or stat.st_size > self.max_file_size_bytes:
+                    skipped_count += 1
+                    continue
+                file_paths.append(file_path)
+            ignored_count = 0
+        files = [
+            scan_file_metadata(
+                root,
+                file_path,
+                self.language_detector,
+                stat=file_path.stat(),
+            )
+            for file_path in file_paths
+        ]
+        return RepoFileScanResult(
+            repo=repo,
+            files=sorted(files, key=lambda item: item.path),
+            scanned_count=len(files),
+            ignored_count=ignored_count,
+            skipped_count=skipped_count,
         )
 
     def _ensure_git_clone(self, git_url: str) -> Path:

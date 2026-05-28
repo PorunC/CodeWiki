@@ -12,7 +12,7 @@ export type RepoFileRecord = {
   language: string;
   is_source: boolean;
   size_bytes: number;
-  sha256: string;
+  sha256?: string;
   modified_at: string;
 };
 
