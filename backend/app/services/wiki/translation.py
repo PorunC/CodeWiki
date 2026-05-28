@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -7,6 +8,7 @@ from backend.app.services.llm.gateway import LLMGateway
 from backend.app.services.llm.run_recorder import LLMCallError
 from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.wiki.catalog import _validate_catalog_payload
+from backend.app.services.wiki.incremental_strategy import WikiIncrementalStrategy
 from backend.app.services.wiki.language import normalize_language
 from backend.app.services.wiki.prompts import _json_object
 from backend.app.services.wiki.translation_support import (
@@ -18,6 +20,7 @@ from backend.app.services.wiki.translation_support import (
 from backend.app.services.wiki.utils import ordered_unique
 
 TRANSLATION_ATTEMPTS = 3
+TRANSLATION_CONCURRENCY = 3
 TRANSLATION_PROMPT_VERSION = "translation:wiki:v3"
 TRANSLATION_MARKDOWN_CHUNK_CHARS = 8000
 
@@ -31,9 +34,18 @@ class WikiTranslationResult:
 
 
 class WikiTranslator:
-    def __init__(self, llm: LLMGateway, *, store: CodeWikiStore) -> None:
+    def __init__(
+        self,
+        llm: LLMGateway,
+        *,
+        store: CodeWikiStore,
+        incremental_strategy: WikiIncrementalStrategy | None = None,
+        concurrency: int = TRANSLATION_CONCURRENCY,
+    ) -> None:
         self.llm = llm
         self.store = store
+        self.incremental_strategy = incremental_strategy or WikiIncrementalStrategy()
+        self.concurrency = max(1, concurrency)
         self.llm_service = CachedLLMService(store=self.store, llm=self.llm)
         self.catalog_title_mapper = CatalogTitleTranslationMapper()
         self.prompt_builder = TranslationPromptBuilder()
@@ -64,18 +76,32 @@ class WikiTranslator:
             source_language=source_language,
             target_language=target_language,
         )
-        translated_pages: list[DocPageRecord] = []
-        for page in self.store.list_doc_pages(repo_id, language_code=source_language):
-            translated_pages.append(
-                await self._translate_page(
-                    page,
-                    source_language=source_language,
-                    target_language=target_language,
-                )
-            )
+        source_pages = self.store.list_doc_pages(repo_id, language_code=source_language)
+        existing_target_by_slug = {
+            page.slug: page
+            for page in self.store.list_doc_pages(repo_id, language_code=target_language)
+        }
+        source_updated_slugs = _source_updated_slugs(source_pages, existing_target_by_slug)
+        dirty_slugs = self.incremental_strategy.translated_dirty_slugs(
+            source_slugs=[page.slug for page in source_pages],
+            existing_target_by_slug=existing_target_by_slug,
+            base_generated_slugs=source_updated_slugs,
+        )
+        dirty_slug_set = set(dirty_slugs)
+        translated_dirty_pages = await self._translate_pages(
+            [page for page in source_pages if page.slug in dirty_slug_set],
+            source_language=source_language,
+            target_language=target_language,
+        )
+        translated_dirty_by_slug = {page.slug: page for page in translated_dirty_pages}
+        pages = [
+            translated_dirty_by_slug.get(page.slug) or existing_target_by_slug[page.slug]
+            for page in source_pages
+            if page.slug in translated_dirty_by_slug or page.slug in existing_target_by_slug
+        ]
         return WikiTranslationResult(
             catalog=translated_catalog,
-            pages=translated_pages,
+            pages=pages,
             source_language=source_language,
             target_language=target_language,
         )
@@ -122,19 +148,34 @@ class WikiTranslator:
             page.slug: page
             for page in self.store.list_doc_pages(repo_id, language_code=source_language)
         }
-        translated_pages: list[DocPageRecord] = []
-        for slug in requested_slugs:
-            page = source_pages_by_slug.get(slug)
-            if page is None:
-                continue
-            translated_pages.append(
-                await self._translate_page(
+        return await self._translate_pages(
+            [
+                source_pages_by_slug[slug]
+                for slug in requested_slugs
+                if slug in source_pages_by_slug
+            ],
+            source_language=source_language,
+            target_language=target_language,
+        )
+
+    async def _translate_pages(
+        self,
+        pages: list[DocPageRecord],
+        *,
+        source_language: str,
+        target_language: str,
+    ) -> list[DocPageRecord]:
+        semaphore = asyncio.Semaphore(self.concurrency)
+
+        async def translate_one(page: DocPageRecord) -> DocPageRecord:
+            async with semaphore:
+                return await self._translate_page(
                     page,
                     source_language=source_language,
                     target_language=target_language,
                 )
-            )
-        return translated_pages
+
+        return list(await asyncio.gather(*(translate_one(page) for page in pages)))
 
     async def _translate_catalog(
         self,
@@ -454,6 +495,24 @@ def _split_large_markdown_block(block: str, *, max_chars: int) -> list[str]:
     if current:
         chunks.append("\n".join(current).strip())
     return [chunk for chunk in chunks if chunk]
+
+
+def _source_updated_slugs(
+    source_pages: list[DocPageRecord],
+    existing_target_by_slug: dict[str, DocPageRecord],
+) -> list[str]:
+    updated_slugs: list[str] = []
+    for source_page in source_pages:
+        target_page = existing_target_by_slug.get(source_page.slug)
+        if target_page is None:
+            continue
+        if (
+            source_page.updated_at
+            and target_page.updated_at
+            and source_page.updated_at > target_page.updated_at
+        ):
+            updated_slugs.append(source_page.slug)
+    return updated_slugs
 
 
 def _translation_draft_markdown(page: DocPageRecord, error: str) -> str:

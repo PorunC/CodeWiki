@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -437,6 +438,121 @@ async def test_wiki_generator_translates_catalog_and_pages(tmp_path: Path) -> No
     assert store.get_doc_page(repo.id, "request-handler", language_code="zh") == translated_page
     assert llm.translation_requests[0]["content_type"] == "catalog"
     assert [request["content_type"] for request in llm.translation_requests[1:]] == ["page"] * len(result.pages)
+
+
+@pytest.mark.asyncio
+async def test_wiki_translation_reuses_existing_generated_pages(tmp_path: Path) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    _save_source_catalog_and_pages(
+        store,
+        repo.id,
+        {
+            "stable": "# Stable\n\n## Purpose and Scope\n\nAlready translated.",
+            "target": "# Target\n\n## Purpose and Scope\n\nAlready translated too.",
+        },
+    )
+    llm = _FakeWikiLLM(
+        page_payload={
+            "title": "Unused",
+            "markdown": "# Unused\n\n## Purpose and Scope\n\nUnused.",
+            "source_refs": [],
+        },
+        translation_payloads={
+            "catalog": {
+                "title": "中文 Wiki",
+                "items": [
+                    {"path": "stable", "title": "稳定页面"},
+                    {"path": "target", "title": "目标页面"},
+                ],
+            },
+            "page": {
+                "title": "已翻译页面",
+                "markdown": "# 已翻译页面\n\n## Purpose and Scope\n\n复用测试。",
+            },
+        },
+    )
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        llm,
+        store=store,
+        settings=_wiki_settings(),
+    )
+
+    first = await generator.translate_wiki(repo.id, source_language="en", target_language="zh")
+    run_count = len(store.list_llm_runs(repo.id, task_type="translation"))
+    llm.translation_requests.clear()
+    second = await generator.translate_wiki(repo.id, source_language="en", target_language="zh")
+
+    assert [page.slug for page in first.pages] == ["stable", "target"]
+    assert [page.slug for page in second.pages] == ["stable", "target"]
+    assert len(store.list_llm_runs(repo.id, task_type="translation")) == run_count + 1
+    assert llm.translation_requests == []
+
+
+@pytest.mark.asyncio
+async def test_wiki_translation_limits_page_concurrency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, repo = _analyzed_repo(tmp_path)
+    page_markdown_by_slug = {
+        f"page-{index}": f"# Page {index}\n\n## Purpose and Scope\n\nPage {index}."
+        for index in range(5)
+    }
+    _save_source_catalog_and_pages(store, repo.id, page_markdown_by_slug)
+    generator = WikiGenerator(
+        GraphRAGRetriever(store=store),
+        _FakeWikiLLM(
+            page_payload={
+                "title": "Unused",
+                "markdown": "# Unused\n\n## Purpose and Scope\n\nUnused.",
+                "source_refs": [],
+            }
+        ),
+        store=store,
+        settings=_wiki_settings(),
+    )
+    active = 0
+    max_active = 0
+
+    async def fake_translate_page(
+        page: DocPageRecord,
+        *,
+        source_language: str,
+        target_language: str,
+    ) -> DocPageRecord:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return store.upsert_doc_page(
+            DocPageRecord(
+                id=f"translated-{page.slug}",
+                repo_id=page.repo_id,
+                language_code=target_language,
+                slug=page.slug,
+                title=page.title,
+                parent_slug=page.parent_slug,
+                markdown=page.markdown,
+                source_refs=page.source_refs,
+                graph_refs=page.graph_refs,
+                status=page.status,
+                updated_at=None,
+            )
+        )
+
+    monkeypatch.setattr(generator.translator, "_translate_page", fake_translate_page)
+
+    translated_pages = await generator.translator.translate_page_slugs(
+        repo.id,
+        source_language="en",
+        target_language="zh",
+        slugs=list(page_markdown_by_slug),
+    )
+
+    assert len(translated_pages) == 5
+    assert max_active == 3
 
 
 @pytest.mark.asyncio
