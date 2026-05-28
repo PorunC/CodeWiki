@@ -194,8 +194,8 @@ def _analysis_stage_message(stage: str, payload: dict[str, object]) -> str:
     if stage == "parse_start":
         return f"Parsing {payload.get('total', 0)} source files..."
     if stage == "parse_progress":
-        completed = int(payload.get("completed") or 0)
-        total = int(payload.get("total") or 0)
+        completed = _int_payload(payload, "completed")
+        total = _int_payload(payload, "total")
         path = str(payload.get("path") or "")
         suffix = f" ({path})" if path else ""
         return f"Parsing {completed} / {total}{suffix}"
@@ -222,6 +222,11 @@ def _analysis_stage_message(stage: str, payload: dict[str, object]) -> str:
     if stage == "analysis_done":
         return "Analysis complete."
     return _analysis_stage_label(stage)
+
+
+def _int_payload(payload: dict[str, object], key: str) -> int:
+    value = payload.get(key)
+    return value if isinstance(value, int) else 0
 
 
 @router.post("/{repo_id}/update")

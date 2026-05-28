@@ -1,9 +1,10 @@
+from collections.abc import Sequence
 from typing import Any
 
 from backend.app.services.repo_scanner.models import RepoDescriptor, RepoFile
 
 
-def file_tree_payload(repo: RepoDescriptor, files: list[RepoFile]) -> dict[str, Any]:
+def file_tree_payload(repo: RepoDescriptor, files: Sequence[RepoFile]) -> dict[str, Any]:
     root = _directory_node(repo.name, "")
     directory_by_path: dict[str, dict[str, Any]] = {"": root}
 
