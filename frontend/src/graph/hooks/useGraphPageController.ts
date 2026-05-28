@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
-import { analyzeRepo, updateRepo } from "../../api/runs";
+import { analyzeRepo, getAnalysisRun, updateRepo } from "../../api/runs";
 import { getRepoGraphStatus } from "../../api/graph";
-import type { GraphResponse, GraphStatusResponse } from "../../api/types";
+import type { AnalysisRunResponse, GraphResponse, GraphStatusResponse } from "../../api/types";
 import { useRepos } from "../../hooks/useRepos";
 import type { HiddenVisualNodeOption } from "../GraphFiltersPanel";
 import {
@@ -80,6 +80,7 @@ export function useGraphPageController({
   const [graphReloadToken, setGraphReloadToken] = useState(0);
   const [analysisTask, setAnalysisTask] = useState<"analyze" | "update" | null>(null);
   const [analysisMessage, setAnalysisMessage] = useState<string | null>(null);
+  const [activeAnalysisRunId, setActiveAnalysisRunId] = useState<string | null>(null);
   const pendingRelatedNodeIdsRef = useRef<string[]>([]);
   const pendingSourceRefRef = useRef<SourceRefNavigationDetail | null>(null);
 
@@ -452,6 +453,23 @@ export function useGraphPageController({
     let cancelled = false;
     const refreshProgress = async () => {
       try {
+        if (analysisTask === "analyze" && activeAnalysisRunId) {
+          const run = await getAnalysisRun(selectedRepoId, activeAnalysisRunId);
+          if (cancelled) {
+            return;
+          }
+          setAnalysisMessage(analysisRunMessage(run));
+          if (run.status === "done") {
+            setAnalysisTask(null);
+            setActiveAnalysisRunId(null);
+            setGraphReloadToken((value) => value + 1);
+          } else if (run.status === "failed") {
+            setAnalysisTask(null);
+            setActiveAnalysisRunId(null);
+            setError(run.error || run.stats?.progress?.message || "Repository analysis failed");
+          }
+          return;
+        }
         const status = await getRepoGraphStatus(selectedRepoId);
         if (cancelled) {
           return;
@@ -468,7 +486,7 @@ export function useGraphPageController({
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [analysisTask, selectedRepoId]);
+  }, [activeAnalysisRunId, analysisTask, selectedRepoId]);
 
   const openOverview = useCallback(() => {
     setViewMode("overview");
@@ -549,15 +567,13 @@ export function useGraphPageController({
     setError(null);
     try {
       const result = await analyzeRepo(selectedRepoId);
-      setAnalysisMessage(
-        `Analysis complete: ${result.node_count} nodes, ${result.edge_count} edges, ${result.chunk_count} chunks, ${result.community_count} communities.`
-      );
-      setGraphReloadToken((value) => value + 1);
+      setActiveAnalysisRunId(result.run_id);
+      setAnalysisMessage(analysisRunMessage(result));
     } catch (apiError) {
       setAnalysisMessage(null);
-      setError(apiError instanceof Error ? apiError.message : "Repository analysis failed");
-    } finally {
+      setActiveAnalysisRunId(null);
       setAnalysisTask(null);
+      setError(apiError instanceof Error ? apiError.message : "Repository analysis failed");
     }
   }, [analysisTask, selectedRepoId]);
 
@@ -855,6 +871,20 @@ function runningAnalysisMessage(
 ): string {
   const prefix = task === "analyze" ? "Analyzing" : "Updating";
   return `${prefix}... Nodes ${status.node_count} / Edges ${status.edge_count} / Chunks ${status.chunk_count}`;
+}
+
+function analysisRunMessage(run: AnalysisRunResponse): string {
+  const progressMessage = run.stats?.progress?.message;
+  if (progressMessage) {
+    return progressMessage;
+  }
+  if (run.status === "done") {
+    return `Analysis complete: ${run.node_count} nodes, ${run.edge_count} edges, ${run.chunk_count} chunks, ${run.community_count} communities.`;
+  }
+  if (run.status === "failed") {
+    return run.error || "Repository analysis failed";
+  }
+  return "Running full analysis...";
 }
 
 function communityIdFromVisualId(value?: string): string | undefined {

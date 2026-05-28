@@ -13,6 +13,13 @@ export async function analyzeRepo(
   return readJson(response, "Repository analysis");
 }
 
+export async function getAnalysisRun(repoId: string, runId: string): Promise<AnalysisRunResponse> {
+  const response = await fetch(
+    `${API_BASE}/repos/${encodeURIComponent(repoId)}/runs/${encodeURIComponent(runId)}`
+  );
+  return readJson(response, "Analysis run");
+}
+
 export async function updateRepo(
   repoId: string,
   payload: {

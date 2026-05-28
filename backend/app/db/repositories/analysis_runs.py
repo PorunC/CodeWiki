@@ -44,6 +44,18 @@ class AnalysisRunRepositoryMixin(RepositorySupportMixin):
             run.stats = stats
             return run
 
+    def update_analysis_run_stats(
+        self,
+        run_id: str,
+        stats: dict[str, Any],
+    ) -> AnalysisRunRecord:
+        with self.orm_session() as session:
+            run = session.get(AnalysisRunRecord, run_id)
+            if run is None:
+                raise ValueError(f"Analysis run not found: {run_id}")
+            run.stats = stats
+            return run
+
     def list_analysis_runs(self, repo_id: str) -> list[AnalysisRunRecord]:
         with self.orm_session() as session:
             return list(

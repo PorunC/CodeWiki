@@ -86,6 +86,7 @@ class AnalysisService:
         *,
         name_communities: bool = True,
         force: bool = False,
+        run_id: str | None = None,
         community_namer: CommunityNamer | None = None,
         settings: Settings | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
@@ -94,6 +95,7 @@ class AnalysisService:
             self.analyze,
             repo_id,
             force=force,
+            run_id=run_id,
             progress_callback=progress_callback,
         )
         if not name_communities:
@@ -134,13 +136,16 @@ class AnalysisService:
         repo_id: str,
         *,
         force: bool = False,
+        run_id: str | None = None,
         progress_callback: Callable[[str, dict[str, object]], None] | None = None,
     ) -> AnalysisResult:
         repo = self.store.get_repo(repo_id)
         if repo is None:
             raise ValueError(f"Repository not found: {repo_id}")
 
-        run = self.store.create_analysis_run(repo_id)
+        run = self.store.get_analysis_run(run_id) if run_id else self.store.create_analysis_run(repo_id)
+        if run is None or run.repo_id != repo_id:
+            raise ValueError(f"Analysis run not found: {run_id}")
         try:
             old_nodes, old_edges = self.store.get_graph(repo_id)
             _emit_progress(progress_callback, "scan_start", repo=repo.name, path=repo.path)

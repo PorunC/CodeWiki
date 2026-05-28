@@ -39,15 +39,47 @@ export type RepoFilesResponse = {
 
 export type AnalysisRunResponse = {
   run_id: string;
+  id?: string;
   repo_id: string;
   status: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
+  stats?: AnalysisRunStats;
+  mode?: string;
   scanned_count: number;
   parsed_file_count: number;
+  reused_file_count?: number;
   node_count: number;
   edge_count: number;
   chunk_count: number;
   community_count: number;
+  community_count_by_level?: Record<string, number>;
   errors: string[];
+  community_naming?: Record<string, unknown>;
+};
+
+export type AnalysisRunProgress = {
+  stage?: string;
+  label?: string;
+  message?: string;
+  completed?: number;
+  total?: number;
+  path?: string;
+};
+
+export type AnalysisRunStats = {
+  mode?: string;
+  scanned_count?: number;
+  parsed_file_count?: number;
+  reused_file_count?: number;
+  node_count?: number;
+  edge_count?: number;
+  chunk_count?: number;
+  community_count?: number;
+  community_count_by_level?: Record<string, number>;
+  errors?: string[];
+  progress?: AnalysisRunProgress;
   community_naming?: Record<string, unknown>;
 };
 
