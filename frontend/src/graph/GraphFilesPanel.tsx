@@ -13,11 +13,13 @@ type TreeRow = {
 
 export function GraphFilesPanel({
   selectedRepoId,
+  enabled = true,
   graph,
   selectedFileId,
   onOpenFile
 }: {
   selectedRepoId: string;
+  enabled?: boolean;
   graph: GraphResponse | null;
   selectedFileId: string | null;
   onOpenFile: (fileId: string) => void;
@@ -30,8 +32,9 @@ export function GraphFilesPanel({
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    if (!selectedRepoId) {
+    if (!enabled || !selectedRepoId) {
       setFileData(null);
+      setLoading(false);
       return;
     }
 
@@ -60,7 +63,7 @@ export function GraphFilesPanel({
     return () => {
       cancelled = true;
     };
-  }, [reloadToken, selectedRepoId]);
+  }, [enabled, reloadToken, selectedRepoId]);
 
   const fileNodeIdByPath = useMemo(() => {
     const byPath = new Map<string, string>();

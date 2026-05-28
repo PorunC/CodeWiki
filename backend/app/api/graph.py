@@ -22,7 +22,7 @@ from backend.app.schemas.graph import (
     GraphStatusResponse,
     GraphSubgraphResponse,
 )
-from backend.app.services.async_tasks import repo_write_lock
+from backend.app.services.async_tasks import repo_write_lock, run_blocking
 from backend.app.services.community.namer import CommunityNamer
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graph.query import GraphQueryService
@@ -48,9 +48,16 @@ class NameCommunitiesRequest(BaseModel):
 
 @router.get("/{repo_id}/graph")
 async def get_graph(repo_id: str) -> GraphResponse:
+    try:
+        return await run_blocking(_graph_response, repo_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _graph_response(repo_id: str) -> GraphResponse:
     store = get_store()
     if store.get_repo(repo_id) is None:
-        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+        raise ValueError(f"Repository not found: {repo_id}")
     nodes, edges = store.get_graph(repo_id)
     communities = store.list_graph_communities(repo_id)
     community_edges = store.list_graph_community_edges(repo_id)
@@ -258,9 +265,16 @@ async def graph_affected(repo_id: str, payload: GraphAffectedRequest) -> GraphAf
 
 @router.get("/{repo_id}/graph/status")
 async def graph_status(repo_id: str) -> GraphStatusResponse:
+    try:
+        return await run_blocking(_graph_status_response, repo_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _graph_status_response(repo_id: str) -> GraphStatusResponse:
     store = get_store()
     if store.get_repo(repo_id) is None:
-        raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
+        raise ValueError(f"Repository not found: {repo_id}")
     nodes, edges = store.get_graph(repo_id)
     nodes_by_type: dict[str, int] = {}
     edges_by_type: dict[str, int] = {}

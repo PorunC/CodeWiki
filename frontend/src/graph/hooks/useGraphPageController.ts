@@ -53,10 +53,12 @@ function defaultSelectedNodeTypes(types: Iterable<string>): Set<string> {
 
 export function useGraphPageController({
   selectedRepoId,
-  onSelectedRepoChange
+  onSelectedRepoChange,
+  enabled = true
 }: {
   selectedRepoId: string;
   onSelectedRepoChange: (repoId: string) => void;
+  enabled?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<GraphViewMode>("overview");
@@ -83,7 +85,8 @@ export function useGraphPageController({
 
   const { repos, selectedRepo, loading: repoLoading, error: repoError } = useRepos({
     selectedRepoId,
-    onRepoChange: onSelectedRepoChange
+    onRepoChange: onSelectedRepoChange,
+    enabled
   });
 
   const applyRelatedNodeHighlight = useCallback((repoGraph: GraphResponse, nodeIds: string[]) => {
@@ -184,6 +187,7 @@ export function useGraphPageController({
 
   const { graph, loading: graphLoading } = useRepoGraph({
     selectedRepoId,
+    enabled,
     reloadToken: graphReloadToken,
     onGraphLoaded: handleGraphLoaded,
     onGraphReset: resetGraphSelection,

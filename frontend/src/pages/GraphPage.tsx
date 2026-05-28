@@ -49,7 +49,8 @@ export function GraphPage({
 }) {
   const controller = useGraphPageController({
     selectedRepoId,
-    onSelectedRepoChange
+    onSelectedRepoChange,
+    enabled: isActiveSection
   });
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -270,6 +271,7 @@ export function GraphPage({
         >
           <GraphFilesPanel
             selectedRepoId={selectedRepoId}
+            enabled={isActiveSection}
             graph={graph}
             selectedFileId={selectedFileId}
             onOpenFile={actions.openFileDetail}

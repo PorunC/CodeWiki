@@ -5,12 +5,14 @@ import type { GraphResponse } from "../../api/types";
 
 export function useRepoGraph({
   selectedRepoId,
+  enabled = true,
   reloadToken,
   onGraphLoaded,
   onGraphReset,
   onGraphError
 }: {
   selectedRepoId: string;
+  enabled?: boolean;
   reloadToken?: number;
   onGraphLoaded: (graph: GraphResponse) => void;
   onGraphReset: () => void;
@@ -20,8 +22,9 @@ export function useRepoGraph({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!selectedRepoId) {
+    if (!enabled || !selectedRepoId) {
       setGraph(null);
+      setLoading(false);
       onGraphReset();
       return;
     }
@@ -52,7 +55,7 @@ export function useRepoGraph({
     return () => {
       cancelled = true;
     };
-  }, [onGraphError, onGraphLoaded, onGraphReset, reloadToken, selectedRepoId]);
+  }, [enabled, onGraphError, onGraphLoaded, onGraphReset, reloadToken, selectedRepoId]);
 
   return { graph, loading };
 }

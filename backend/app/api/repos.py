@@ -50,6 +50,7 @@ async def scan_repo(payload: ScanRepoRequest) -> RepoScanResult:
 
 @router.get("")
 async def list_repos() -> list[dict[str, str]]:
+    repos = await run_blocking(get_store().list_repos)
     return [
         {
             "id": repo.id,
@@ -59,13 +60,13 @@ async def list_repos() -> list[dict[str, str]]:
             "git_url": repo.git_url or "",
             "commit_hash": repo.commit_hash or "",
         }
-        for repo in get_store().list_repos()
+        for repo in repos
     ]
 
 
 @router.get("/{repo_id}")
 async def get_repo(repo_id: str) -> dict[str, str]:
-    repo = get_store().get_repo(repo_id)
+    repo = await run_blocking(get_store().get_repo, repo_id)
     if repo is None:
         raise HTTPException(status_code=404, detail=f"Repository not found: {repo_id}")
     return {
