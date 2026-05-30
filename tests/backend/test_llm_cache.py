@@ -5,7 +5,12 @@ import pytest
 
 from backend.app.database import SQLiteStore
 from backend.app.services.llm.gateway import LLMResult
-from backend.app.services.llm.run_recorder import LLMCallError, complete_with_cache, unique_cache_key
+from backend.app.services.llm.run_recorder import (
+    LLMCallError,
+    complete_with_cache,
+    normalize_usage,
+    unique_cache_key,
+)
 from backend.app.services.repo_scanner import RepoScanner
 
 
@@ -126,6 +131,24 @@ async def test_complete_with_cache_records_failed_llm_call(tmp_path: Path) -> No
 
 def test_unique_cache_key_is_stable() -> None:
     assert unique_cache_key("community_naming", "batch", 1) == "community_naming:batch:1"
+
+
+def test_normalize_usage_standardizes_provider_cache_tokens() -> None:
+    usage = normalize_usage(
+        {
+            "input_tokens": 100,
+            "output_tokens": 12,
+            "prompt_tokens_details": {
+                "cache_read_input_tokens": 70,
+            },
+        }
+    )
+
+    assert usage["prompt_tokens"] == 100
+    assert usage["completion_tokens"] == 12
+    assert usage["prompt_cache_hit_tokens"] == 70
+    assert usage["prompt_cache_miss_tokens"] == 30
+    assert usage["prompt_cache_hit_ratio"] == 0.7
 
 
 class _FakeRouter:

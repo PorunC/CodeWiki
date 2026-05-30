@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 from hashlib import sha256
 
@@ -6,6 +5,7 @@ from backend.app.database import CodeWikiStore
 from backend.app.schemas.ask import AskRequest, AskResponse, SourceRef
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.messages import dynamic_json_message, stable_json_message
 from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.prompts import load_prompt
 
@@ -62,14 +62,16 @@ class QuestionAnswerer:
                 task_type="qa",
                 messages=[
                     {"role": "system", "content": _load_prompt("qa.md")},
-                    {
-                        "role": "user",
-                        "content": (
-                            "Use only this GraphRAG context. Cite files and lines from sources "
-                            "when making code claims.\n"
-                            f"{json.dumps(prompt_context.__dict__, ensure_ascii=False)}"
-                        ),
-                    },
+                    stable_json_message(
+                        "Stable QA contract",
+                        {
+                            "instructions": (
+                                "Use only this GraphRAG context. Cite files and lines from "
+                                "sources when making code claims."
+                            )
+                        },
+                    ),
+                    dynamic_json_message("GraphRAG QA payload", prompt_context.__dict__),
                 ],
                 input_payload=prompt_context.__dict__,
                 cache_namespace="qa",

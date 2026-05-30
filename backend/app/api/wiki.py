@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.app.api.dependencies import IncrementalUpdaterDep, StoreDep, WikiGeneratorDep
-from backend.app.database import DocCatalogRecord, DocPageRecord
+from backend.app.database import DocCatalogRecord, DocPageRecord, LLMRunRecord, CodeWikiStore
 from backend.app.services.async_tasks import repo_write_lock, run_blocking
 from backend.app.services.incremental.models import IncrementalUpdateResult
 from backend.app.services.llm.run_recorder import LLMCallError
@@ -54,6 +54,7 @@ async def generate_pages(
         "status": "generated" if all(not result.validation_errors for result in results) else "partial",
         "page_count": len(results),
         "pages": [_page_result_payload(result) for result in results],
+        "llm_cache": _llm_cache_payload(generator.store, repo_id, task_types=("page",)),
     }
 
 
@@ -81,7 +82,7 @@ async def update_pages(
         raise _llm_http_error(exc) from exc
     except ValueError as exc:
         raise _http_error(exc) from exc
-    return _wiki_update_payload(repo_id, wiki_update, incremental_update)
+    return _wiki_update_payload(store, repo_id, wiki_update, incremental_update)
 
 
 @router.post("/{repo_id}/wiki/pages/{slug}/regenerate")
@@ -126,6 +127,7 @@ async def translate_wiki(
         "catalog": _catalog_payload(result.catalog),
         "page_count": len(result.pages),
         "pages": [_page_payload(page) for page in result.pages],
+        "llm_cache": _llm_cache_payload(generator.store, repo_id, task_types=("translation",)),
     }
 
 
@@ -140,6 +142,11 @@ async def get_wiki(repo_id: str, store: StoreDep, language: str = "en") -> dict[
         "catalog": _catalog_payload(catalog) if catalog else None,
         "items": catalog.structure.get("items", []) if catalog else [],
         "pages": [_page_payload(page) for page in pages],
+        "llm_cache": _llm_cache_payload(
+            store,
+            repo_id,
+            task_types=("catalog", "page", "translation"),
+        ),
     }
 
 
@@ -185,6 +192,7 @@ def _page_result_payload(result: PageGenerationResult) -> dict[str, object]:
 
 
 def _wiki_update_payload(
+    store: CodeWikiStore,
     repo_id: str,
     update: WikiUpdateResult,
     incremental_update: IncrementalUpdateResult,
@@ -216,7 +224,60 @@ def _wiki_update_payload(
             "chunk_count": incremental_update.chunk_count,
             "errors": incremental_update.errors,
         },
+        "llm_cache": _llm_cache_payload(store, repo_id, task_types=("page",)),
     }
+
+
+def _llm_cache_payload(
+    store: CodeWikiStore,
+    repo_id: str,
+    *,
+    task_types: tuple[str, ...],
+) -> dict[str, object]:
+    runs = [
+        run
+        for task_type in task_types
+        for run in store.list_llm_runs(repo_id, task_type=task_type)
+    ]
+    return _llm_cache_stats(runs)
+
+
+def _llm_cache_stats(runs: list[LLMRunRecord]) -> dict[str, object]:
+    prompt_tokens = 0
+    hit_tokens = 0
+    miss_tokens = 0
+    local_cache_hits = 0
+    provider_measured_runs = 0
+    for run in runs:
+        if run.cached:
+            local_cache_hits += 1
+            continue
+        usage = run.response_usage or {}
+        prompt_tokens += _usage_int(usage, "prompt_tokens", "input_tokens", "prompt_eval_count")
+        hit = _usage_int(usage, "prompt_cache_hit_tokens")
+        miss = _usage_int(usage, "prompt_cache_miss_tokens")
+        if hit or miss:
+            provider_measured_runs += 1
+        hit_tokens += hit
+        miss_tokens += miss
+    cache_total = hit_tokens + miss_tokens
+    return {
+        "run_count": len(runs),
+        "local_cache_hits": local_cache_hits,
+        "provider_measured_runs": provider_measured_runs,
+        "prompt_tokens": prompt_tokens,
+        "prompt_cache_hit_tokens": hit_tokens,
+        "prompt_cache_miss_tokens": miss_tokens,
+        "prompt_cache_hit_ratio": hit_tokens / cache_total if cache_total else None,
+    }
+
+
+def _usage_int(usage: dict[str, object], *keys: str) -> int:
+    for key in keys:
+        value = usage.get(key)
+        if isinstance(value, int | float):
+            return int(value)
+    return 0
 
 
 def _http_error(exc: ValueError) -> HTTPException:

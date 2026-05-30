@@ -1,5 +1,3 @@
-import json
-
 from backend.app.database import CodeWikiStore, GraphCommunityRecord, get_store
 from backend.app.services.community.edges import CommunityEdgeBuilder
 from backend.app.services.community.naming import (
@@ -13,6 +11,7 @@ from backend.app.services.community.naming import (
     renamed_count,
 )
 from backend.app.services.llm.gateway import LLMGateway
+from backend.app.services.llm.messages import dynamic_json_message, stable_json_message
 from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.prompts import load_prompt
 
@@ -89,10 +88,11 @@ class CommunityNamer:
                     task_type="community_summary",
                     messages=[
                         {"role": "system", "content": prompt},
-                        {
-                            "role": "user",
-                            "content": json.dumps(payload, ensure_ascii=False),
-                        },
+                        stable_json_message(
+                            "Stable community naming contract",
+                            {"instructions": "Return community names and summaries as JSON."},
+                        ),
+                        dynamic_json_message("Community naming payload", payload),
                     ],
                     input_payload=payload,
                     cache_namespace="community_naming",

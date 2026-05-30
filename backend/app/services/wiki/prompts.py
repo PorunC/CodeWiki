@@ -2,6 +2,7 @@ import json
 import re
 from typing import Any
 
+from backend.app.services.llm.messages import dynamic_json_message, json_payload, stable_json_message
 from backend.app.services.prompts import load_prompt
 
 
@@ -22,28 +23,18 @@ def _page_messages(
     )
     messages = [
         {"role": "system", "content": prompt},
-        {
-            "role": "user",
-            "content": (
-                f"{instruction}\n"
-                f"Stable page generation contract:\n{_prompt_json(prompt_contract, sort_keys=True)}"
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Page payload:\n{_prompt_json(user_payload)}",
-        },
-    ]
-    if validation_errors:
-        messages.append(
+        stable_json_message(
+            "Stable page generation contract",
             {
-                "role": "user",
-                "content": (
-                    "Repair the previous response. Validation errors:\n"
-                    f"{_prompt_json(validation_errors)}"
-                ),
-            }
-        )
+                "instructions": instruction,
+                "prompt_contract": prompt_contract,
+            },
+        ),
+        dynamic_json_message(
+            "Page payload",
+            _payload_with_validation_errors(user_payload, validation_errors),
+        ),
+    ]
     return messages
 
 
@@ -64,10 +55,8 @@ def _catalog_messages(
         )
     return [
         {"role": "system", "content": prompt},
-        {
-            "role": "user",
-            "content": f"{instruction}\n{json.dumps(user_payload, ensure_ascii=False)}",
-        },
+        stable_json_message("Stable catalog generation contract", {"instructions": instruction}),
+        dynamic_json_message("Catalog payload", user_payload),
     ]
 
 
@@ -76,12 +65,20 @@ def _load_prompt(name: str) -> str:
 
 
 def _prompt_json(payload: Any, *, sort_keys: bool = False) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=sort_keys,
-    )
+    return json_payload(payload, sort_keys=sort_keys)
+
+
+def _payload_with_validation_errors(
+    payload: dict[str, Any],
+    validation_errors: list[str],
+) -> dict[str, Any]:
+    if not validation_errors:
+        return payload
+    return {
+        **payload,
+        "validation_errors": validation_errors,
+        "repair_instructions": "Repair the previous response. Return only a valid JSON object.",
+    }
 
 
 def _json_object(content: str) -> dict[str, Any]:

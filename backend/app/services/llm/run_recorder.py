@@ -127,7 +127,7 @@ def record_llm_run(
     status: str = "success",
     error: str | None = None,
 ) -> LLMRunRecord:
-    usage = result.usage or {}
+    usage = normalize_usage(result.usage or {})
     return store.record_llm_run(
         repo_id,
         task_type=task_type,
@@ -220,6 +220,64 @@ def token_count(usage: dict[str, Any], *keys: str) -> int:
         if value is not None:
             return int(value or 0)
     return 0
+
+
+def normalize_usage(usage: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(usage)
+    prompt_tokens = token_count(
+        normalized,
+        "prompt_tokens",
+        "input_tokens",
+        "prompt_eval_count",
+    )
+    completion_tokens = token_count(
+        normalized,
+        "completion_tokens",
+        "output_tokens",
+        "eval_count",
+    )
+    cache_hit_tokens = _cache_token_count(
+        normalized,
+        "prompt_cache_hit_tokens",
+        "cache_read_input_tokens",
+        "cached_input_tokens",
+        "input_cached_tokens",
+    )
+    cache_miss_tokens = _cache_token_count(
+        normalized,
+        "prompt_cache_miss_tokens",
+        "cache_creation_input_tokens",
+        "uncached_input_tokens",
+        "input_uncached_tokens",
+    )
+    if cache_hit_tokens is not None:
+        normalized["prompt_cache_hit_tokens"] = cache_hit_tokens
+    if cache_miss_tokens is None and cache_hit_tokens is not None and prompt_tokens:
+        cache_miss_tokens = max(0, prompt_tokens - cache_hit_tokens)
+    if cache_miss_tokens is not None:
+        normalized["prompt_cache_miss_tokens"] = cache_miss_tokens
+    cache_total = (cache_hit_tokens or 0) + (cache_miss_tokens or 0)
+    if cache_total > 0:
+        normalized["prompt_cache_hit_ratio"] = (cache_hit_tokens or 0) / cache_total
+    if prompt_tokens and "prompt_tokens" not in normalized:
+        normalized["prompt_tokens"] = prompt_tokens
+    if completion_tokens and "completion_tokens" not in normalized:
+        normalized["completion_tokens"] = completion_tokens
+    return normalized
+
+
+def _cache_token_count(usage: dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        value = usage.get(key)
+        if value is not None:
+            return int(value or 0)
+    for nested_key in ("prompt_tokens_details", "input_tokens_details", "usage_details"):
+        nested = usage.get(nested_key)
+        if isinstance(nested, dict):
+            nested_value = _cache_token_count(nested, *keys)
+            if nested_value is not None:
+                return nested_value
+    return None
 
 
 def sanitized_llm_error(exc: Exception) -> str:

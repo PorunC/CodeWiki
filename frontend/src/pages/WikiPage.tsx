@@ -94,6 +94,22 @@ function wikiPageUpdatedAfter(updatedAt: string | null, startedAt: number): bool
   return Number.isFinite(updatedAtTime) && updatedAtTime >= startedAt;
 }
 
+function formatCacheHitRatio(ratio: number | null | undefined): string {
+  if (typeof ratio !== "number" || !Number.isFinite(ratio)) {
+    return "n/a";
+  }
+  return `${Math.round(ratio * 100)}%`;
+}
+
+function cacheSummaryText(
+  cache: { prompt_cache_hit_ratio?: number | null; provider_measured_runs?: number } | undefined
+): string {
+  if (!cache || !cache.provider_measured_runs) {
+    return "Provider cache metrics unavailable";
+  }
+  return `Provider cache hit ${formatCacheHitRatio(cache.prompt_cache_hit_ratio)}`;
+}
+
 export function WikiPage({
   selectedRepoId,
   onRepoChange,
@@ -134,6 +150,7 @@ export function WikiPage({
     [pageBySlug, wiki]
   );
   const generatedCount = wiki?.pages.filter((page) => page.status === "generated").length ?? 0;
+  const providerCacheHitRatio = wiki?.llm_cache?.prompt_cache_hit_ratio ?? null;
   const isGenerating = generationOperation?.status === "running";
   const generationTask = isGenerating ? generationOperation.task : null;
   const generationMessage = generationStatusMessage(
@@ -364,7 +381,8 @@ export function WikiPage({
       successMessage: (result) => {
         const invalidCount = result.pages.filter((page) => page.validation_errors.length > 0).length;
         const suffix = invalidCount ? ` ${invalidCount} pages need review.` : "";
-        return `Generated ${result.page_count} ${selectedLanguageLabel} wiki pages.${suffix}`;
+        const cacheText = cacheSummaryText(result.llm_cache);
+        return `Generated ${result.page_count} ${selectedLanguageLabel} wiki pages.${suffix} ${cacheText}.`;
       },
       errorMessage: "Wiki page generation failed"
     }).catch(() => undefined);
@@ -392,7 +410,7 @@ export function WikiPage({
             : ". Source graph was already current.";
         const deletedText =
           result.deleted_page_count > 0 ? ` Removed ${result.deleted_page_count} obsolete pages.` : "";
-        return `${updatedText}${fileText}${deletedText}`;
+        return `${updatedText}${fileText}${deletedText} ${cacheSummaryText(result.llm_cache)}.`;
       },
       errorMessage: "Wiki incremental update failed"
     }).catch(() => undefined);
@@ -565,6 +583,10 @@ export function WikiPage({
         <div>
           <span>Sources</span>
           <strong>{selectedPage?.source_refs.length ?? 0}</strong>
+        </div>
+        <div>
+          <span>Cache</span>
+          <strong>{formatCacheHitRatio(providerCacheHitRatio)}</strong>
         </div>
       </div>
 

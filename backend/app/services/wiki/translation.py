@@ -165,6 +165,8 @@ class WikiTranslator:
         source_language: str,
         target_language: str,
     ) -> list[DocPageRecord]:
+        if not pages:
+            return []
         semaphore = asyncio.Semaphore(self.concurrency)
 
         async def translate_one(page: DocPageRecord) -> DocPageRecord:
@@ -175,7 +177,9 @@ class WikiTranslator:
                     target_language=target_language,
                 )
 
-        return list(await asyncio.gather(*(translate_one(page) for page in pages)))
+        first = await translate_one(pages[0])
+        rest = await asyncio.gather(*(translate_one(page) for page in pages[1:]))
+        return [first, *rest]
 
     async def _translate_catalog(
         self,

@@ -241,6 +241,17 @@ export type WikiResponse = {
   catalog: WikiCatalog | null;
   items: WikiCatalogItem[];
   pages: WikiPageRecord[];
+  llm_cache?: LlmCacheStats;
+};
+
+export type LlmCacheStats = {
+  run_count: number;
+  local_cache_hits: number;
+  provider_measured_runs: number;
+  prompt_tokens: number;
+  prompt_cache_hit_tokens: number;
+  prompt_cache_miss_tokens: number;
+  prompt_cache_hit_ratio: number | null;
 };
 
 export type WikiPageGenerationResult = WikiPageRecord & {
@@ -252,6 +263,7 @@ export type GenerateWikiPagesResponse = {
   status: string;
   page_count: number;
   pages: WikiPageGenerationResult[];
+  llm_cache?: LlmCacheStats;
 };
 
 export type UpdateWikiPagesResponse = {
@@ -267,6 +279,7 @@ export type UpdateWikiPagesResponse = {
   generated_pages: string[];
   deleted_page_count: number;
   pages: WikiPageGenerationResult[];
+  llm_cache?: LlmCacheStats;
   incremental_update: {
     run_id: string;
     status: string;
@@ -287,4 +300,5 @@ export type TranslateWikiResponse = {
   catalog: WikiCatalog;
   page_count: number;
   pages: WikiPageRecord[];
+  llm_cache?: LlmCacheStats;
 };

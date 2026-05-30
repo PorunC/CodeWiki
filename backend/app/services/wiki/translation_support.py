@@ -1,6 +1,6 @@
-import json
 from typing import Any
 
+from backend.app.services.llm.messages import dynamic_json_message, stable_json_message
 from backend.app.services.wiki.language import normalize_language
 from backend.app.services.wiki.prompts import _load_prompt
 
@@ -22,7 +22,11 @@ class TranslationPromptBuilder:
             )
         return [
             {"role": "system", "content": _load_prompt("translation.md")},
-            {"role": "user", "content": f"{instruction}\n{self._json_dumps(payload)}"},
+            stable_json_message(
+                "Stable translation contract",
+                {"instructions": instruction},
+            ),
+            dynamic_json_message("Translation payload", payload),
         ]
 
     def repair_payload(
@@ -43,11 +47,6 @@ class TranslationPromptBuilder:
                 "and source links exactly as instructed."
             ),
         }
-
-    @staticmethod
-    def _json_dumps(payload: dict[str, Any]) -> str:
-        return json.dumps(payload, ensure_ascii=False)
-
 
 class TranslationResponseValidator:
     def validate(self, response: dict[str, Any], *, content_type: str) -> None:
