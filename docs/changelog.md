@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Documentation cleanup** — removed outdated standalone design notes and consolidated
+  current architecture, PostgreSQL, community, and LLM cache details into the main
+  README, usage guide, and design notes.
+
 ## [0.6.3] - 2026-05-30
 
 ### Added

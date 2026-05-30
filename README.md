@@ -129,8 +129,6 @@ codewiki config --profile qa --model openai/gpt-4.1 --api-key "$OPENAI_API_KEY"
 - [Usage Guide](docs/usage.md): installation, Docker, database setup, wiki workflow,
   LLM profiles, CLI, MCP, HTTP API, and supported languages.
 - [Design Notes](docs/design.md): architecture and feature design.
-- [PostgreSQL Compatibility Design](docs/postgres-compatibility-design.md): storage
-  compatibility, PostgreSQL FTS, and pgvector design.
 - [Benchmarking Guide](docs/benchmarking.md) and
   [Benchmark Report](docs/benchmark-report-2026-05-22.md): benchmark workflow and
   current results.

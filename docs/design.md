@@ -296,6 +296,7 @@ payload builder、translation support、diagram support 等组件。
 | `PageGenerationPayloadBuilder` | 构造 page prompt payload |
 | `PageResponseValidator` | JSON content、source refs、citation、diagram placeholder 校验 |
 | `WikiTranslator` | catalog/page 翻译、repair retry、保留 slugs/source refs |
+| `llm/messages.py` | 统一 LLM message builder，稳定 contract 和动态 payload 分离 |
 | `WikiIncrementalStrategy` | missing/draft/stale/metadata dirty page detection |
 | `wiki/tree.py` | catalog tree traversal、GenerationNode、child page lookup |
 | `wiki/diagrams/*` | 从 graph facts 生成 Mermaid 图 |
@@ -338,7 +339,9 @@ catalog item
   -> ReadFile evidence from repo path
   -> diagram plan from graph facts
   -> PageGenerationPayloadBuilder.build
-  -> page.md prompt
+  -> page.md system prompt
+  -> stable page generation contract message
+  -> dynamic Page payload message
   -> LLM JSON response
   -> JSON repair retry if needed
   -> PageResponseValidator
@@ -394,6 +397,8 @@ LLM 只能引用 `allowed_source_refs` 中的文件范围。服务端会：
 - Page 翻译只翻译 prose/headings，保留代码块、路径、链接、source refs、graph refs。
 - 中文翻译 prompt 要求更自然的中文技术文档表达，避免机器翻译腔。
 - 配置语言生成后，base page update 只翻译 dirty slugs。
+- Page 翻译同样使用稳定 translation contract + 动态 translation payload 的 message 形状；
+  批量翻译页面时先翻译第一页预热 provider 前缀缓存，再按并发上限翻译后续页面。
 
 ### 9.7 Incremental Wiki Update
 
@@ -457,7 +462,34 @@ default profile。`max_tokens=0` 表示不向 provider 传输出上限。
 
 `CachedLLMService` 调用 `complete_with_cache`，统一完成缓存读取、成功记录、失败记录。
 
-### 10.3 llm_run
+### 10.3 Message shape 和 provider prefix cache
+
+LLM 请求同时优化两种缓存：
+
+1. 本地 response cache：`complete_with_cache` 通过 `input_payload` 的稳定 hash 命中已成功的
+   `llm_run`，命中后不再调用 provider。
+2. Provider prefix cache：请求 message 采用稳定前缀形状，让 DeepSeek 等 OpenAI-compatible
+   provider 更容易复用 `prompt_cache_hit_tokens`。
+
+统一 message 形状由 `backend/app/services/llm/messages.py` 提供：
+
+```text
+system prompt
+stable contract message    # instructions / output shape / validation contract
+dynamic payload message    # repo/page/question/translation-specific data, always last
+```
+
+当前使用该形状的路径包括 catalog、page、translation、QA、community naming。Wiki page
+generation 和 translation 是主要收益场景，因为它们会在同一批任务中复用大量相同规则，只替换最后
+的页面或翻译 payload。
+
+批量执行也配合 prefix cache：
+
+- Wiki page generation 先生成第一个 leaf page，再并发生成后续 leaf pages。
+- Wiki translation 先翻译第一个 page，再并发翻译后续 pages。
+- Repair retry 把 validation errors / previous response 放进动态 payload，不改变稳定 contract 前缀。
+
+### 10.4 llm_run
 
 每次调用记录：
 
@@ -466,8 +498,33 @@ default profile。`max_tokens=0` 表示不向 provider 传输出上限。
 - tokens, usage, response_content
 - cached/status/error
 
+`response_usage` 会标准化 provider cache 指标：
+
+- `prompt_cache_hit_tokens`
+- `prompt_cache_miss_tokens`
+- `prompt_cache_hit_ratio`
+
+本地 cache 命中会继续记录新的 `llm_run(cached=True)` 审计行，但聚合 provider cache ratio 时不会
+把这些本地命中重复计入 provider token 分母。
+
 Provider 异常会被脱敏并记录为 `status=error`，再抛出 `LLMCallError`。Wiki page 生成捕获
 page task 的 provider 错误并保存 draft，其他 API 通常返回 502 和 run_id。
+
+### 10.5 Wiki cache observability
+
+Wiki API 会返回 `llm_cache` 聚合摘要，用于页面生成、增量更新、翻译和 wiki 读取：
+
+- `run_count`
+- `local_cache_hits`
+- `provider_measured_runs`
+- `prompt_tokens`
+- `prompt_cache_hit_tokens`
+- `prompt_cache_miss_tokens`
+- `prompt_cache_hit_ratio`
+
+前端 Wiki 摘要栏展示 provider cache hit ratio；生成/更新完成提示也会显示本次 provider cache
+命中情况。没有 provider cache usage 的模型会显示 `n/a`，不把本地 response cache 误报为 provider
+prefix cache。
 
 ## 11. 数据模型
 
@@ -647,7 +704,7 @@ CLI 和 API 共享同一组 service 和 `CodeWikiStore`，数据库后端由 `CO
 ### P0: 稳定性和可观测性
 
 - 持久化 GraphRAG traces，便于回放问答和 Wiki 生成上下文。
-- 在 UI 中展示 LLM run 链路：页面对应 run、cache hit、错误原因。
+- 在 UI 中展示更细的 LLM run 链路：页面对应 run、provider usage、错误原因。
 - 为 provider 错误增加可配置 retry/backoff 和 per-task fallback model。
 
 ### P1: Wiki Agent 化
