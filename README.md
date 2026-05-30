@@ -1,6 +1,25 @@
 # CodeWiki
 
-[简体中文](docs/README.zh-CN.md) | [Usage Guide](docs/usage.md) | [Changelog](docs/changelog.md)
+<p align="center">
+  <strong>English</strong>
+  &nbsp;·&nbsp;
+  <a href="./docs/README.zh-CN.md">简体中文</a>
+  &nbsp;·&nbsp;
+  <a href="./docs/usage.md">Usage Guide</a>
+  &nbsp;·&nbsp;
+  <a href="./docs/design.md">Design</a>
+  &nbsp;·&nbsp;
+  <a href="./docs/benchmarking.md">Benchmarks</a>
+  &nbsp;·&nbsp;
+  <a href="./docs/changelog.md">Changelog</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/PorunC/CodeWiki/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/PorunC/CodeWiki/test.yml?style=flat-square&label=tests&labelColor=161b22&logo=githubactions&logoColor=white" alt="Tests"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/PorunC/CodeWiki?style=flat-square&color=8b949e&labelColor=161b22" alt="License"/></a>
+  <a href="https://pepy.tech/projects/codewiki"><img src="https://static.pepy.tech/personalized-badge/codewiki?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads" alt="PyPI downloads"/></a>
+  <a href="https://github.com/PorunC/CodeWiki/stargazers"><img src="https://img.shields.io/github/stars/PorunC/CodeWiki.svg?style=flat-square&color=dbab09&labelColor=161b22&logo=github&logoColor=white" alt="GitHub stars"/></a>
+</p>
 
 CodeWiki is a single-user code intelligence platform for AST-based repository analysis,
 GraphRAG retrieval, source-grounded wiki generation, and LiteLLM-powered Q&A.
