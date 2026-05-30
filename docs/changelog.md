@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-05-30
+
+### Added
+
+- **Frontend theme toggle** — added persisted light/dark mode switching across the
+  application, including light-mode graph canvas, nodes, Mermaid diagrams, wiki,
+  ask, repository, and settings surfaces.
+- **Staged full analysis** — added staged full-analysis execution for repository
+  analysis workflows.
+
+### Changed
+
+- **Wiki prompt cache locality** — split stable page-generation instructions from
+  dynamic page payloads and warm up the first leaf page before concurrent generation
+  to improve provider token-cache reuse.
+- **README badges** — refreshed the project README header with documentation links,
+  CI, license, PyPI download, and GitHub star badges.
+- **Repository file scanning** — switched repository file scans to a lighter-weight
+  path for lower overhead.
+
+### Fixed
+
+- **Backend typing** — fixed backend type-checking issues found by mypy.
+- **Frontend graph loading** — avoided unnecessary background graph loads.
+- **Translated wiki performance** — sped up translated wiki generation.
+
 ## [0.6.2] - 2026-05-27
 
 ### Fixed
