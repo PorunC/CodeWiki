@@ -1403,7 +1403,7 @@ class _FakeWikiLLM:
             assert '"ReadFile"' in message_text
             assert "do not invent wiki pages or links" in message_text
             assert "at least four evidence-backed detail blocks" in message_text
-            request_payload = _request_payload_from_message(messages[-1]["content"])
+            request_payload = _page_request_payload_from_messages(messages)
             self.page_requests.append(request_payload)
             slug = str(request_payload.get("slug") or "")
             self.page_call_slugs.append(slug)
@@ -1449,3 +1449,11 @@ def _request_payload_from_message(message_text: str) -> dict[str, object]:
     payload = json.loads(message_text[start:])
     assert isinstance(payload, dict)
     return payload
+
+
+def _page_request_payload_from_messages(messages: list[dict[str, str]]) -> dict[str, object]:
+    for message in reversed(messages):
+        content = message["content"]
+        if content.startswith("Page payload:"):
+            return _request_payload_from_message(content)
+    raise AssertionError("Missing page payload message")

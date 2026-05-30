@@ -40,8 +40,8 @@ from backend.app.services.wiki.utils import slugify
 
 PAGE_GENERATION_ATTEMPTS = 2
 PAGE_RETRIEVAL_MAX_HOPS = 3
-PAGE_CACHE_VERSION = "page:v4"
-PAGE_PROMPT_VERSION = "page:deepwiki:v4"
+PAGE_CACHE_VERSION = "page:v5"
+PAGE_PROMPT_VERSION = "page:deepwiki:v5"
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,7 @@ class WikiPageGenerator:
             child_pages=child_pages or [],
             diagram_slots=_diagram_slots_payload(diagram_plan),
         )
+        prompt_contract = self.payload_builder.prompt_contract()
 
         payload: dict[str, Any] = {}
         markdown = ""
@@ -123,6 +124,7 @@ class WikiPageGenerator:
                         task_type="page",
                         messages=_page_messages(
                             prompt,
+                            prompt_contract,
                             attempt_payload,
                             validation_errors if attempt else [],
                         ),

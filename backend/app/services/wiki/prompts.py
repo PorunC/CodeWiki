@@ -7,6 +7,7 @@ from backend.app.services.prompts import load_prompt
 
 def _page_messages(
     prompt: str,
+    prompt_contract: dict[str, Any],
     user_payload: dict[str, Any],
     validation_errors: list[str],
 ) -> list[dict[str, str]]:
@@ -19,18 +20,31 @@ def _page_messages(
         "mandatory GATHER, THINK, WRITE workflow, and ground GATHER in "
         "readfile_evidence.reads."
     )
-    if validation_errors:
-        instruction = (
-            f"{instruction}\nRepair the previous response. Validation errors: "
-            f"{json.dumps(validation_errors, ensure_ascii=False)}"
-        )
-    return [
+    messages = [
         {"role": "system", "content": prompt},
         {
             "role": "user",
-            "content": f"{instruction}\n{json.dumps(user_payload, ensure_ascii=False)}",
+            "content": (
+                f"{instruction}\n"
+                f"Stable page generation contract:\n{_prompt_json(prompt_contract, sort_keys=True)}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Page payload:\n{_prompt_json(user_payload)}",
         },
     ]
+    if validation_errors:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "Repair the previous response. Validation errors:\n"
+                    f"{_prompt_json(validation_errors)}"
+                ),
+            }
+        )
+    return messages
 
 
 def _catalog_messages(
@@ -59,6 +73,15 @@ def _catalog_messages(
 
 def _load_prompt(name: str) -> str:
     return load_prompt(name)
+
+
+def _prompt_json(payload: Any, *, sort_keys: bool = False) -> str:
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=sort_keys,
+    )
 
 
 def _json_object(content: str) -> dict[str, Any]:

@@ -29,6 +29,18 @@ class PageGenerationPayloadBuilder:
         self.evidence_inventory_builder = evidence_inventory_builder or EvidenceInventoryBuilder()
         self.depth_profiler = depth_profiler or PageDepthProfiler()
 
+    def prompt_contract(self) -> dict[str, Any]:
+        return {
+            "source_linking": self.template.source_linking(),
+            "documentation_style": self.template.documentation_style(),
+            "citation_style": self.template.citation_style(),
+            "diagram_placement": self.template.diagram_placement(),
+            "detail_expectations": self.template.detail_expectations(),
+            "agent_tools": self.template.agent_tools(),
+            "server_diagram_strategy": self.template.server_diagram_strategy(),
+            "required_json_shape": self.template.required_json_shape(),
+        }
+
     def build(
         self,
         repo: RepoDescriptor,
@@ -62,31 +74,23 @@ class PageGenerationPayloadBuilder:
             "topic": topic,
             "language_code": language_code,
             "source_hints": source_hints,
-            "source_linking": self.template.source_linking(),
             "catalog_context": catalog_context,
             "parent_synthesis": self.template.parent_synthesis(
                 has_child_pages=bool(child_page_summaries),
             ),
             "child_page_summaries": child_page_summaries,
-            "documentation_style": self.template.documentation_style(),
             "page_depth_profile": self.depth_profiler.build(
                 item,
                 child_page_summaries=child_page_summaries,
                 evidence_inventory=evidence_inventory,
             ),
-            "citation_style": self.template.citation_style(),
             "diagram_slots": diagram_slots,
-            "diagram_placement": self.template.diagram_placement(),
-            "detail_expectations": self.template.detail_expectations(),
             "evidence_inventory": evidence_inventory,
             "context_pack": trace.context_pack,
             "source_chunks": prompt_source_chunks,
             "allowed_source_refs": allowed_source_refs,
-            "agent_tools": self.template.agent_tools(),
             "readfile_evidence": readfile_evidence.as_payload(),
             "graph_facts": self.template.prompt_graph_facts(trace),
-            "server_diagram_strategy": self.template.server_diagram_strategy(),
-            "required_json_shape": self.template.required_json_shape(title=title),
         }
 
 

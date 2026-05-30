@@ -194,7 +194,10 @@ class WikiPageOrchestrator:
                 results_by_slug[node.slug] = result
                 page_records_by_slug[node.slug] = result.page
 
-        await asyncio.gather(*(generate_leaf(node) for node in nodes if not node.has_children))
+        leaf_nodes = [node for node in nodes if not node.has_children]
+        if leaf_nodes:
+            await generate_leaf(leaf_nodes[0])
+            await asyncio.gather(*(generate_leaf(node) for node in leaf_nodes[1:]))
 
         for node in sorted(
             (node for node in nodes if node.has_children),

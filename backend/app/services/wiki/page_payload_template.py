@@ -176,9 +176,9 @@ class PagePayloadTemplate:
             ),
         }
 
-    def required_json_shape(self, *, title: str) -> dict[str, object]:
+    def required_json_shape(self) -> dict[str, object]:
         return {
-            "title": title,
+            "title": "Use the exact page title from page_payload.title.",
             "markdown": (
                 "# Page title\n\n## Purpose and Scope\n\n"
                 "Grounded Markdown with inline [[S1]] citations, optional [[DIAGRAM:slot]] "
