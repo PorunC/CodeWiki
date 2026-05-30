@@ -23,7 +23,7 @@
 }
 
 .ops-summary div {
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--color-subtle-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   display: grid;
@@ -60,7 +60,7 @@
 .ops-toolbar select,
 .repo-create-form input,
 .ops-search input {
-  background: #0d0e0e;
+  background: var(--color-input-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-primary);
@@ -78,7 +78,7 @@
 
 .ops-search {
   align-items: center;
-  background: #0d0e0e;
+  background: var(--color-input-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-muted);
@@ -116,7 +116,7 @@
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.22);
   border-radius: 8px;
-  color: #a9c6f5;
+  color: var(--color-info-text-strong);
   font-size: 13px;
   font-weight: 800;
   line-height: 1.4;
@@ -126,7 +126,7 @@
 .ops-state.is-error {
   background: rgba(190, 86, 68, 0.12);
   border-color: rgba(190, 86, 68, 0.28);
-  color: #f0a08c;
+  color: var(--color-danger-text);
 }
 
 .ops-table-wrap {
@@ -152,7 +152,7 @@
 }
 
 .ops-table th {
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--color-subtle-fill);
   color: var(--color-text-muted);
   font-size: 10px;
   font-weight: 900;
@@ -165,7 +165,7 @@
 
 .ops-table tbody tr:hover,
 .ops-table tbody tr.is-selected {
-  background: rgba(212, 165, 116, 0.055);
+  background: var(--color-accent-fill);
 }
 
 .ops-table tbody tr:last-child td {
@@ -181,7 +181,7 @@
 
 .ops-badge {
   align-items: center;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--color-soft-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
   color: var(--color-text-secondary);
@@ -200,7 +200,7 @@
 .ops-badge.is-info {
   background: rgba(74, 124, 155, 0.12);
   border-color: rgba(74, 124, 155, 0.28);
-  color: #9cc2db;
+  color: var(--color-info-text);
 }
 
 .repo-create-form {
@@ -255,7 +255,7 @@
 .icon-button.is-danger:hover:not(:disabled) {
   background: rgba(190, 86, 68, 0.12);
   border-color: rgba(190, 86, 68, 0.34);
-  color: #f0a08c;
+  color: var(--color-danger-text);
 }
 
 .settings-grid {

@@ -9,7 +9,7 @@
 
 .app-header {
   align-items: center;
-  background: rgba(16, 17, 17, 0.94);
+  background: var(--color-header-bg);
   border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   gap: 18px;
@@ -93,7 +93,7 @@
   background: rgba(90, 158, 111, 0.1);
   border: 1px solid rgba(90, 158, 111, 0.25);
   border-radius: 999px;
-  color: #9fd2ad;
+  color: var(--color-status-success-text);
   display: inline-flex;
   flex: 0 0 auto;
   font-size: 12px;
@@ -101,6 +101,32 @@
   gap: 8px;
   padding: 7px 10px;
   text-transform: uppercase;
+}
+
+.theme-toggle {
+  align-items: center;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 34px;
+  justify-content: center;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+  width: 34px;
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  background: var(--color-accent-fill);
+  border-color: var(--color-border-medium);
+  color: var(--color-accent-strong);
+  outline: none;
 }
 
 .status-dot {
@@ -140,11 +166,10 @@
 }
 
 .assistant-rail {
-  background: rgba(16, 17, 17, 0.96);
+  background: var(--color-rail-bg);
   border-left: 1px solid var(--color-border-subtle);
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: auto;
 }
-

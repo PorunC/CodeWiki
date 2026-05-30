@@ -54,7 +54,7 @@ h2 {
 
 .icon-button:hover:not(:disabled),
 .secondary-button:hover:not(:disabled) {
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--color-accent-fill-strong);
   border-color: var(--color-border-medium);
   color: var(--color-accent-strong);
 }
@@ -68,7 +68,7 @@ select:disabled {
 
 .graph-toolbar {
   align-items: end;
-  background: rgba(10, 10, 10, 0.86);
+  background: var(--color-toolbar-bg);
   border-bottom: 1px solid var(--color-border-subtle);
   display: grid;
   gap: 12px;
@@ -92,7 +92,7 @@ select:disabled {
 
 .field select,
 .ask-form input {
-  background: #0d0e0e;
+  background: var(--color-input-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-primary);
@@ -149,7 +149,7 @@ select:disabled {
 
 .view-switcher {
   align-items: center;
-  background: rgba(20, 21, 21, 0.9);
+  background: var(--color-control-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   display: inline-flex;
@@ -174,7 +174,7 @@ select:disabled {
 
 .mode-button:hover:not(:disabled),
 .mode-button.is-active {
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--color-accent-fill-strong);
   border-color: var(--color-border-subtle);
   color: var(--color-accent-strong);
 }
@@ -186,7 +186,7 @@ select:disabled {
 
 .graph-breadcrumbs {
   align-items: center;
-  background: rgba(12, 13, 13, 0.9);
+  background: var(--color-panel-overlay-strong);
   border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   min-height: 42px;
@@ -232,7 +232,7 @@ select:disabled {
 
 .graph-breadcrumb-button:hover,
 .graph-breadcrumb-button:focus-visible {
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--color-accent-fill-strong);
   border-color: var(--color-border-subtle);
   color: var(--color-accent-strong);
 }
@@ -244,7 +244,7 @@ select:disabled {
 
 .graph-breadcrumb-button.is-active,
 .graph-breadcrumb-current.is-active {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
   border-color: rgba(212, 165, 116, 0.16);
   color: var(--color-accent-strong);
 }
@@ -330,7 +330,7 @@ select:disabled {
 
 .graph-filters,
 .node-details {
-  background: rgba(16, 17, 17, 0.94);
+  background: var(--color-panel-translucent);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -390,7 +390,7 @@ select:disabled {
 
 .graph-file-search {
   align-items: center;
-  background: #0d0e0e;
+  background: var(--color-input-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-muted);
@@ -417,7 +417,7 @@ select:disabled {
 }
 
 .graph-file-stats span {
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--color-soft-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
   color: var(--color-text-secondary);
@@ -431,7 +431,7 @@ select:disabled {
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.22);
   border-radius: 8px;
-  color: #a9c6f5;
+  color: var(--color-info-text-strong);
   font-size: 12px;
   font-weight: 800;
   line-height: 1.35;
@@ -441,7 +441,7 @@ select:disabled {
 .graph-sidebar-state.is-error {
   background: rgba(190, 86, 68, 0.12);
   border-color: rgba(190, 86, 68, 0.28);
-  color: #f0a08c;
+  color: var(--color-danger-text);
 }
 
 .file-tree {
@@ -454,7 +454,7 @@ select:disabled {
 }
 
 .file-tree-row {
-  border-bottom: 1px solid rgba(212, 165, 116, 0.07);
+  border-bottom: 1px solid var(--color-row-border);
   min-width: 0;
 }
 
@@ -484,7 +484,7 @@ select:disabled {
 }
 
 .file-tree-row button:hover {
-  background: rgba(212, 165, 116, 0.06);
+  background: var(--color-accent-fill);
   color: var(--color-accent-strong);
 }
 
@@ -497,7 +497,7 @@ select:disabled {
 }
 
 .file-tree-file strong {
-  color: #9cc2db;
+  color: var(--color-info-text);
   font-size: 10px;
   margin-left: auto;
   text-transform: uppercase;
@@ -517,7 +517,7 @@ select:disabled {
 
 .graph-sidebar .file-tree-row.is-selected,
 .graph-file-list-row.is-selected {
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--color-accent-fill-strong);
 }
 
 .graph-sidebar .file-tree-row button:disabled,
@@ -543,7 +543,7 @@ select:disabled {
   align-items: center;
   background: transparent;
   border: 0;
-  border-bottom: 1px solid rgba(212, 165, 116, 0.07);
+  border-bottom: 1px solid var(--color-row-border);
   color: var(--color-text-secondary);
   cursor: pointer;
   display: flex;
@@ -559,7 +559,7 @@ select:disabled {
 }
 
 .graph-file-list-row:hover:not(:disabled) {
-  background: rgba(212, 165, 116, 0.06);
+  background: var(--color-accent-fill);
   color: var(--color-accent-strong);
 }
 
@@ -571,7 +571,7 @@ select:disabled {
 }
 
 .graph-file-list-row strong {
-  color: #9cc2db;
+  color: var(--color-info-text);
   font-size: 10px;
   margin-left: auto;
   text-transform: uppercase;
@@ -592,7 +592,7 @@ select:disabled {
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.22);
   border-radius: 8px;
-  color: #a9c6f5;
+  color: var(--color-info-text-strong);
   display: flex;
   font-size: 12px;
   font-weight: 800;
@@ -650,7 +650,7 @@ select:disabled {
 
 .hidden-node-row {
   align-items: center;
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--color-subtle-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-secondary);
@@ -692,7 +692,7 @@ select:disabled {
 }
 
 .flow-frame {
-  background: #080909;
+  background: var(--color-canvas);
   min-height: 0;
   overflow: hidden;
   position: relative;

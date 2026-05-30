@@ -55,11 +55,11 @@ export function GraphFlowCanvas({
             variant={BackgroundVariant.Dots}
             gap={22}
             size={1}
-            color="rgba(212, 165, 116, 0.14)"
+            color="var(--color-graph-grid)"
           />
           <Controls />
           <MiniMap
-            maskColor="rgba(8, 9, 10, 0.72)"
+            maskColor="var(--color-flow-mask)"
             nodeColor={(node) => miniMapColor(node as FlowNode)}
             pannable
             zoomable

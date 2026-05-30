@@ -1,5 +1,5 @@
 .mermaid-block {
-  background: #0b0c0c;
+  background: var(--color-code-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-secondary);
@@ -22,7 +22,7 @@
 
 .mermaid-toolbar button {
   align-items: center;
-  background: rgba(26, 27, 26, 0.96);
+  background: var(--color-elevated);
   border: 1px solid var(--color-border-subtle);
   border-radius: 7px;
   color: var(--color-text-secondary);
@@ -35,7 +35,7 @@
 
 .mermaid-toolbar button:hover,
 .mermaid-toolbar button:focus-visible {
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--color-accent-fill-strong);
   border-color: var(--color-border-medium);
   color: var(--color-accent-strong);
   outline: none;
@@ -51,8 +51,8 @@
 }
 
 .mermaid-viewport {
-  background: rgba(255, 255, 255, 0.012);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--color-subtle-fill);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 7px;
   max-height: 520px;
   min-height: 160px;
@@ -86,7 +86,7 @@
 }
 
 .mermaid-block.is-error strong {
-  color: #f0a08c;
+  color: var(--color-danger-text);
   font-size: 12px;
   margin-bottom: 8px;
   text-transform: uppercase;
@@ -96,4 +96,3 @@
   margin: 0;
   white-space: pre;
 }
-

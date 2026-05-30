@@ -35,7 +35,7 @@
 }
 
 .wiki-source-group {
-  background: rgba(255, 255, 255, 0.018);
+  background: var(--color-subtle-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   display: grid;
@@ -67,7 +67,7 @@
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.24);
   border-radius: 999px;
-  color: #9cc2db;
+  color: var(--color-info-text);
   flex: 0 0 auto;
   font-size: 10px;
   line-height: 1;
@@ -85,7 +85,7 @@
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.24);
   border-radius: 999px;
-  color: #9cc2db;
+  color: var(--color-info-text);
   cursor: pointer;
   display: inline-flex;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
@@ -105,7 +105,7 @@
 .wiki-source-ranges button:focus-visible {
   background: rgba(74, 124, 155, 0.18);
   border-color: rgba(74, 124, 155, 0.38);
-  color: #c4ddf0;
+  color: var(--color-info-text-strong);
   outline: none;
 }
 

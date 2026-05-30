@@ -3,8 +3,10 @@ import {
   FolderGit2,
   GitBranch,
   MessageCircleQuestion,
+  Moon,
   Network,
-  Settings
+  Settings,
+  Sun
 } from "lucide-react";
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
 
@@ -15,10 +17,20 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { WikiPage } from "./pages/WikiPage";
 
 export type WorkspaceSection = "repos" | "graph" | "wiki" | "ask" | "settings";
+type ThemeMode = "dark" | "light";
+
+const THEME_STORAGE_KEY = "codewiki.theme";
 
 export function App() {
   const [selectedRepoId, setSelectedRepoId] = useState(() => routeFromLocation().repoId ?? "");
   const [activeSection, setActiveSection] = useState<WorkspaceSection>(() => routeFromLocation().section);
+  const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     const syncRouteFromUrl = () => {
@@ -59,6 +71,8 @@ export function App() {
     setActiveSection(section);
     window.history.pushState(null, "", pathForSection(section, repoId));
   }, []);
+
+  const nextTheme = theme === "dark" ? "light" : "dark";
 
   return (
     <main className="app-shell noise-overlay">
@@ -120,6 +134,15 @@ export function App() {
           <span className="status-dot" />
           Local API
         </div>
+        <button
+          type="button"
+          className="theme-toggle"
+          aria-label={`Switch to ${nextTheme} mode`}
+          title={`Switch to ${nextTheme} mode`}
+          onClick={() => setTheme(nextTheme)}
+        >
+          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
       </header>
 
       <section className={`workspace is-section-${activeSection}`}>
@@ -164,6 +187,11 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function readStoredTheme(): ThemeMode {
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return storedTheme === "light" ? "light" : "dark";
 }
 
 function routeFromLocation(): { section: WorkspaceSection; repoId?: string } {

@@ -10,7 +10,7 @@
 }
 
 .wiki-article {
-  background: rgba(16, 17, 17, 0.76);
+  background: var(--color-panel-overlay);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   display: grid;
@@ -29,7 +29,7 @@
 .wiki-article-meta span:not(.is-generated):not(.is-draft) {
   background: rgba(74, 124, 155, 0.1);
   border-color: rgba(74, 124, 155, 0.22);
-  color: #9cc2db;
+  color: var(--color-info-text);
 }
 
 .wiki-markdown {
@@ -96,7 +96,7 @@
 }
 
 .wiki-relevant-files {
-  background: rgba(255, 255, 255, 0.018);
+  background: var(--color-subtle-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   margin: 0 0 16px;
@@ -115,7 +115,7 @@
 
 .wiki-relevant-files summary:hover,
 .wiki-relevant-files summary:focus-visible {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
   outline: none;
 }
 
@@ -136,7 +136,7 @@
 }
 
 .wiki-markdown code {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 5px;
   color: var(--color-accent-strong);
@@ -146,7 +146,7 @@
 }
 
 .wiki-markdown pre {
-  background: #0b0c0c;
+  background: var(--color-code-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-primary);
@@ -170,7 +170,7 @@
 }
 
 .wiki-markdown table {
-  background: rgba(255, 255, 255, 0.012);
+  background: var(--color-subtle-fill);
   border-collapse: collapse;
   border-spacing: 0;
   display: block;
@@ -188,14 +188,14 @@
 }
 
 .wiki-markdown th {
-  background: rgba(255, 255, 255, 0.045);
+  background: var(--color-soft-fill);
   color: var(--color-text-primary);
   font-weight: 700;
   text-transform: uppercase;
 }
 
 .wiki-markdown tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.018);
+  background: var(--color-subtle-fill);
 }
 
 .wiki-related-pages {
@@ -213,7 +213,7 @@
 }
 
 .wiki-related-pages button {
-  background: rgba(255, 255, 255, 0.018);
+  background: var(--color-subtle-fill);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   color: var(--color-text-secondary);
@@ -226,7 +226,7 @@
 
 .wiki-related-pages button:hover,
 .wiki-related-pages button:focus-visible {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
   border-color: var(--color-border-medium);
   outline: none;
 }
@@ -243,7 +243,7 @@
 }
 
 .wiki-page-outline {
-  background: rgba(12, 13, 13, 0.72);
+  background: var(--color-panel-overlay);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   display: grid;
@@ -285,7 +285,7 @@
 .wiki-page-outline-nav button:hover,
 .wiki-page-outline-nav button:focus-visible,
 .wiki-page-outline-nav button.is-active {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
   border-color: var(--color-border-subtle);
   color: var(--color-text-primary);
   outline: none;

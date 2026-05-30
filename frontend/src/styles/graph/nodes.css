@@ -1,8 +1,8 @@
 .code-node-card {
-  background: rgba(26, 27, 26, 0.96);
+  background: var(--graph-node-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  box-shadow: var(--graph-node-shadow);
   color: var(--color-text-primary);
   cursor: pointer;
   display: grid;
@@ -54,14 +54,12 @@
 }
 
 .code-node-card.is-external {
-  background:
-    linear-gradient(180deg, rgba(110, 158, 232, 0.08), rgba(255, 255, 255, 0.018)),
-    rgba(22, 25, 30, 0.96);
+  background: var(--graph-node-external-bg);
 }
 
 .code-node-card:hover {
   border-color: var(--color-border-medium);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+  box-shadow: var(--graph-node-shadow-hover);
   transform: translateY(-1px);
 }
 
@@ -213,7 +211,7 @@
 }
 
 .code-node-stats {
-  background: rgba(9, 10, 10, 0.7);
+  background: var(--graph-node-stats-bg);
   border-top: 1px solid var(--color-border-subtle);
   color: var(--color-text-muted);
   font-size: 10px;
@@ -244,7 +242,7 @@
 
 .node-hide-button {
   align-items: center;
-  background: rgba(8, 9, 10, 0.82);
+  background: var(--graph-node-hide-bg);
   border: 1px solid rgba(212, 165, 116, 0.18);
   border-radius: 6px;
   bottom: 7px;
@@ -277,15 +275,13 @@
 .node-hide-button:focus-visible {
   background: rgba(190, 86, 68, 0.18);
   border-color: rgba(190, 86, 68, 0.48);
-  color: #f0a08c;
+  color: var(--color-danger-text);
   outline: none;
   transform: translateY(-1px);
 }
 
 .code-container-node {
-  background:
-    linear-gradient(180deg, rgba(212, 165, 116, 0.055), rgba(255, 255, 255, 0.015)),
-    rgba(255, 255, 255, 0.018);
+  background: var(--graph-container-bg);
   border: 1px solid rgba(212, 165, 116, 0.22);
   border-radius: 12px;
   color: var(--color-text-primary);
@@ -302,15 +298,11 @@
 }
 
 .code-container-node.is-compact {
-  background:
-    linear-gradient(180deg, rgba(199, 139, 232, 0.08), rgba(255, 255, 255, 0.015)),
-    rgba(22, 18, 27, 0.96);
+  background: var(--graph-container-compact-bg);
 }
 
 .code-container-node.is-community {
-  background:
-    linear-gradient(180deg, rgba(124, 188, 155, 0.075), rgba(255, 255, 255, 0.014)),
-    rgba(17, 24, 22, 0.92);
+  background: var(--graph-container-community-bg);
 }
 
 .code-container-node.is-drillable:hover {

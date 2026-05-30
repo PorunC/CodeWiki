@@ -1,5 +1,5 @@
 .react-flow__background {
-  background: #080909;
+  background: var(--color-canvas);
 }
 
 .react-flow__node {
@@ -56,7 +56,7 @@
 }
 
 .react-flow__controls {
-  background: rgba(20, 21, 21, 0.86);
+  background: var(--color-control-bg);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   box-shadow: var(--shadow-panel);
@@ -70,13 +70,12 @@
 }
 
 .react-flow__controls-button:hover {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
 }
 
 .react-flow__minimap {
-  background: rgba(16, 17, 17, 0.92);
+  background: var(--color-panel-translucent);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   box-shadow: var(--shadow-panel);
 }
-

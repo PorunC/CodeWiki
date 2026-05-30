@@ -11,23 +11,23 @@ export function miniMapColor(node: FlowNode): string {
 export function nodeTone(type: string): { border: string; background: string } {
   switch (type) {
     case "repository":
-      return { background: "#13251d", border: "#69b779" };
+      return { background: "var(--graph-tone-repository-bg)", border: "var(--graph-tone-repository-border)" };
     case "directory":
-      return { background: "#172129", border: "#5aa9c8" };
+      return { background: "var(--graph-tone-directory-bg)", border: "var(--graph-tone-directory-border)" };
     case "file":
-      return { background: "#151f2d", border: "#6e9ee8" };
+      return { background: "var(--graph-tone-file-bg)", border: "var(--graph-tone-file-border)" };
     case "config":
-      return { background: "#201f12", border: "#c7aa4a" };
+      return { background: "var(--graph-tone-config-bg)", border: "var(--graph-tone-config-border)" };
     case "module":
-      return { background: "#281d2c", border: "#c78be8" };
+      return { background: "var(--graph-tone-module-bg)", border: "var(--graph-tone-module-border)" };
     case "class":
-      return { background: "#242014", border: "#d7b65c" };
+      return { background: "var(--graph-tone-class-bg)", border: "var(--graph-tone-class-border)" };
     case "function":
-      return { background: "#14251d", border: "#63c08a" };
+      return { background: "var(--graph-tone-function-bg)", border: "var(--graph-tone-function-border)" };
     case "method":
-      return { background: "#241b22", border: "#e0829d" };
+      return { background: "var(--graph-tone-method-bg)", border: "var(--graph-tone-method-border)" };
     default:
-      return { background: "#171717", border: "#a39787" };
+      return { background: "var(--graph-tone-default-bg)", border: "var(--graph-tone-default-border)" };
   }
 }
 

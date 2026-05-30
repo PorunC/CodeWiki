@@ -1,5 +1,5 @@
 .wiki-catalog {
-  background: rgba(12, 13, 13, 0.72);
+  background: var(--color-panel-overlay);
   border: 1px solid var(--color-border-subtle);
   border-radius: 8px;
   min-width: 0;
@@ -7,7 +7,7 @@
 }
 
 .wiki-catalog-language {
-  background: rgba(12, 13, 13, 0.94);
+  background: var(--color-panel-overlay-strong);
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 8px;
   position: sticky;
@@ -64,7 +64,7 @@
 
 .wiki-catalog-toggle:hover,
 .wiki-catalog-toggle:focus-visible {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
   border-color: var(--color-border-subtle);
   color: var(--color-accent-strong);
   outline: none;
@@ -92,7 +92,7 @@
 .wiki-catalog-item:hover,
 .wiki-catalog-item:focus-visible,
 .wiki-catalog-item.is-active {
-  background: rgba(212, 165, 116, 0.08);
+  background: var(--color-accent-fill);
   border-color: var(--color-border-subtle);
   color: var(--color-text-primary);
   outline: none;
@@ -133,12 +133,12 @@
 .wiki-article-meta span.is-generated {
   background: rgba(90, 158, 111, 0.12);
   border-color: rgba(90, 158, 111, 0.26);
-  color: #a6d8bd;
+  color: var(--color-highlight-text);
 }
 
 .wiki-catalog-item strong.is-draft,
 .wiki-article-meta span.is-draft {
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--color-accent-fill-strong);
   border-color: var(--color-border-subtle);
   color: var(--color-accent-strong);
 }

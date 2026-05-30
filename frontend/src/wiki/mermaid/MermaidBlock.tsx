@@ -1,8 +1,8 @@
 import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 
-let mermaidInitialized = false;
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
+type ThemeMode = "dark" | "light";
 
 export function MermaidBlock({ chart }: { chart: string }) {
   const reactId = useId();
@@ -13,6 +13,7 @@ export function MermaidBlock({ chart }: { chart: string }) {
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
+  const theme = useDocumentTheme();
 
   useEffect(() => {
     setScale(1);
@@ -24,23 +25,7 @@ export function MermaidBlock({ chart }: { chart: string }) {
     setError(null);
     loadMermaid()
       .then((mermaidApi) => {
-        if (!mermaidInitialized) {
-          mermaidApi.initialize({
-            startOnLoad: false,
-            securityLevel: "strict",
-            theme: "dark",
-            themeVariables: {
-              background: "#101111",
-              primaryColor: "#1a1b1a",
-              primaryBorderColor: "#d4a574",
-              primaryTextColor: "#f5f0eb",
-              lineColor: "#d4a574",
-              secondaryColor: "#132224",
-              tertiaryColor: "#0b0c0c"
-            }
-          });
-          mermaidInitialized = true;
-        }
+        mermaidApi.initialize(getMermaidConfig(theme));
         return mermaidApi.render(diagramId, chart);
       })
       .then((result) => {
@@ -57,7 +42,7 @@ export function MermaidBlock({ chart }: { chart: string }) {
     return () => {
       cancelled = true;
     };
-  }, [chart, diagramId]);
+  }, [chart, diagramId, theme]);
 
   if (error) {
     return (
@@ -110,6 +95,42 @@ export function MermaidBlock({ chart }: { chart: string }) {
       </div>
     </div>
   );
+}
+
+function useDocumentTheme(): ThemeMode {
+  const [theme, setTheme] = useState<ThemeMode>(() => readDocumentTheme());
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(readDocumentTheme()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
+  return theme;
+}
+
+function readDocumentTheme(): ThemeMode {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function getMermaidConfig(theme: ThemeMode) {
+  const styles = getComputedStyle(document.documentElement);
+  const color = (name: string) => styles.getPropertyValue(name).trim();
+
+  return {
+    startOnLoad: false,
+    securityLevel: "strict" as const,
+    theme: theme === "dark" ? ("dark" as const) : ("default" as const),
+    themeVariables: {
+      background: color("--color-surface"),
+      primaryColor: color("--color-elevated"),
+      primaryBorderColor: color("--color-accent"),
+      primaryTextColor: color("--color-text-primary"),
+      lineColor: color("--color-accent"),
+      secondaryColor: color("--color-panel"),
+      tertiaryColor: color("--color-code-bg")
+    }
+  };
 }
 
 function loadMermaid(): Promise<typeof import("mermaid").default> {

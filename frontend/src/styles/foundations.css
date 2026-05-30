@@ -14,10 +14,134 @@
   --color-info: #4a7c9b;
   --glow-accent: rgba(212, 165, 116, 0.38);
   --shadow-panel: 0 22px 80px rgba(0, 0, 0, 0.3);
+  --color-header-bg: rgba(16, 17, 17, 0.94);
+  --color-rail-bg: rgba(16, 17, 17, 0.96);
+  --color-panel-translucent: rgba(16, 17, 17, 0.94);
+  --color-panel-overlay: rgba(12, 13, 13, 0.72);
+  --color-panel-overlay-strong: rgba(12, 13, 13, 0.94);
+  --color-toolbar-bg: rgba(10, 10, 10, 0.86);
+  --color-input-bg: #0d0e0e;
+  --color-canvas: #080909;
+  --color-code-bg: #0b0c0c;
+  --color-control-bg: rgba(20, 21, 21, 0.86);
+  --color-soft-fill: rgba(255, 255, 255, 0.035);
+  --color-subtle-fill: rgba(255, 255, 255, 0.018);
+  --color-accent-fill: rgba(212, 165, 116, 0.08);
+  --color-accent-fill-strong: rgba(212, 165, 116, 0.1);
+  --color-row-border: rgba(212, 165, 116, 0.07);
+  --color-graph-grid: rgba(212, 165, 116, 0.14);
+  --color-flow-mask: rgba(8, 9, 10, 0.72);
+  --color-status-success-text: #9fd2ad;
+  --color-info-text: #9cc2db;
+  --color-info-text-strong: #a9c6f5;
+  --color-danger-text: #f0a08c;
+  --color-highlight-text: #a6d8bd;
+  --graph-node-bg: rgba(26, 27, 26, 0.96);
+  --graph-node-external-bg: linear-gradient(180deg, rgba(110, 158, 232, 0.08), rgba(255, 255, 255, 0.018)),
+    rgba(22, 25, 30, 0.96);
+  --graph-node-stats-bg: rgba(9, 10, 10, 0.7);
+  --graph-node-hide-bg: rgba(8, 9, 10, 0.82);
+  --graph-node-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  --graph-node-shadow-hover: 0 10px 28px rgba(0, 0, 0, 0.38);
+  --graph-container-bg: linear-gradient(180deg, rgba(212, 165, 116, 0.055), rgba(255, 255, 255, 0.015)),
+    rgba(255, 255, 255, 0.018);
+  --graph-container-compact-bg: linear-gradient(180deg, rgba(199, 139, 232, 0.08), rgba(255, 255, 255, 0.015)),
+    rgba(22, 18, 27, 0.96);
+  --graph-container-community-bg: linear-gradient(180deg, rgba(124, 188, 155, 0.075), rgba(255, 255, 255, 0.014)),
+    rgba(17, 24, 22, 0.92);
+  --graph-tone-repository-bg: #13251d;
+  --graph-tone-repository-border: #69b779;
+  --graph-tone-directory-bg: #172129;
+  --graph-tone-directory-border: #5aa9c8;
+  --graph-tone-file-bg: #151f2d;
+  --graph-tone-file-border: #6e9ee8;
+  --graph-tone-config-bg: #201f12;
+  --graph-tone-config-border: #c7aa4a;
+  --graph-tone-module-bg: #281d2c;
+  --graph-tone-module-border: #c78be8;
+  --graph-tone-class-bg: #242014;
+  --graph-tone-class-border: #d7b65c;
+  --graph-tone-function-bg: #14251d;
+  --graph-tone-function-border: #63c08a;
+  --graph-tone-method-bg: #241b22;
+  --graph-tone-method-border: #e0829d;
+  --graph-tone-default-bg: #171717;
+  --graph-tone-default-border: #a39787;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--color-text-primary);
   background: var(--color-root);
+}
+
+:root[data-theme="light"] {
+  --color-root: #f5f2ed;
+  --color-surface: #fffaf2;
+  --color-panel: #fffdf8;
+  --color-elevated: #ffffff;
+  --color-border-subtle: rgba(128, 96, 58, 0.18);
+  --color-border-medium: rgba(128, 96, 58, 0.34);
+  --color-accent: #9b6430;
+  --color-accent-strong: #7a491c;
+  --color-text-primary: #211a14;
+  --color-text-secondary: #5f5144;
+  --color-text-muted: #8d7c69;
+  --color-success: #3f8658;
+  --color-info: #326f90;
+  --glow-accent: rgba(155, 100, 48, 0.22);
+  --shadow-panel: 0 18px 50px rgba(80, 57, 31, 0.12);
+  --color-header-bg: rgba(255, 250, 242, 0.94);
+  --color-rail-bg: rgba(255, 250, 242, 0.96);
+  --color-panel-translucent: rgba(255, 250, 242, 0.94);
+  --color-panel-overlay: rgba(255, 252, 246, 0.78);
+  --color-panel-overlay-strong: rgba(255, 252, 246, 0.96);
+  --color-toolbar-bg: rgba(251, 245, 235, 0.9);
+  --color-input-bg: #fffdf8;
+  --color-canvas: #fbf7ef;
+  --color-code-bg: #f7efe4;
+  --color-control-bg: rgba(255, 253, 248, 0.9);
+  --color-soft-fill: rgba(128, 96, 58, 0.075);
+  --color-subtle-fill: rgba(128, 96, 58, 0.05);
+  --color-accent-fill: rgba(155, 100, 48, 0.09);
+  --color-accent-fill-strong: rgba(155, 100, 48, 0.13);
+  --color-row-border: rgba(128, 96, 58, 0.11);
+  --color-graph-grid: rgba(155, 100, 48, 0.16);
+  --color-flow-mask: rgba(245, 242, 237, 0.72);
+  --color-status-success-text: #2f7046;
+  --color-info-text: #326f90;
+  --color-info-text-strong: #275d7a;
+  --color-danger-text: #a84734;
+  --color-highlight-text: #377c51;
+  --graph-node-bg: rgba(255, 253, 248, 0.98);
+  --graph-node-external-bg: linear-gradient(180deg, rgba(50, 111, 144, 0.08), rgba(255, 255, 255, 0.42)),
+    rgba(244, 249, 255, 0.98);
+  --graph-node-stats-bg: rgba(128, 96, 58, 0.065);
+  --graph-node-hide-bg: rgba(255, 253, 248, 0.9);
+  --graph-node-shadow: 0 8px 22px rgba(80, 57, 31, 0.12);
+  --graph-node-shadow-hover: 0 10px 28px rgba(80, 57, 31, 0.16);
+  --graph-container-bg: linear-gradient(180deg, rgba(155, 100, 48, 0.08), rgba(255, 255, 255, 0.52)),
+    rgba(255, 253, 248, 0.72);
+  --graph-container-compact-bg: linear-gradient(180deg, rgba(112, 74, 146, 0.1), rgba(255, 255, 255, 0.52)),
+    rgba(252, 247, 255, 0.9);
+  --graph-container-community-bg: linear-gradient(180deg, rgba(53, 125, 82, 0.09), rgba(255, 255, 255, 0.52)),
+    rgba(246, 253, 249, 0.9);
+  --graph-tone-repository-bg: #eff8f2;
+  --graph-tone-repository-border: #2f7d4b;
+  --graph-tone-directory-bg: #edf7fb;
+  --graph-tone-directory-border: #256f8d;
+  --graph-tone-file-bg: #eef4ff;
+  --graph-tone-file-border: #3a70bd;
+  --graph-tone-config-bg: #fff8df;
+  --graph-tone-config-border: #806515;
+  --graph-tone-module-bg: #fbf1ff;
+  --graph-tone-module-border: #7b4598;
+  --graph-tone-class-bg: #fff7df;
+  --graph-tone-class-border: #896918;
+  --graph-tone-function-bg: #eef9f2;
+  --graph-tone-function-border: #2f7f55;
+  --graph-tone-method-bg: #fff0f5;
+  --graph-tone-method-border: #a34e69;
+  --graph-tone-default-bg: #f6f2eb;
+  --graph-tone-default-border: #6f6254;
 }
 
 * {
@@ -55,5 +179,3 @@ input {
   position: fixed;
   z-index: 999;
 }
-
-
