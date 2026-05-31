@@ -41,6 +41,26 @@ class PageGenerationPayloadBuilder:
             "required_json_shape": self.template.required_json_shape(),
         }
 
+    def stable_repo_context(
+        self,
+        repo: RepoDescriptor,
+        *,
+        language_code: str,
+    ) -> dict[str, Any]:
+        catalog = self.store.get_latest_doc_catalog(repo.id, language_code=language_code)
+        return {
+            "repository": {
+                "id": repo.id,
+                "name": repo.name,
+                "path": repo.path,
+                "source_type": repo.source_type,
+                "git_url": repo.git_url,
+                "commit_hash": repo.commit_hash,
+            },
+            "language_code": language_code,
+            "catalog": _stable_catalog_context(catalog.structure if catalog else None),
+        }
+
     def build(
         self,
         repo: RepoDescriptor,
@@ -109,3 +129,29 @@ def _source_chunk_metadata(chunks: list[dict[str, object]]) -> list[dict[str, ob
         "reasons",
     )
     return [{key: chunk[key] for key in kept_keys if key in chunk} for chunk in chunks]
+
+
+def _stable_catalog_context(structure: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not structure:
+        return None
+    return {
+        "title": structure.get("title"),
+        "description": structure.get("description"),
+        "items": [_stable_catalog_item(item) for item in structure.get("items", [])],
+    }
+
+
+def _stable_catalog_item(item: dict[str, Any]) -> dict[str, Any]:
+    children = item.get("children") or []
+    return {
+        key: value
+        for key, value in {
+            "title": item.get("title"),
+            "slug": item.get("slug"),
+            "path": item.get("path"),
+            "topic": item.get("topic"),
+            "kind": item.get("kind"),
+            "children": [_stable_catalog_item(child) for child in children],
+        }.items()
+        if value not in (None, [], "")
+    }

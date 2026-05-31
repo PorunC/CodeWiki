@@ -35,6 +35,7 @@ class LLMGateway:
         messages: list[dict[str, str]],
         *,
         response_format: str | None = None,
+        provider_user_id: str | None = None,
     ) -> LLMResult:
         from litellm import acompletion
 
@@ -54,6 +55,8 @@ class LLMGateway:
             kwargs["api_base"] = profile.endpoint
         if profile.api_key:
             kwargs["api_key"] = profile.api_key
+        if provider_user_id and _is_deepseek_profile(profile):
+            kwargs["extra_body"] = {"user_id": provider_user_id}
 
         response = await acompletion(**kwargs)
         choice = response.choices[0]
@@ -124,3 +127,10 @@ def _litellm_model(profile) -> str:
     if profile.endpoint:
         return f"openai/{profile.model}"
     return profile.model
+
+
+def _is_deepseek_profile(profile) -> bool:
+    provider = (profile.provider_type or "").lower()
+    model = (profile.model or "").lower()
+    endpoint = (profile.endpoint or "").lower()
+    return provider == "deepseek" or model.startswith("deepseek/") or "deepseek.com" in endpoint

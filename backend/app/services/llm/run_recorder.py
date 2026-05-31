@@ -1,7 +1,8 @@
-import json
-import re
 from dataclasses import dataclass
 from hashlib import sha256
+from inspect import signature
+import json
+import re
 from typing import Any
 
 from backend.app.database import LLMRunRecord, CodeWikiStore
@@ -42,6 +43,7 @@ async def complete_with_cache(
     model_alias: str | None = None,
     prompt_version: str | None = None,
     response_format: str | None = None,
+    provider_user_id: str | None = None,
 ) -> RecordedLLMResult:
     input_hash = payload_hash(input_payload)
     model = llm_model(llm, task_type)
@@ -81,7 +83,13 @@ async def complete_with_cache(
         return RecordedLLMResult(result=result, run=run, cache_hit=True)
 
     try:
-        result = await llm.complete(task_type, messages, response_format=response_format)
+        result = await _complete_llm(
+            llm,
+            task_type,
+            messages,
+            response_format=response_format,
+            provider_user_id=provider_user_id,
+        )
     except Exception as exc:
         error = sanitized_llm_error(exc)
         run = record_failed_llm_run(
@@ -110,6 +118,26 @@ async def complete_with_cache(
         prompt_version=prompt_version,
     )
     return RecordedLLMResult(result=result, run=run, cache_hit=False)
+
+
+async def _complete_llm(
+    llm: Any,
+    task_type: str,
+    messages: list[dict[str, str]],
+    *,
+    response_format: str | None,
+    provider_user_id: str | None,
+) -> LLMResult:
+    complete = llm.complete
+    parameters = signature(complete).parameters
+    if "provider_user_id" in parameters:
+        return await complete(
+            task_type,
+            messages,
+            response_format=response_format,
+            provider_user_id=provider_user_id,
+        )
+    return await complete(task_type, messages, response_format=response_format)
 
 
 def record_llm_run(

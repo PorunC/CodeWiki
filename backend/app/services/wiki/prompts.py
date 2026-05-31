@@ -9,6 +9,7 @@ from backend.app.services.prompts import load_prompt
 def _page_messages(
     prompt: str,
     prompt_contract: dict[str, Any],
+    stable_repo_context: dict[str, Any],
     user_payload: dict[str, Any],
     validation_errors: list[str],
 ) -> list[dict[str, str]]:
@@ -30,6 +31,7 @@ def _page_messages(
                 "prompt_contract": prompt_contract,
             },
         ),
+        stable_json_message("Stable repository wiki context", stable_repo_context),
         dynamic_json_message(
             "Page payload",
             _payload_with_validation_errors(user_payload, validation_errors),

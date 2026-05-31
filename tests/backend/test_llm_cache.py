@@ -133,6 +133,28 @@ def test_unique_cache_key_is_stable() -> None:
     assert unique_cache_key("community_naming", "batch", 1) == "community_naming:batch:1"
 
 
+@pytest.mark.asyncio
+async def test_complete_with_cache_passes_provider_user_id_when_supported(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    llm = _ProviderUserLLM()
+
+    await complete_with_cache(
+        store,
+        repo.id,
+        llm=llm,
+        task_type="qa",
+        messages=[{"role": "user", "content": "Explain the handler."}],
+        input_payload={"question": "Explain the handler."},
+        cache_key=unique_cache_key("qa", "trace-1", "question-1"),
+        provider_user_id="codewiki-custom-repo",
+    )
+
+    assert llm.provider_user_ids == ["codewiki-custom-repo"]
+
+
 def test_normalize_usage_standardizes_provider_cache_tokens() -> None:
     usage = normalize_usage(
         {
@@ -192,3 +214,24 @@ class _FailingLLM:
         response_format: str | None = None,
     ) -> LLMResult:
         raise RuntimeError("provider returned invalid JSON for api_key=sk-test-secret-123456")
+
+
+class _ProviderUserLLM:
+    router = _FakeRouter()
+
+    def __init__(self) -> None:
+        self.provider_user_ids: list[str | None] = []
+
+    async def complete(
+        self,
+        task_type: str,
+        messages: list[dict[str, str]],
+        *,
+        response_format: str | None = None,
+        provider_user_id: str | None = None,
+    ) -> LLMResult:
+        assert task_type == "qa"
+        assert messages
+        assert response_format is None
+        self.provider_user_ids.append(provider_user_id)
+        return LLMResult(content="answer", model="fake/qa", usage={})

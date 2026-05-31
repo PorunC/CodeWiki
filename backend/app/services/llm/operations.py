@@ -15,6 +15,7 @@ class LLMOperation:
     model_alias: str | None = None
     prompt_version: str | None = None
     response_format: str | None = None
+    provider_user_id: str | None = None
 
     @property
     def cache_key(self) -> str:
@@ -38,4 +39,11 @@ class CachedLLMService:
             model_alias=operation.model_alias,
             prompt_version=operation.prompt_version,
             response_format=operation.response_format,
+            provider_user_id=operation.provider_user_id or provider_user_id_for_repo(repo_id),
         )
+
+
+def provider_user_id_for_repo(repo_id: str) -> str:
+    normalized = "".join(char if char.isalnum() or char in "-_" else "-" for char in repo_id)
+    normalized = normalized.strip("-_") or "repo"
+    return f"codewiki-{normalized}"[:512]

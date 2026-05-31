@@ -108,6 +108,10 @@ class WikiPageGenerator:
             diagram_slots=_diagram_slots_payload(diagram_plan),
         )
         prompt_contract = self.payload_builder.prompt_contract()
+        stable_repo_context = self.payload_builder.stable_repo_context(
+            repo,
+            language_code=language_code,
+        )
 
         payload: dict[str, Any] = {}
         markdown = ""
@@ -125,6 +129,7 @@ class WikiPageGenerator:
                         messages=_page_messages(
                             prompt,
                             prompt_contract,
+                            stable_repo_context,
                             attempt_payload,
                             validation_errors if attempt else [],
                         ),
