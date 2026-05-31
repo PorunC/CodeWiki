@@ -1,5 +1,6 @@
 from backend.app.database import CodeChunkRecord, CodeChunkSearchHit, CodeWikiStore
 from backend.app.services.embedding_index import EmbeddingIndex
+from backend.app.services.file_roles import is_wiki_noise_file, is_wiki_noise_node
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import SEED_NODE_TYPES
 from backend.app.services.graphrag.models import NodeHit
@@ -27,6 +28,8 @@ def seed_from_symbols(
             types=sorted(SEED_NODE_TYPES),
             limit=32,
         ):
+            if is_wiki_noise_node(search_hit.node):
+                continue
             hits[search_hit.node.id] = NodeHit(
                 node_id=search_hit.node.id,
                 score=min(1.3, max(0.35, search_hit.score)),
@@ -34,6 +37,8 @@ def seed_from_symbols(
             )
 
     for node in nodes:
+        if is_wiki_noise_node(node):
+            continue
         if node.type not in SEED_NODE_TYPES:
             continue
         haystack = node_haystack(node)
@@ -100,8 +105,12 @@ def merge_chunk_hits_into_seeds(
         if node.type == "file" and node.file_path
     }
     for index, chunk_hit in enumerate(chunk_hits):
+        if is_wiki_noise_file(chunk_hit.chunk.file_path):
+            continue
         node_id = chunk_hit.chunk.node_id or file_nodes_by_path.get(chunk_hit.chunk.file_path)
         if node_id not in node_by_id:
+            continue
+        if is_wiki_noise_node(node_by_id[node_id]):
             continue
         score = max(0.25, chunk_hit.score - index * 0.01)
         existing = seed_hits.get(node_id)
@@ -117,10 +126,14 @@ def add_overview_fallback_seeds(
     nodes: list[CodeGraphNode],
 ) -> None:
     for node in nodes:
+        if is_wiki_noise_node(node):
+            continue
         if node.type == "repository":
             seed_hits[node.id] = NodeHit(node_id=node.id, score=0.4, reasons={"overview"})
             break
     for node in sorted(nodes, key=lambda item: item.file_path):
+        if is_wiki_noise_node(node):
+            continue
         if node.type == "file":
             seed_hits[node.id] = NodeHit(node_id=node.id, score=0.35, reasons={"overview"})
             if len(seed_hits) >= 6:

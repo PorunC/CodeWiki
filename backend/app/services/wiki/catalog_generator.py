@@ -1,6 +1,7 @@
 from typing import Any
 
 from backend.app.database import DocCatalogRecord, CodeWikiStore
+from backend.app.services.file_roles import filter_wiki_graph
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.llm.gateway import LLMGateway
@@ -50,7 +51,8 @@ class WikiCatalogGenerator:
             raise ValueError(f"Repository not found: {repo_id}")
 
         trace = await self.retriever.retrieve(repo_id, "repository overview", max_hops=3)
-        nodes, edges = self.store.get_graph(repo.id)
+        graph_nodes, graph_edges = self.store.get_graph(repo.id)
+        nodes, edges = filter_wiki_graph(graph_nodes, graph_edges)
         catalog_limits = catalog_limits_for_repo(
             nodes,
             edges,

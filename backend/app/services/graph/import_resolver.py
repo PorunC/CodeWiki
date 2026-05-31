@@ -3,9 +3,7 @@ from collections.abc import Callable
 from pathlib import PurePosixPath
 
 from backend.app.services.graph.confidence import CONFIDENCE_TIERS, TIER_REASONS
-from backend.app.services.graph.ids import module_node_id
 from backend.app.services.graph.models import CodeGraphNode
-from backend.app.services.graph.node_factory import module_node
 
 
 def resolve_import_target(
@@ -114,17 +112,3 @@ def add_import_edges(
                 },
             )
             continue
-        add_node(module_node(repo_id, import_name))
-        add_edge(
-            file_node_id,
-            module_node_id(repo_id, import_name),
-            "imports",
-            confidence=CONFIDENCE_TIERS["global"],
-            is_inferred=True,
-            reason=TIER_REASONS["global"],
-            metadata={
-                "import": import_name,
-                "resolved": False,
-                "resolution_tier": "global",
-            },
-        )

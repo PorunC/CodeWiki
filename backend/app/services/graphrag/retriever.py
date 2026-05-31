@@ -1,5 +1,6 @@
 from backend.app.config import Settings, get_settings
 from backend.app.database import CodeChunkRecord, CodeWikiStore, get_store
+from backend.app.services.file_roles import filter_wiki_graph
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import (
     DEFAULT_CONTEXT_TOKENS,
@@ -67,9 +68,10 @@ class GraphRAGRetriever:
         if repo is None:
             raise ValueError(f"Repository not found: {repo_id}")
 
-        nodes, edges = self.store.get_graph(repo_id)
-        if not nodes:
+        graph_nodes, graph_edges = self.store.get_graph(repo_id)
+        if not graph_nodes:
             raise ValueError("Run analysis before GraphRAG retrieval.")
+        nodes, edges = filter_wiki_graph(graph_nodes, graph_edges)
 
         query = query.strip() or "repository overview"
         max_hops = max(0, min(max_hops, 4))

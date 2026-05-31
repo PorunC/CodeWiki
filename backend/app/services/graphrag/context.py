@@ -1,4 +1,5 @@
 from backend.app.database import CodeChunkSearchHit, CodeWikiStore, GraphCommunityRecord
+from backend.app.services.file_roles import is_wiki_noise_file
 from backend.app.services.graph import CodeGraphEdge, CodeGraphNode
 from backend.app.services.graph_provenance import edge_provenance, node_confidence, node_provenance
 from backend.app.services.graphrag.models import ChunkHit
@@ -15,7 +16,7 @@ MAX_COMMUNITY_EDGES = 16
 
 def _is_ignored_source_file(file_path: str) -> bool:
     normalized = file_path.replace("\\", "/")
-    return normalized.rsplit("/", 1)[-1] in IGNORED_SOURCE_FILES
+    return normalized.rsplit("/", 1)[-1] in IGNORED_SOURCE_FILES or is_wiki_noise_file(file_path)
 
 
 def select_source_chunks(

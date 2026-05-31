@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections import deque
-from fnmatch import fnmatch
 from typing import Any
 
+from backend.app.services.file_roles import is_test_file as _is_test_file
 from backend.app.services.graph.models import CodeGraphEdge, CodeGraphNode
 
 
@@ -48,22 +48,7 @@ def transitive_file_dependents(
 
 
 def is_test_file(file_path: str, test_glob: str | None) -> bool:
-    normalized = file_path.lower().replace("\\", "/")
-    if test_glob:
-        return fnmatch(file_path, test_glob)
-    name = normalized.rsplit("/", 1)[-1]
-    return (
-        name.startswith("test_")
-        or ".test." in name
-        or ".spec." in name
-        or name.endswith("_test.go")
-        or name.endswith("_test.py")
-        or "/tests/" in normalized
-        or "/test/" in normalized
-        or "/__tests__/" in normalized
-        or "/e2e/" in normalized
-        or "/spec/" in normalized
-    )
+    return _is_test_file(file_path, test_glob)
 
 
 def page_source_files(source_refs: list[dict[str, Any]]) -> set[str]:

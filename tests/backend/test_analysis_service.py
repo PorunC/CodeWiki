@@ -47,10 +47,10 @@ def test_analyze_persists_first_code_graph(tmp_path: Path) -> None:
     assert sum(result.community_count_by_level.values()) == result.community_count
     assert result.community_count >= 1
     assert {node.type for node in nodes} >= {"repository", "file", "class", "function", "method"}
-    assert any(node.name == "os" and node.type == "module" for node in nodes)
+    assert not any(node.name == "os" and node.type == "module" for node in nodes)
     assert all("provenance" in node.metadata for node in nodes)
     assert any(edge.type == "contains" for edge in edges)
-    assert any(edge.type == "imports" for edge in edges)
+    assert not any(edge.type == "imports" and edge.metadata.get("resolved") is False for edge in edges)
     assert any(edge.type == "calls" for edge in edges)
     assert all("provenance" in edge.metadata for edge in edges)
     assert all("confidence_level" in edge.metadata for edge in edges)
@@ -262,6 +262,27 @@ def test_analyze_resolves_local_python_imports(tmp_path: Path) -> None:
         edge for edge in edges if edge.type == "imports" and edge.metadata.get("resolved") is True
     ]
     assert any(edge.source_id.endswith(":file:api.py") and edge.target_id.endswith(":file:service.py") for edge in local_import_edges)
+
+
+def test_analyze_skips_unresolved_external_type_reference_nodes(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / "worker.ts").write_text("export class Worker extends ExternalBase {}\n")
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+
+    AnalysisService(store=store).analyze(repo.id)
+    nodes, edges = store.get_graph(repo.id)
+
+    worker_node = next(node for node in nodes if node.type == "class" and node.name == "Worker")
+    assert not any(node.type == "module" and node.name == "ExternalBase" for node in nodes)
+    assert not any(
+        edge.type == "inherits"
+        and edge.source_id == worker_node.id
+        and edge.metadata.get("base") == "ExternalBase"
+        for edge in edges
+    )
 
 
 def test_analyze_records_confidence_tiers_and_edge_reasons(tmp_path: Path) -> None:

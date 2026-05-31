@@ -2,6 +2,7 @@ import hashlib
 from pathlib import Path
 
 from backend.app.database import CodeChunkRecord
+from backend.app.services.file_roles import is_wiki_noise_file
 from backend.app.services.graph import CodeGraphNode
 from backend.app.services.graphrag.constants import SOURCE_NODE_TYPES
 from backend.app.services.graphrag.utils import estimate_tokens, stable_id
@@ -27,6 +28,8 @@ class ChunkBuilder:
 
         for node in sorted(nodes, key=lambda item: item.type == "file"):
             if node.type not in CHUNK_SOURCE_NODE_TYPES or not node.file_path:
+                continue
+            if is_wiki_noise_file(node.file_path):
                 continue
             lines = line_cache.get(node.file_path)
             if lines is None:

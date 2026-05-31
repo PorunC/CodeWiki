@@ -3,7 +3,6 @@ from collections.abc import Callable, Mapping
 from backend.app.services.ast_parser import AstSymbol
 from backend.app.services.graph.confidence import EdgeResolution, edge_resolution
 from backend.app.services.graph.models import CodeGraphNode
-from backend.app.services.graph.node_factory import module_node
 
 
 def build_call_index(
@@ -97,9 +96,7 @@ def resolve_type_reference(
         return None
     if not name:
         return None
-    node = module_node(repo_id, name, kind="type_reference")
-    add_node(node)
-    return edge_resolution(node.id, "global", is_inferred=True)
+    return None
 
 
 def file_exports(file_symbols: list[AstSymbol]) -> set[str]:

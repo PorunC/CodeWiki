@@ -166,6 +166,63 @@ def test_chunk_builder_skips_file_nodes(tmp_path: Path) -> None:
     assert chunks[0].content == "def answer():\n    return 42\n"
 
 
+def test_chunk_builder_skips_tests_generated_and_vendor_files(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    (repo_dir / "tests").mkdir(parents=True)
+    (repo_dir / "dist").mkdir()
+    (repo_dir / "node_modules" / "pkg").mkdir(parents=True)
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    (repo_dir / "tests" / "test_main.py").write_text("def test_answer():\n    assert True\n")
+    (repo_dir / "dist" / "bundle.js").write_text("function generated() {}\n")
+    (repo_dir / "node_modules" / "pkg" / "index.js").write_text("function vendor() {}\n")
+    nodes = [
+        CodeGraphNode(
+            id="repo:function:answer",
+            repo_id="repo",
+            type="function",
+            name="answer",
+            file_path="main.py",
+            start_line=1,
+            end_line=2,
+        ),
+        CodeGraphNode(
+            id="repo:function:test_answer",
+            repo_id="repo",
+            type="function",
+            name="test_answer",
+            file_path="tests/test_main.py",
+            start_line=1,
+            end_line=2,
+        ),
+        CodeGraphNode(
+            id="repo:function:generated",
+            repo_id="repo",
+            type="function",
+            name="generated",
+            file_path="dist/bundle.js",
+            start_line=1,
+            end_line=1,
+        ),
+        CodeGraphNode(
+            id="repo:function:vendor",
+            repo_id="repo",
+            type="function",
+            name="vendor",
+            file_path="node_modules/pkg/index.js",
+            start_line=1,
+            end_line=1,
+        ),
+    ]
+
+    chunks = ChunkBuilder().build_source_chunks(
+        repo_id="repo",
+        repo_path=str(repo_dir),
+        nodes=nodes,
+    )
+
+    assert [chunk.file_path for chunk in chunks] == ["main.py"]
+
+
 def test_chunk_builder_uses_shared_content_provider(tmp_path: Path) -> None:
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -201,6 +258,26 @@ def test_chunk_builder_uses_shared_content_provider(tmp_path: Path) -> None:
 
     assert len(chunks) == 2
     assert provider.read_count == 1
+
+
+@pytest.mark.asyncio
+async def test_graphrag_retrieve_excludes_test_files_from_context(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    (repo_dir / "tests").mkdir(parents=True)
+    (repo_dir / "main.py").write_text("def answer():\n    return 42\n")
+    (repo_dir / "tests" / "test_main.py").write_text(
+        "def test_secret_noise():\n    assert answer() == 42\n"
+    )
+
+    store = SQLiteStore(tmp_path / "codewiki.sqlite3")
+    repo = store.upsert_repo(RepoScanner().describe(str(repo_dir)))
+    AnalysisService(store=store).analyze(repo.id)
+
+    trace = await GraphRAGRetriever(store=store).retrieve(repo.id, "test_secret_noise", max_hops=3)
+
+    assert all("tests/" not in str(chunk["file_path"]) for chunk in trace.source_chunks)
+    assert all("tests/" not in str(node.get("file_path", "")) for node in trace.seed_nodes)
+    assert all("tests/" not in str(node.get("file_path", "")) for node in trace.expanded_nodes)
 
 
 @pytest.mark.asyncio
