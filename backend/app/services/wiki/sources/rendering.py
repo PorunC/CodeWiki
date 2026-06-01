@@ -2,6 +2,7 @@ import re
 from collections.abc import Sequence
 from typing import Any, Protocol
 
+from backend.app.services.wiki.markdown import _repair_conjoined_fence_headings
 from backend.app.services.wiki.sources.urls import _source_file_href, _source_ref_href
 
 DIAGRAM_SLOT_RE = re.compile(r"^\s*\[\[DIAGRAM:(?P<slot>[a-zA-Z0-9_-]+)\]\]\s*$", re.MULTILINE)
@@ -50,6 +51,7 @@ def _compose_page_markdown(
     body = _strip_inline_sources_lines(markdown.strip())
     body = _insert_relevant_source_files(body, source_refs)
     body = _place_diagrams(body, diagrams, source_refs)
+    body = _repair_conjoined_fence_headings(body)
     sections = [body]
     sections.append(_sources_markdown(source_refs))
     return "\n\n".join(section for section in sections if section)

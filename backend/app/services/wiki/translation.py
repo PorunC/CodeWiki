@@ -10,6 +10,7 @@ from backend.app.services.llm.operations import CachedLLMService, LLMOperation
 from backend.app.services.wiki.catalog import _validate_catalog_payload
 from backend.app.services.wiki.incremental_strategy import WikiIncrementalStrategy
 from backend.app.services.wiki.language import normalize_language
+from backend.app.services.wiki.markdown import _repair_conjoined_fence_headings
 from backend.app.services.wiki.prompts import _json_object
 from backend.app.services.wiki.translation_support import (
     CatalogTitleTranslationMapper,
@@ -250,7 +251,9 @@ class WikiTranslator:
             slug=page.slug,
             title=str(response.get("title") or page.title),
             parent_slug=page.parent_slug,
-            markdown=str(response.get("markdown") or page.markdown),
+            markdown=_repair_conjoined_fence_headings(
+                str(response.get("markdown") or page.markdown)
+            ),
             source_refs=page.source_refs,
             graph_refs=page.graph_refs,
             status=page.status,

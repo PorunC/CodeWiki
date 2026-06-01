@@ -1076,6 +1076,29 @@ def test_diagram_placeholders_insert_server_diagrams_in_body() -> None:
     assert "  - S1 [L3-L4](source-link)" in rendered
 
 
+def test_page_markdown_repairs_conjoined_mermaid_fence_headings() -> None:
+    source_refs: list[dict[str, object]] = []
+    markdown = "\n".join(
+        [
+            "# Training a Skill",
+            "",
+            "## Purpose and Scope",
+            "",
+            "```mermaid",
+            "sequenceDiagram",
+            "  User->>Skill: train",
+            "```### Training a Skill interaction sequence",
+            "",
+            "The interaction continues.",
+        ]
+    )
+
+    rendered = _compose_page_markdown(markdown, [], source_refs)
+
+    assert "```### Training a Skill interaction sequence" not in rendered
+    assert "```\n### Training a Skill interaction sequence" in rendered
+
+
 def test_unknown_diagram_placeholders_are_validation_errors() -> None:
     errors = _validate_diagram_placeholders(
         "# Page\n\n## Purpose and Scope\n\n[[DIAGRAM:invented]]",

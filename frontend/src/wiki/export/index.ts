@@ -1,5 +1,6 @@
 import type { WikiCatalogItem, WikiPageRecord, WikiResponse } from "../../api/types";
 import { firstPageSlugFromItems, sortCatalogItems } from "../catalog";
+import { repairConjoinedFenceHeadings } from "../markdown/normalize";
 import { stripMarkdownSourcesSection } from "../markdown/sections";
 import { relatedPagesForPage } from "../relatedPages";
 import { escapeHtml, renderMarkdownToHtml } from "./markdown";
@@ -37,20 +38,23 @@ export function buildInteractiveWikiHtml(options: WikiExportOptions): string {
   const rowsWithLoosePages = appendLoosePageRows(rows, options.wiki.pages);
   const firstSlug =
     firstPageSlugFromItems(options.wiki.items, pageBySlug) ?? options.wiki.pages[0]?.slug ?? null;
-  const pages = options.wiki.pages.map((page) => ({
-    slug: page.slug,
-    title: page.title,
-    status: page.status,
-    sourceCount: page.source_refs.length,
-    graphCount: page.graph_refs.length,
-    html: renderMarkdownToHtml(stripMarkdownSourcesSection(page.markdown), htmlLinkRenderer),
-    searchText: normalizeSearchText(`${page.title} ${page.markdown}`),
-    sources: page.source_refs.map((source) => ({
-      label: `${source.file_path}:L${source.start_line}-L${source.end_line}`,
-      href: source.source_url ?? null
-    })),
-    relatedPages: relatedPagesForPage(options.wiki.items, pageBySlug, page.slug)
-  }));
+  const pages = options.wiki.pages.map((page) => {
+    const markdown = repairConjoinedFenceHeadings(page.markdown);
+    return {
+      slug: page.slug,
+      title: page.title,
+      status: page.status,
+      sourceCount: page.source_refs.length,
+      graphCount: page.graph_refs.length,
+      html: renderMarkdownToHtml(stripMarkdownSourcesSection(markdown), htmlLinkRenderer),
+      searchText: normalizeSearchText(`${page.title} ${markdown}`),
+      sources: page.source_refs.map((source) => ({
+        label: `${source.file_path}:L${source.start_line}-L${source.end_line}`,
+        href: source.source_url ?? null
+      })),
+      relatedPages: relatedPagesForPage(options.wiki.items, pageBySlug, page.slug)
+    };
+  });
   const pagePayload = serializeForScript({
     firstSlug,
     pages
@@ -130,7 +134,7 @@ export function buildObsidianVaultArchive(options: WikiExportOptions): Uint8Arra
     const vaultPath = pathBySlug.get(page.slug) ?? sanitizeVaultPath(page.slug);
     entries.push({
       path: `${vaultName}/${vaultPath}.md`,
-      data: rewriteMarkdownForVault(page.markdown, pathBySlug)
+      data: rewriteMarkdownForVault(repairConjoinedFenceHeadings(page.markdown), pathBySlug)
     });
   }
 

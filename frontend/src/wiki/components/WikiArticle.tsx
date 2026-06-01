@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import type { SourceRef, WikiPageRecord } from "../../api/types";
 import { wikiMarkdownComponents } from "../markdown/MarkdownComponents";
+import { repairConjoinedFenceHeadings } from "../markdown/normalize";
 import {
   extractRelevantSourceFilesSection,
   formatSourceRef,
@@ -27,9 +28,13 @@ export function WikiArticle({
   const markdownRef = useRef<HTMLDivElement | null>(null);
   const [headings, setHeadings] = useState<WikiHeading[]>([]);
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
-  const articleContent = useMemo(
-    () => extractRelevantSourceFilesSection(stripMarkdownSourcesSection(page.markdown)),
+  const repairedMarkdown = useMemo(
+    () => repairConjoinedFenceHeadings(page.markdown),
     [page.markdown]
+  );
+  const articleContent = useMemo(
+    () => extractRelevantSourceFilesSection(stripMarkdownSourcesSection(repairedMarkdown)),
+    [repairedMarkdown]
   );
   const labels = useMemo(() => wikiArticleLabels(page.language_code), [page.language_code]);
   const sourceGroups = useMemo(() => groupSourceRefs(page.source_refs), [page.source_refs]);
@@ -92,7 +97,7 @@ export function WikiArticle({
       scrollTarget.removeEventListener("scroll", updateActiveHeading);
       window.removeEventListener("resize", updateActiveHeading);
     };
-  }, [page.markdown, page.slug]);
+  }, [repairedMarkdown, page.slug]);
 
   const handleHeadingSelect = useCallback((headingIdValue: string) => {
     const heading = document.getElementById(headingIdValue);
