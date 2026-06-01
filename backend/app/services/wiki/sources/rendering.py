@@ -6,6 +6,11 @@ from backend.app.services.wiki.markdown import _repair_conjoined_fence_headings
 from backend.app.services.wiki.sources.urls import _source_file_href, _source_ref_href
 
 DIAGRAM_SLOT_RE = re.compile(r"^\s*\[\[DIAGRAM:(?P<slot>[a-zA-Z0-9_-]+)\]\]\s*$", re.MULTILINE)
+FENCED_DIAGRAM_SLOT_RE = re.compile(
+    r"(?m)^[ \t]*`{3,}[ \t]*\n"
+    r"[ \t]*\[\[DIAGRAM:(?P<slot>[a-zA-Z0-9_-]+)\]\][ \t]*\n"
+    r"[ \t]*`{3,}[ \t]*$"
+)
 DIAGRAM_HEADING_CANDIDATES = {
     "component": ("## System Context", "## Architecture", "## Core Components", "## Overview"),
     "data_flow": ("## Control Flow", "## Core Workflows", "## System Context"),
@@ -143,7 +148,8 @@ def _place_diagrams(
         used_slots.add(slot)
         return _diagram_markdown(diagram, source_refs)
 
-    placed = DIAGRAM_SLOT_RE.sub(replace_slot, markdown)
+    placed = FENCED_DIAGRAM_SLOT_RE.sub(replace_slot, markdown)
+    placed = DIAGRAM_SLOT_RE.sub(replace_slot, placed)
     unused_diagrams = [diagram for diagram in diagrams if diagram.slot not in used_slots]
     placed = _insert_unused_diagrams(placed, unused_diagrams, source_refs)
     return _strip_unknown_diagram_slots(placed)

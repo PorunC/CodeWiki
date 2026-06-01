@@ -1099,6 +1099,33 @@ def test_page_markdown_repairs_conjoined_mermaid_fence_headings() -> None:
     assert "```\n### Training a Skill interaction sequence" in rendered
 
 
+def test_diagram_placeholders_inside_plain_fences_do_not_wrap_mermaid() -> None:
+    diagram = MermaidDiagram(
+        slot="component-relationships",
+        kind="component",
+        title="User Guide component relationships",
+        heading_hint="System Context",
+        reason="test diagram",
+        lines=["graph TD", "  A --> B"],
+    )
+    markdown = (
+        "# User Guide\n\n"
+        "## Purpose and Scope\n\n"
+        "The page explains user workflows.\n\n"
+        "## System Context\n\n"
+        "```\n"
+        "[[DIAGRAM:component-relationships]]\n"
+        "```\n\n"
+        "## Configuration\n\n"
+        "Configuration follows."
+    )
+
+    rendered = _compose_page_markdown(markdown, [diagram], [])
+
+    assert "```\n### User Guide component relationships" not in rendered
+    assert "### User Guide component relationships\n\n```mermaid\ngraph TD\n  A --> B\n```" in rendered
+
+
 def test_unknown_diagram_placeholders_are_validation_errors() -> None:
     errors = _validate_diagram_placeholders(
         "# Page\n\n## Purpose and Scope\n\n[[DIAGRAM:invented]]",
