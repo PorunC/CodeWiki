@@ -2,11 +2,22 @@
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-06-03
+
 ### Changed
 
+- **DeepSeek prompt caching** — optimized wiki generation prompts and LLM cache
+  usage for better provider-side cache locality.
+- **GraphRAG evidence filtering** — filtered unresolved external placeholders,
+  tests, generated output, and vendor files from default GraphRAG and Wiki evidence.
 - **Documentation cleanup** — removed outdated standalone design notes and consolidated
   current architecture, PostgreSQL, community, and LLM cache details into the main
   README, usage guide, and design notes.
+
+### Fixed
+
+- **Wiki Mermaid repair** — repaired conjoined Mermaid fence headings and unwrapped
+  fenced diagram placeholders so generated diagrams render more reliably.
 
 ## [0.6.3] - 2026-05-30
 
