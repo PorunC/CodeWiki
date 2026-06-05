@@ -60,8 +60,8 @@ export class WikiCatalogGenerator {
     private readonly llm?: WikiCatalogLlm,
   ) {}
 
-  generate(request: WikiCatalogRequest): DocCatalog {
-    return this.saveCatalog(this.catalogContext(request), (context) =>
+  async generate(request: WikiCatalogRequest): Promise<DocCatalog> {
+    return this.saveCatalog(await this.catalogContext(request), (context) =>
       localCatalogDraft(context),
     );
   }
@@ -69,11 +69,11 @@ export class WikiCatalogGenerator {
   async generateWithLlmFallback(
     request: WikiCatalogRequest,
   ): Promise<WikiCatalogResult> {
-    const context = this.catalogContext(request);
+    const context = await this.catalogContext(request);
     const localDraft = localCatalogDraft(context);
     if (!this.llm?.isConfigured("catalog") || !context.nodes.length) {
       return {
-        catalog: this.saveCatalog(context, () => localDraft),
+        catalog: await this.saveCatalog(context, () => localDraft),
         validation_errors: [],
       };
     }
@@ -94,7 +94,7 @@ export class WikiCatalogGenerator {
       );
       if (!normalized.items.length) {
         return {
-          catalog: this.saveCatalog(context, () => localDraft),
+          catalog: await this.saveCatalog(context, () => localDraft),
           validation_errors: normalized.validationErrors,
           llm: {
             status: "fallback",
@@ -104,13 +104,13 @@ export class WikiCatalogGenerator {
         };
       }
       return {
-        catalog: this.saveCatalog(context, () => normalized),
+        catalog: await this.saveCatalog(context, () => normalized),
         validation_errors: normalized.validationErrors,
         llm: llmMetadata("success", completion),
       };
     } catch (error) {
       return {
-        catalog: this.saveCatalog(context, () => localDraft),
+        catalog: await this.saveCatalog(context, () => localDraft),
         validation_errors: [],
         llm: {
           status: "fallback",
@@ -121,25 +121,27 @@ export class WikiCatalogGenerator {
     }
   }
 
-  private catalogContext(request: WikiCatalogRequest): WikiCatalogContext {
-    const repo = this.store.getRepo(request.repoId);
+  private async catalogContext(
+    request: WikiCatalogRequest,
+  ): Promise<WikiCatalogContext> {
+    const repo = await this.store.getRepo(request.repoId);
     if (!repo) {
       throw notFoundError("Repository", request.repoId);
     }
-    const graph = this.store.getGraph(request.repoId);
+    const graph = await this.store.getGraph(request.repoId);
     return {
       repo,
       request,
       nodes: graph.nodes,
-      communities: this.store.listGraphCommunities(request.repoId),
+      communities: await this.store.listGraphCommunities(request.repoId),
       localItems: buildCatalogItems(graph.nodes),
     };
   }
 
-  private saveCatalog(
+  private async saveCatalog(
     context: WikiCatalogContext,
     draft: (context: WikiCatalogContext) => CatalogDraft,
-  ): DocCatalog {
+  ): Promise<DocCatalog> {
     const catalog = draft(context);
     return this.store.saveDocCatalog(context.request.repoId, {
       language_code: context.request.languageCode,

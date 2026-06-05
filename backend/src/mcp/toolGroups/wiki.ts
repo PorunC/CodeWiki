@@ -33,7 +33,7 @@ export function buildWikiTools({
       async (args) =>
         catalogResultPayload(
           await services.wiki.generateCatalogWithLlmFallback(
-            resolveRepo(store, scanner, optionalString(args, "repo")).id,
+            (await resolveRepo(store, scanner, optionalString(args, "repo"))).id,
             languageArg(args),
           ),
         ),
@@ -46,7 +46,11 @@ export function buildWikiTools({
         language: { type: "string", default: "en" },
       }),
       async (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         const pages = await services.wiki.generateAllPagesWithLlmFallback(
           repo.id,
           languageArg(args),
@@ -56,7 +60,7 @@ export function buildWikiTools({
           status: "generated",
           page_count: pages.length,
           pages: pages.map(pageResultPayload),
-          llm_cache: services.wiki.llmCachePayload(repo.id, [
+          llm_cache: await services.wiki.llmCachePayload(repo.id, [
             "catalog",
             "page",
           ]),
@@ -70,9 +74,9 @@ export function buildWikiTools({
         repo: repoSelectorSchema(),
         language: { type: "string", default: "en" },
       }),
-      (args) =>
+      async (args) =>
         services.wiki.updatePagesWithLlmFallback(
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
+          (await resolveRepo(store, scanner, optionalString(args, "repo"))).id,
           languageArg(args),
         ),
     ),
@@ -87,14 +91,14 @@ export function buildWikiTools({
         },
         ["slug"],
       ),
-      (args) =>
-        services.wiki
-          .regeneratePageWithLlmFallback(
-            resolveRepo(store, scanner, optionalString(args, "repo")).id,
+      async (args) =>
+        pageResultPayload(
+          await services.wiki.regeneratePageWithLlmFallback(
+            (await resolveRepo(store, scanner, optionalString(args, "repo"))).id,
             requiredString(args, "slug"),
             languageArg(args),
-          )
-          .then(pageResultPayload),
+          ),
+        ),
     ),
     tool(
       "codewiki_wiki_pages_list",
@@ -103,16 +107,20 @@ export function buildWikiTools({
         repo: repoSelectorSchema(),
         language: { type: "string", default: "en" },
       }),
-      (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         const language = languageArg(args);
+        const catalog = await store.getLatestDocCatalog(repo.id, language);
         return {
           repo_id: repo.id,
-          catalog: maybeMap(
-            store.getLatestDocCatalog(repo.id, language),
-            catalogPayload,
+          catalog: maybeMap(catalog, catalogPayload),
+          pages: (await store.listDocPages(repo.id, language)).map(
+            pagePayload,
           ),
-          pages: store.listDocPages(repo.id, language).map(pagePayload),
         };
       },
     ),
@@ -127,10 +135,14 @@ export function buildWikiTools({
         },
         ["slug"],
       ),
-      (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         const slug = requiredString(args, "slug");
-        const page = store.getDocPage(repo.id, slug, languageArg(args));
+        const page = await store.getDocPage(repo.id, slug, languageArg(args));
         if (!page) {
           throw new Error(`Wiki page not found: ${slug}`);
         }
@@ -151,9 +163,9 @@ export function buildWikiTools({
         },
         ["target_language"],
       ),
-      (args) =>
+      async (args) =>
         services.wiki.translateWiki(
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
+          (await resolveRepo(store, scanner, optionalString(args, "repo"))).id,
           optionalString(args, "source_language") ?? "en",
           requiredString(args, "target_language"),
         ),

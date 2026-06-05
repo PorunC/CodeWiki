@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { getSettings } from "../src/config.js";
 import { CodeWikiStore } from "../src/db/store.js";
+import type { CodeWikiStoreApi } from "../src/db/types.js";
 import { createServer } from "../src/http/server.js";
 import { RepoScanner } from "../src/scanner/scanner.js";
 
@@ -310,6 +311,72 @@ describe("HTTP API", () => {
     await app.close();
   });
 
+  it("serves repository wiki data from an asynchronous store", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-api-async-wiki-"));
+    const repoPath = join(root, "repo");
+    mkdirSync(repoPath);
+    const settings = getSettings({
+      CODEWIKI_DATABASE_URL: `sqlite:///${join(root, "codewiki.sqlite3")}`,
+      CODEWIKI_STORAGE_DIR: join(root, "storage"),
+    });
+    store = new CodeWikiStore(settings.databasePath);
+    const repo = store.upsertRepo({
+      id: "repo-async-wiki",
+      name: "repo",
+      path: repoPath,
+      source_type: "local",
+      git_url: null,
+      commit_hash: null,
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "repo Wiki",
+      language_code: "en",
+      structure: {
+        items: [
+          {
+            title: "Overview",
+            slug: "overview",
+            path: null,
+            order: 0,
+            kind: "page",
+            topic: "Repository overview",
+          },
+        ],
+      },
+    });
+    store.upsertDocPage({
+      id: "page-overview",
+      repo_id: repo.id,
+      language_code: "en",
+      slug: "overview",
+      title: "Overview",
+      parent_slug: null,
+      markdown: "# Overview\n",
+      source_refs: [],
+      graph_refs: [],
+      status: "generated",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+    const app = await createServer({ settings, store: asyncStore(store) });
+
+    const response = await app.inject(`/api/repos/${repo.id}/wiki`);
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      response.json<{
+        catalog: { title: string };
+        items: Array<{ slug: string }>;
+        pages: Array<{ slug: string }>;
+      }>(),
+    ).toMatchObject({
+      catalog: { title: "repo Wiki" },
+      items: [{ slug: "overview" }],
+      pages: [{ slug: "overview" }],
+    });
+
+    await app.close();
+  });
+
   it("does not close an externally owned store when the server closes", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-api-store-"));
     const settings = getSettings({
@@ -437,6 +504,18 @@ describe("HTTP API", () => {
     await app.close();
   });
 });
+
+function asyncStore(store: CodeWikiStore): CodeWikiStoreApi {
+  return new Proxy(store, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      if (typeof value !== "function") {
+        return value;
+      }
+      return (...args: unknown[]) => Promise.resolve(value.apply(target, args));
+    },
+  }) as unknown as CodeWikiStoreApi;
+}
 
 class TrackingScanner extends RepoScanner {
   readonly scannedFileRoots: string[] = [];

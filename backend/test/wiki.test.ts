@@ -22,7 +22,7 @@ describe("WikiService", () => {
     store = null;
   });
 
-  it("builds directory catalogs, generated pages, and copied translations", () => {
+  it("builds directory catalogs, generated pages, and copied translations", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-"));
     store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
     const repo = store.upsertRepo(repoDescriptor(root));
@@ -33,7 +33,7 @@ describe("WikiService", () => {
     });
 
     const service = new WikiService(store);
-    const catalog = service.generateCatalog(repo.id);
+    const catalog = await service.generateCatalog(repo.id);
     const items = catalog.structure.items;
     expect(Array.isArray(items)).toBe(true);
     expect(items).toEqual([
@@ -51,7 +51,7 @@ describe("WikiService", () => {
       }),
     ]);
 
-    const pages = service.generateAllPages(repo.id);
+    const pages = await service.generateAllPages(repo.id);
     const srcPage = pages.find((result) => result.page.slug === "src")?.page;
     expect(srcPage).toBeTruthy();
     expect(srcPage?.markdown).toContain("`helper` (function) in `src/util.ts`");
@@ -68,7 +68,7 @@ describe("WikiService", () => {
       }),
     ]);
 
-    const translated = service.translateWiki(repo.id, "en", "zh");
+    const translated = await service.translateWiki(repo.id, "en", "zh");
     expect(translated).toMatchObject({
       repo_id: repo.id,
       source_language: "en",

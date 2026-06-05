@@ -13,7 +13,6 @@ import {
   displayNumber,
   displayString,
   output,
-  runWithContext,
   runWithContextAsync,
   type CliRuntime,
 } from "../runtime.js";
@@ -33,7 +32,7 @@ export function registerWikiCommands(
     .option("--json", "Print JSON output")
     .action((selector: string, options: { language: string; json?: boolean }) =>
       runWithContextAsync(runtime, async ({ store, services }) => {
-        const repo = resolveRepo(store, selector);
+        const repo = await resolveRepo(store, selector);
         const result = await services.wiki.generateCatalogWithLlmFallback(
           repo.id,
           options.language,
@@ -53,7 +52,7 @@ export function registerWikiCommands(
     .option("--json", "Print JSON output")
     .action((selector: string, options: { language: string; json?: boolean }) =>
       runWithContextAsync(runtime, async ({ store, services }) => {
-        const repo = resolveRepo(store, selector);
+        const repo = await resolveRepo(store, selector);
         const results = await services.wiki.generateAllPagesWithLlmFallback(
           repo.id,
           options.language,
@@ -63,7 +62,7 @@ export function registerWikiCommands(
           status: "generated",
           page_count: results.length,
           pages: results.map(pageResultPayload),
-          llm_cache: services.wiki.llmCachePayload(repo.id, [
+          llm_cache: await services.wiki.llmCachePayload(repo.id, [
             "catalog",
             "page",
           ]),
@@ -84,7 +83,7 @@ export function registerWikiCommands(
         options: { repo?: string; language: string; json?: boolean },
       ) =>
         runWithContextAsync(runtime, async ({ store, services }) => {
-          const repo = selectedRepo(store, options.repo ?? selector);
+          const repo = await selectedRepo(store, options.repo ?? selector);
           const payload = await services.wiki.updatePagesWithLlmFallback(
             repo.id,
             options.language,
@@ -111,7 +110,7 @@ export function registerWikiCommands(
         options: { repo?: string; language: string; json?: boolean },
       ) =>
         runWithContextAsync(runtime, async ({ store, services }) => {
-          const repo = selectedRepo(store, options.repo ?? selector);
+          const repo = await selectedRepo(store, options.repo ?? selector);
           const result = await services.wiki.regeneratePageWithLlmFallback(
             repo.id,
             slug,
@@ -131,11 +130,14 @@ export function registerWikiCommands(
     .option("--language <language>", "Language code", "en")
     .option("--json", "Print JSON output")
     .action(
-      (selector: string, options: { language: string; json?: boolean }) => {
-        runWithContext(runtime, ({ store }) => {
-          const repo = resolveRepo(store, selector);
-          const catalog = store.getLatestDocCatalog(repo.id, options.language);
-          const pages = store.listDocPages(repo.id, options.language);
+      (selector: string, options: { language: string; json?: boolean }) =>
+        runWithContextAsync(runtime, async ({ store }) => {
+          const repo = await resolveRepo(store, selector);
+          const catalog = await store.getLatestDocCatalog(
+            repo.id,
+            options.language,
+          );
+          const pages = await store.listDocPages(repo.id, options.language);
           const payload = {
             repo_id: repo.id,
             catalog: catalog ? catalogPayload(catalog) : null,
@@ -146,8 +148,7 @@ export function registerWikiCommands(
             payload,
             pages.map((page) => `${page.slug}\t${page.title}`).join("\n"),
           );
-        });
-      },
+        }),
     );
 
   wiki
@@ -161,16 +162,15 @@ export function registerWikiCommands(
         slug: string,
         selector: string,
         options: { language: string; json?: boolean },
-      ) => {
-        runWithContext(runtime, ({ store }) => {
-          const repo = resolveRepo(store, selector);
-          const page = store.getDocPage(repo.id, slug, options.language);
+      ) =>
+        runWithContextAsync(runtime, async ({ store }) => {
+          const repo = await resolveRepo(store, selector);
+          const page = await store.getDocPage(repo.id, slug, options.language);
           if (!page) {
             throw new Error(`Wiki page not found: ${slug}`);
           }
           output(options.json, pagePayload(page), `${page.markdown}\n`);
-        });
-      },
+        }),
     );
 
   wiki
@@ -185,10 +185,10 @@ export function registerWikiCommands(
         targetLanguage: string,
         selector: string | undefined,
         options: { repo?: string; sourceLanguage: string; json?: boolean },
-      ) => {
-        runWithContext(runtime, ({ store, services }) => {
-          const repo = selectedRepo(store, options.repo ?? selector);
-          const payload = services.wiki.translateWiki(
+      ) =>
+        runWithContextAsync(runtime, async ({ store, services }) => {
+          const repo = await selectedRepo(store, options.repo ?? selector);
+          const payload = await services.wiki.translateWiki(
             repo.id,
             options.sourceLanguage,
             targetLanguage,
@@ -200,7 +200,6 @@ export function registerWikiCommands(
               payload.target_language,
             )}`,
           );
-        });
-      },
+        }),
     );
 }

@@ -46,8 +46,8 @@ export class WikiPageGenerator {
     private readonly llm?: WikiPageLlm,
   ) {}
 
-  generate(request: WikiPageRequest): DocPage {
-    const context = this.pageContext(request);
+  async generate(request: WikiPageRequest): Promise<DocPage> {
+    const context = await this.pageContext(request);
     return this.savePage(
       context,
       localPageMarkdown(
@@ -62,8 +62,8 @@ export class WikiPageGenerator {
   async generateWithLlmFallback(
     request: WikiPageRequest,
   ): Promise<WikiPageResult> {
-    const context = this.pageContext(request);
-    const localPage = this.savePage(
+    const context = await this.pageContext(request);
+    const localPage = await this.savePage(
       context,
       localPageMarkdown(
         request.title,
@@ -98,7 +98,7 @@ export class WikiPageGenerator {
         };
       }
       return {
-        page: this.savePage(context, markdown),
+        page: await this.savePage(context, markdown),
         validation_errors: [],
         llm: llmMetadata("success", completion),
       };
@@ -115,13 +115,13 @@ export class WikiPageGenerator {
     }
   }
 
-  private pageContext(request: WikiPageRequest): WikiPageContext {
-    const repo = this.store.getRepo(request.repoId);
+  private async pageContext(request: WikiPageRequest): Promise<WikiPageContext> {
+    const repo = await this.store.getRepo(request.repoId);
     if (!repo) {
       throw notFoundError("Repository", request.repoId);
     }
-    const graph = this.store.getGraph(request.repoId);
-    const chunks = this.store.listCodeChunks(request.repoId);
+    const graph = await this.store.getGraph(request.repoId);
+    const chunks = await this.store.listCodeChunks(request.repoId);
     const matchingNodes = nodesForPath(graph.nodes, request.path);
     const matchingChunks = chunksForNodes(chunks, matchingNodes).slice(0, 6);
     const sourceRefs = sourceRefsForChunks(matchingChunks);
@@ -138,7 +138,10 @@ export class WikiPageGenerator {
     };
   }
 
-  private savePage(context: WikiPageContext, markdown: string): DocPage {
+  private async savePage(
+    context: WikiPageContext,
+    markdown: string,
+  ): Promise<DocPage> {
     return this.store.upsertDocPage({
       id: randomUUID(),
       repo_id: context.request.repoId,

@@ -3,29 +3,31 @@ import type { CodeWikiStoreApi } from "../db/types.js";
 import type { JsonObject } from "../types.js";
 import { catalogPayload, llmCachePayload, pagePayload } from "./payloads.js";
 
-export function copyWikiLanguage(
+export async function copyWikiLanguage(
   store: CodeWikiStoreApi,
   repoId: string,
   sourceLanguage: string,
   targetLanguage: string,
-): JsonObject {
-  const catalog = store.getLatestDocCatalog(repoId, sourceLanguage);
+): Promise<JsonObject> {
+  const catalog = await store.getLatestDocCatalog(repoId, sourceLanguage);
   if (!catalog) {
     throw new Error(`Wiki catalog not found for language: ${sourceLanguage}`);
   }
 
-  const pages = store.listDocPages(repoId, sourceLanguage);
-  const translatedCatalog = store.saveDocCatalog(repoId, {
+  const pages = await store.listDocPages(repoId, sourceLanguage);
+  const translatedCatalog = await store.saveDocCatalog(repoId, {
     title: catalog.title,
     language_code: targetLanguage,
     structure: catalog.structure,
   });
-  const translatedPages = pages.map((page) =>
-    store.upsertDocPage({
-      ...page,
-      id: randomUUID(),
-      language_code: targetLanguage,
-    }),
+  const translatedPages = await Promise.all(
+    pages.map((page) =>
+      store.upsertDocPage({
+        ...page,
+        id: randomUUID(),
+        language_code: targetLanguage,
+      }),
+    ),
   );
 
   return {
@@ -37,7 +39,7 @@ export function copyWikiLanguage(
     page_count: translatedPages.length,
     pages: translatedPages.map(pagePayload),
     llm_cache: llmCachePayload(
-      store.listLlmRuns(repoId, { taskType: "translation" }),
+      await store.listLlmRuns(repoId, { taskType: "translation" }),
     ),
   };
 }

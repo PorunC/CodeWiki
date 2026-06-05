@@ -45,7 +45,10 @@ export function registerWikiRoutes(
         status: "generated",
         page_count: results.length,
         pages: results.map(pageResultPayload),
-        llm_cache: services.wiki.llmCachePayload(repoId, ["catalog", "page"]),
+        llm_cache: await services.wiki.llmCachePayload(repoId, [
+          "catalog",
+          "page",
+        ]),
       };
     });
   });
@@ -79,7 +82,7 @@ export function registerWikiRoutes(
 
   app.post("/api/repos/:repoId/wiki/translate", async (request, reply) => {
     const { repoId } = params(request.params);
-    return withRepo(reply, store, repoId, () => {
+    return withRepo(reply, store, repoId, async () => {
       const body = objectBody(request.body);
       const sourceLanguage = optionalString(body.source_language) ?? "en";
       const targetLanguage = stringField(body, "target_language");
@@ -93,18 +96,18 @@ export function registerWikiRoutes(
 
   app.get("/api/repos/:repoId/wiki", async (request, reply) => {
     const { repoId } = params(request.params);
-    return withRepo(reply, store, repoId, () => {
+    return withRepo(reply, store, repoId, async () => {
       const language =
         optionalString(queryObject(request.query).language) ?? "en";
-      const catalog = store.getLatestDocCatalog(repoId, language);
+      const catalog = await store.getLatestDocCatalog(repoId, language);
       return {
         repo_id: repoId,
         catalog: catalog ? catalogPayload(catalog) : null,
         items: Array.isArray(catalog?.structure.items)
           ? catalog.structure.items
           : [],
-        pages: store.listDocPages(repoId, language).map(pagePayload),
-        llm_cache: services.wiki.llmCachePayload(repoId, [
+        pages: (await store.listDocPages(repoId, language)).map(pagePayload),
+        llm_cache: await services.wiki.llmCachePayload(repoId, [
           "catalog",
           "page",
           "translation",
@@ -115,10 +118,10 @@ export function registerWikiRoutes(
 
   app.get("/api/repos/:repoId/wiki/pages/:slug", async (request, reply) => {
     const { repoId, slug } = params(request.params);
-    return withRepo(reply, store, repoId, () => {
+    return withRepo(reply, store, repoId, async () => {
       const language =
         optionalString(queryObject(request.query).language) ?? "en";
-      const page = store.getDocPage(repoId, slug, language);
+      const page = await store.getDocPage(repoId, slug, language);
       if (!page) {
         throw notFoundError("Wiki page", slug);
       }

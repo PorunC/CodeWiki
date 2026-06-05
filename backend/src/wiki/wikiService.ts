@@ -36,7 +36,7 @@ export class WikiService {
     this.pageGenerator = new WikiPageGenerator(store, llm);
   }
 
-  generateCatalog(repoId: string, languageCode = "en"): DocCatalog {
+  generateCatalog(repoId: string, languageCode = "en"): Promise<DocCatalog> {
     return this.catalogGenerator.generate({
       repoId,
       languageCode,
@@ -53,16 +53,19 @@ export class WikiService {
     });
   }
 
-  generateAllPages(repoId: string, languageCode = "en"): WikiPageResult[] {
-    let catalog = this.store.getLatestDocCatalog(repoId, languageCode);
+  async generateAllPages(
+    repoId: string,
+    languageCode = "en",
+  ): Promise<WikiPageResult[]> {
+    let catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
     if (!catalog) {
-      catalog = this.generateCatalog(repoId, languageCode);
+      catalog = await this.generateCatalog(repoId, languageCode);
     }
     const items = catalogPageItemsFromStructure(catalog.structure);
     const results: WikiPageResult[] = [];
     for (const item of items) {
       results.push({
-        page: this.pageGenerator.generate({
+        page: await this.pageGenerator.generate({
           repoId,
           slug: item.slug,
           languageCode,
@@ -74,7 +77,7 @@ export class WikiService {
     }
     if (!results.length) {
       results.push({
-        page: this.pageGenerator.generate({
+        page: await this.pageGenerator.generate({
           repoId,
           slug: "overview",
           languageCode,
@@ -91,7 +94,7 @@ export class WikiService {
     repoId: string,
     languageCode = "en",
   ): Promise<WikiPageResult[]> {
-    let catalog = this.store.getLatestDocCatalog(repoId, languageCode);
+    let catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
     if (!catalog) {
       catalog = (
         await this.generateCatalogWithLlmFallback(repoId, languageCode)
@@ -124,11 +127,15 @@ export class WikiService {
     return results;
   }
 
-  regeneratePage(repoId: string, slug: string, languageCode = "en") {
-    const catalog = this.store.getLatestDocCatalog(repoId, languageCode);
+  async regeneratePage(
+    repoId: string,
+    slug: string,
+    languageCode = "en",
+  ): Promise<WikiPageResult> {
+    const catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
     const item = catalog ? findCatalogPageItem(catalog.structure, slug) : null;
     return {
-      page: this.pageGenerator.generate({
+      page: await this.pageGenerator.generate({
         repoId,
         slug,
         languageCode,
@@ -144,7 +151,7 @@ export class WikiService {
     slug: string,
     languageCode = "en",
   ): Promise<WikiPageResult> {
-    const catalog = this.store.getLatestDocCatalog(repoId, languageCode);
+    const catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
     const item = catalog ? findCatalogPageItem(catalog.structure, slug) : null;
     return this.pageGenerator.generateWithLlmFallback({
       repoId,
@@ -155,8 +162,8 @@ export class WikiService {
     });
   }
 
-  updatePages(repoId: string, languageCode = "en") {
-    const results = this.generateAllPages(repoId, languageCode);
+  async updatePages(repoId: string, languageCode = "en"): Promise<JsonObject> {
+    const results = await this.generateAllPages(repoId, languageCode);
     return this.updatePagesPayload(repoId, languageCode, results);
   }
 
@@ -172,22 +179,34 @@ export class WikiService {
     repoId: string,
     sourceLanguage = "en",
     targetLanguage: string,
-  ): JsonObject {
+  ): Promise<JsonObject> {
     return copyWikiLanguage(this.store, repoId, sourceLanguage, targetLanguage);
   }
 
-  llmCachePayload(repoId: string, taskTypes: string[]): JsonObject {
-    return llmCachePayloadForTasks(
-      (taskType) => this.store.listLlmRuns(repoId, { taskType }),
-      taskTypes,
-    );
+  async llmCachePayload(
+    repoId: string,
+    taskTypes: string[],
+  ): Promise<JsonObject> {
+    const runs = (
+      await Promise.all(
+        taskTypes.map((taskType) =>
+          this.store.listLlmRuns(repoId, { taskType }),
+        ),
+      )
+    ).flat();
+    return llmCachePayloadForTasks((taskType) => {
+      if (taskTypes.length === 1) {
+        return runs;
+      }
+      return runs.filter((run) => run.task_type === taskType);
+    }, taskTypes);
   }
 
-  private updatePagesPayload(
+  private async updatePagesPayload(
     repoId: string,
     languageCode: string,
     results: WikiPageResult[],
-  ) {
+  ): Promise<JsonObject> {
     return {
       repo_id: repoId,
       language_code: languageCode,
@@ -209,10 +228,10 @@ export class WikiService {
         new_files: [],
         deleted_files: [],
         stale_pages: [],
-        chunk_count: this.store.listCodeChunks(repoId).length,
+        chunk_count: (await this.store.listCodeChunks(repoId)).length,
         errors: [],
       },
-      llm_cache: this.llmCachePayload(repoId, ["catalog", "page"]),
+      llm_cache: await this.llmCachePayload(repoId, ["catalog", "page"]),
     };
   }
 }
