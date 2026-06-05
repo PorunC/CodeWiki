@@ -145,10 +145,23 @@ describe("WikiService", () => {
     expect(llm.operations[0]?.inputPayload.repo_name).toBe("Demo Repo");
 
     const pages = await service.generateAllPagesWithLlmFallback(repo.id);
+    const systemPage = pages.find(
+      (page) => page.page.slug === "system-guide",
+    )?.page;
+    const runtimePage = pages.find(
+      (page) => page.page.slug === "runtime-flow",
+    )?.page;
 
-    expect(pages.map((page) => page.page.slug)).toEqual(["runtime-flow"]);
-    expect(pages[0]?.page.title).toBe("Runtime Flow");
-    expect(pages[0]?.page.markdown).toContain(
+    expect(pages.map((page) => page.page.slug)).toEqual([
+      "system-guide",
+      "runtime-flow",
+    ]);
+    expect(systemPage?.parent_slug).toBeNull();
+    expect(systemPage?.markdown).toContain("## Child Pages");
+    expect(systemPage?.markdown).toContain("Runtime Flow");
+    expect(runtimePage?.parent_slug).toBe("system-guide");
+    expect(runtimePage?.title).toBe("Runtime Flow");
+    expect(runtimePage?.markdown).toContain(
       "`helper` (function) in `src/util.ts`",
     );
   });
@@ -182,6 +195,160 @@ describe("WikiService", () => {
       expect.objectContaining({ slug: "root", title: "Overview" }),
       expect.objectContaining({ slug: "src", title: "Src" }),
     ]);
+  });
+
+  it("generates nested pages from catalog items with derived slugs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-derived-slugs-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Derived Slug Wiki",
+      structure: {
+        items: [
+          {
+            title: "System Guide",
+            kind: "category",
+            children: [
+              {
+                title: "Runtime Flow",
+                kind: "page",
+                path: "src",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const service = new WikiService(store);
+    const pages = await service.generateAllPages(repo.id);
+
+    expect(pages.map((page) => page.page.slug)).toEqual([
+      "system-guide",
+      "src",
+    ]);
+    expect(store.getDocPage(repo.id, "system-guide")?.markdown).toContain(
+      "Runtime Flow",
+    );
+    expect(store.getDocPage(repo.id, "src")?.parent_slug).toBe("system-guide");
+  });
+
+  it("updates only stale pages and their catalog ancestors", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-incremental-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Incremental Wiki",
+      structure: {
+        items: [
+          {
+            title: "System Guide",
+            slug: "system-guide",
+            kind: "category",
+            children: [
+              {
+                title: "Runtime Flow",
+                slug: "runtime-flow",
+                kind: "page",
+                path: "src",
+              },
+              {
+                title: "API Reference",
+                slug: "api-reference",
+                kind: "page",
+                path: "src",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const service = new WikiService(store);
+    await service.generateAllPages(repo.id);
+    const firstApiUpdatedAt = store.getDocPage(
+      repo.id,
+      "api-reference",
+    )?.updated_at;
+
+    const update = await service.updatePages(repo.id, "en", {
+      staleSlugs: ["runtime-flow"],
+    });
+
+    expect(update).toMatchObject({
+      status: "updated",
+      generated_count: 2,
+      reused_count: 1,
+      stale_pages: ["runtime-flow"],
+      missing_pages: [],
+      metadata_changed_pages: [],
+      generated_pages: ["system-guide", "runtime-flow"],
+    });
+    expect(store.getDocPage(repo.id, "system-guide")?.markdown).toContain(
+      "Runtime Flow",
+    );
+    expect(store.getDocPage(repo.id, "api-reference")?.updated_at).toBe(
+      firstApiUpdatedAt,
+    );
+  });
+
+  it("deletes generated pages that are no longer in the catalog", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-delete-loose-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Loose Page Wiki",
+      structure: {
+        items: [
+          {
+            title: "Runtime Flow",
+            slug: "runtime-flow",
+            kind: "page",
+            path: "src",
+          },
+        ],
+      },
+    });
+
+    const service = new WikiService(store);
+    await service.generateAllPages(repo.id);
+    store.upsertDocPage({
+      id: "loose-page",
+      repo_id: repo.id,
+      language_code: "en",
+      slug: "old-page",
+      title: "Old Page",
+      parent_slug: null,
+      markdown: "# Old Page",
+      source_refs: [],
+      graph_refs: [],
+      status: "generated",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    const update = await service.updatePages(repo.id);
+
+    expect(update).toMatchObject({
+      status: "updated",
+      deleted_page_count: 1,
+    });
+    expect(store.getDocPage(repo.id, "runtime-flow")).toBeTruthy();
+    expect(store.getDocPage(repo.id, "old-page")).toBeNull();
   });
 });
 

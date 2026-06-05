@@ -7,8 +7,16 @@ export function sortCatalogItems(items: WikiCatalogItem[]): WikiCatalogItem[] {
     if (leftOrder !== rightOrder) {
       return leftOrder - rightOrder;
     }
-    return left.title.localeCompare(right.title);
+    return catalogItemTitle(left).localeCompare(catalogItemTitle(right));
   });
+}
+
+export function catalogSlug(item: WikiCatalogItem): string {
+  return slugify(item.slug || item.path || item.title || "");
+}
+
+export function catalogItemTitle(item: WikiCatalogItem): string {
+  return item.title || titleFromSlug(catalogSlug(item));
 }
 
 export function firstPageSlugFromItems(
@@ -16,8 +24,9 @@ export function firstPageSlugFromItems(
   pageBySlug: Map<string, WikiPageRecord>
 ): string | null {
   for (const item of sortCatalogItems(items)) {
-    if (pageBySlug.has(item.slug)) {
-      return item.slug;
+    const slug = catalogSlug(item);
+    if (pageBySlug.has(slug)) {
+      return slug;
     }
     const childSlug = firstPageSlugFromItems(item.children ?? [], pageBySlug);
     if (childSlug) {
@@ -42,10 +51,31 @@ function collectMissingPageSlugs(
   missingSlugs: string[]
 ) {
   for (const item of sortCatalogItems(items)) {
+    const slug = catalogSlug(item);
     const children = item.children ?? [];
-    if (!pageBySlug.has(item.slug) && children.length === 0) {
-      missingSlugs.push(item.slug);
+    if (!pageBySlug.has(slug) && children.length === 0) {
+      missingSlugs.push(slug);
     }
     collectMissingPageSlugs(children, pageBySlug, missingSlugs);
   }
+}
+
+function slugify(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "overview"
+  );
+}
+
+function titleFromSlug(value: string): string {
+  if (value === "root") {
+    return "Overview";
+  }
+  return value
+    .split(/[/-]/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }

@@ -2,7 +2,12 @@ import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import type { WikiCatalogItem, WikiPageRecord } from "../../api/types";
-import { firstPageSlugFromItems, sortCatalogItems } from "../catalog";
+import {
+  catalogItemTitle,
+  catalogSlug,
+  firstPageSlugFromItems,
+  sortCatalogItems
+} from "../catalog";
 
 export function WikiCatalog({
   items,
@@ -21,14 +26,16 @@ export function WikiCatalog({
   return (
     <div className="wiki-catalog-level">
       {orderedItems.map((item) => {
-        const page = pageBySlug.get(item.slug);
+        const slug = catalogSlug(item);
+        const page = pageBySlug.get(slug);
         const children = item.children ?? [];
         const targetSlug = page?.slug ?? firstPageSlugFromItems(children, pageBySlug);
         const status = page?.status ?? (children.length > 0 ? "group" : "missing");
         return (
           <WikiCatalogNode
-            key={item.slug}
+            key={slug}
             item={item}
+            slug={slug}
             page={page}
             pageBySlug={pageBySlug}
             selectedSlug={selectedSlug}
@@ -45,6 +52,7 @@ export function WikiCatalog({
 
 function WikiCatalogNode({
   item,
+  slug,
   page,
   pageBySlug,
   selectedSlug,
@@ -54,6 +62,7 @@ function WikiCatalogNode({
   depth
 }: {
   item: WikiCatalogItem;
+  slug: string;
   page: WikiPageRecord | undefined;
   pageBySlug: Map<string, WikiPageRecord>;
   selectedSlug: string | null;
@@ -63,6 +72,7 @@ function WikiCatalogNode({
   depth: number;
 }) {
   const children = useMemo(() => item.children ?? [], [item.children]);
+  const title = catalogItemTitle(item);
   const hasChildren = children.length > 0;
   const containsSelectedSlug = useMemo(
     () => Boolean(selectedSlug && catalogItemContainsSlug(children, selectedSlug)),
@@ -83,7 +93,7 @@ function WikiCatalogNode({
           <button
             className="wiki-catalog-toggle"
             type="button"
-            aria-label={`${expanded ? "Collapse" : "Expand"} ${item.title}`}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`}
             aria-expanded={expanded}
             onClick={() => setExpanded((current) => !current)}
           >
@@ -93,7 +103,7 @@ function WikiCatalogNode({
           <span className="wiki-catalog-toggle-placeholder" aria-hidden="true" />
         )}
         <button
-          className={`wiki-catalog-item${selectedSlug === item.slug ? " is-active" : ""}`}
+          className={`wiki-catalog-item${selectedSlug === slug ? " is-active" : ""}`}
           type="button"
           disabled={!targetSlug}
           onClick={() => {
@@ -103,7 +113,7 @@ function WikiCatalogNode({
           }}
         >
           <FileText size={13} />
-          <span>{item.title}</span>
+          <span>{title}</span>
           <strong className={page?.status === "generated" ? "is-generated" : "is-draft"}>{status}</strong>
         </button>
       </div>
@@ -122,7 +132,7 @@ function WikiCatalogNode({
 
 function catalogItemContainsSlug(items: WikiCatalogItem[], slug: string): boolean {
   return items.some((item) => {
-    if (item.slug === slug) {
+    if (catalogSlug(item) === slug) {
       return true;
     }
     return catalogItemContainsSlug(item.children ?? [], slug);

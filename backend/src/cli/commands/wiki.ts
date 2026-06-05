@@ -129,26 +129,25 @@ export function registerWikiCommands(
     .argument("<repo>", "Repository id, id prefix, or name")
     .option("--language <language>", "Language code", "en")
     .option("--json", "Print JSON output")
-    .action(
-      (selector: string, options: { language: string; json?: boolean }) =>
-        runWithContextAsync(runtime, async ({ store }) => {
-          const repo = await resolveRepo(store, selector);
-          const catalog = await store.getLatestDocCatalog(
-            repo.id,
-            options.language,
-          );
-          const pages = await store.listDocPages(repo.id, options.language);
-          const payload = {
-            repo_id: repo.id,
-            catalog: catalog ? catalogPayload(catalog) : null,
-            pages: pages.map(pagePayload),
-          };
-          output(
-            options.json,
-            payload,
-            pages.map((page) => `${page.slug}\t${page.title}`).join("\n"),
-          );
-        }),
+    .action((selector: string, options: { language: string; json?: boolean }) =>
+      runWithContextAsync(runtime, async ({ store }) => {
+        const repo = await resolveRepo(store, selector);
+        const catalog = await store.getLatestDocCatalog(
+          repo.id,
+          options.language,
+        );
+        const pages = await store.listDocPages(repo.id, options.language);
+        const payload = {
+          repo_id: repo.id,
+          catalog: catalog ? catalogPayload(catalog) : null,
+          pages: pages.map(pagePayload),
+        };
+        output(
+          options.json,
+          payload,
+          pages.map((page) => `${page.slug}\t${page.title}`).join("\n"),
+        );
+      }),
     );
 
   wiki

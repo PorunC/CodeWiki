@@ -140,14 +140,13 @@ export class AnalysisService {
     }
 
     try {
-      const { nodes, edges, chunks, communities } = buildRepositoryGraph(
-        repoId,
-        scan.files,
-      );
+      const { nodes, edges, chunks, communities, communityEdges } =
+        buildRepositoryGraph(repoId, scan.files);
       await this.store.replaceGraph(repoId, { nodes, edges, chunks });
       await this.store.replaceGraphCommunities(repoId, communities);
-      await this.store.replaceGraphCommunityEdges(repoId, []);
+      await this.store.replaceGraphCommunityEdges(repoId, communityEdges);
       await this.store.upsertRepo(scan.repo);
+      const communityCountsByLevel = communityCountByLevel(communities);
 
       const parsedFileCount = scan.files.filter(
         (file) => file.is_source,
@@ -161,7 +160,7 @@ export class AnalysisService {
         edge_count: edges.length,
         chunk_count: chunks.length,
         community_count: communities.length,
-        community_count_by_level: { "0": communities.length },
+        community_count_by_level: communityCountsByLevel,
         errors: [],
         progress: {
           stage: "done",
@@ -185,7 +184,7 @@ export class AnalysisService {
         edge_count: edges.length,
         chunk_count: chunks.length,
         community_count: communities.length,
-        community_count_by_level: { "0": communities.length },
+        community_count_by_level: communityCountsByLevel,
         errors: [],
         mode: options.mode,
       };

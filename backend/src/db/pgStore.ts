@@ -144,7 +144,13 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
         now,
       ],
     );
-    return (await this.getRepo(repo.id)) ?? { ...repo, created_at: now, updated_at: now };
+    return (
+      (await this.getRepo(repo.id)) ?? {
+        ...repo,
+        created_at: now,
+        updated_at: now,
+      }
+    );
   }
 
   async getRepo(repoId: string): Promise<RepoDescriptor | null> {
@@ -401,9 +407,10 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
   ): Promise<void> {
     await this.ready;
     await this.transaction(async (client) => {
-      await client.query("DELETE FROM graph_community_edge WHERE repo_id = $1", [
-        repoId,
-      ]);
+      await client.query(
+        "DELETE FROM graph_community_edge WHERE repo_id = $1",
+        [repoId],
+      );
       await client.query("DELETE FROM graph_community WHERE repo_id = $1", [
         repoId,
       ]);
@@ -439,9 +446,10 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
   ): Promise<void> {
     await this.ready;
     await this.transaction(async (client) => {
-      await client.query("DELETE FROM graph_community_edge WHERE repo_id = $1", [
-        repoId,
-      ]);
+      await client.query(
+        "DELETE FROM graph_community_edge WHERE repo_id = $1",
+        [repoId],
+      );
       for (const edge of edges) {
         await client.query(
           `
@@ -746,7 +754,9 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
         page.updated_at,
       ],
     );
-    return (await this.getDocPage(page.repo_id, page.slug, languageCode)) ?? page;
+    return (
+      (await this.getDocPage(page.repo_id, page.slug, languageCode)) ?? page
+    );
   }
 
   async getDocPage(
@@ -762,16 +772,37 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
     return result.rows[0] ? pageFromRow(result.rows[0] as Row) : null;
   }
 
-  async listDocPages(
-    repoId: string,
-    languageCode = "en",
-  ): Promise<DocPage[]> {
+  async listDocPages(repoId: string, languageCode = "en"): Promise<DocPage[]> {
     await this.ready;
     const result = await this.pool.query(
       "SELECT * FROM doc_page WHERE repo_id = $1 AND language_code = $2 ORDER BY slug",
       [repoId, normalizeLanguage(languageCode)],
     );
     return result.rows.map((row) => pageFromRow(row as Row));
+  }
+
+  async deleteDocPagesNotIn(
+    repoId: string,
+    slugs: string[],
+    languageCode = "en",
+  ): Promise<number> {
+    await this.ready;
+    const normalizedLanguage = normalizeLanguage(languageCode);
+    if (!slugs.length) {
+      const result = await this.pool.query(
+        "DELETE FROM doc_page WHERE repo_id = $1 AND language_code = $2",
+        [repoId, normalizedLanguage],
+      );
+      return result.rowCount ?? 0;
+    }
+    const result = await this.pool.query(
+      `
+      DELETE FROM doc_page
+      WHERE repo_id = $1 AND language_code = $2 AND NOT (slug = ANY($3::text[]))
+      `,
+      [repoId, normalizedLanguage, slugs],
+    );
+    return result.rowCount ?? 0;
   }
 
   async recordLlmRun(
@@ -882,9 +913,10 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
       "UPDATE llm_run SET status = $1, error = $2 WHERE id = $3",
       [options.status, options.error ?? null, runId],
     );
-    const result = await this.pool.query("SELECT * FROM llm_run WHERE id = $1", [
-      runId,
-    ]);
+    const result = await this.pool.query(
+      "SELECT * FROM llm_run WHERE id = $1",
+      [runId],
+    );
     return result.rows[0] ? llmRunFromRow(result.rows[0] as Row) : null;
   }
 

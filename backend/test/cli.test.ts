@@ -134,7 +134,8 @@ describe("codewiki CLI", () => {
     );
 
     const env = {
-      ...process.env,
+      ...withoutCodeWikiEnv(process.env),
+      ...offlineLlmEnv(),
       CODEWIKI_DATABASE_URL: `sqlite:///${join(root, "codewiki.sqlite3")}`,
       CODEWIKI_STORAGE_DIR: join(root, "storage"),
     };
@@ -206,12 +207,15 @@ describe("codewiki CLI", () => {
       "src",
     ]);
 
-    const generated = runJson<{
-      page_count: number;
+    const initialWikiUpdate = runJson<{
+      status: string;
+      generated_pages: string[];
       pages: Array<{ slug: string }>;
-    }>(["wiki", "pages", added.id, "--json"], env);
-    expect(generated.page_count).toBeGreaterThanOrEqual(1);
-    const slug = generated.pages[0]?.slug;
+    }>(["wiki", "update", added.id, "--json"], env);
+    expect(initialWikiUpdate.status).toBe("updated");
+    expect(initialWikiUpdate.generated_pages.length).toBeGreaterThanOrEqual(1);
+    const slug =
+      initialWikiUpdate.generated_pages[0] ?? initialWikiUpdate.pages[0]?.slug;
     expect(slug).toBeTruthy();
 
     writeFileSync(
@@ -236,13 +240,6 @@ describe("codewiki CLI", () => {
     expect(
       repositoryUpdate.wiki_regeneration.generated_pages?.length,
     ).toBeGreaterThanOrEqual(1);
-
-    const updated = runJson<{ status: string; generated_pages: string[] }>(
-      ["wiki", "update", added.id, "--json"],
-      env,
-    );
-    expect(updated.status).toBe("updated");
-    expect(updated.generated_pages.length).toBeGreaterThanOrEqual(1);
 
     const regenerated = runJson<{ slug: string; status: string }>(
       ["wiki", "page", slug!, added.id, "--json"],
@@ -488,5 +485,26 @@ function responseAt(
 function withoutCodeWikiEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(env).filter(([key]) => !key.startsWith("CODEWIKI_")),
+  );
+}
+
+function offlineLlmEnv(): Record<string, string> {
+  const profilePrefixes = [
+    "CODEWIKI_LLM__DEFAULT__",
+    "CODEWIKI_LLM__PROFILES__CATALOG__",
+    "CODEWIKI_LLM__PROFILES__COMMUNITY_SUMMARY__",
+    "CODEWIKI_LLM__PROFILES__CLUSTER__",
+    "CODEWIKI_LLM__PROFILES__PAGE__",
+    "CODEWIKI_LLM__PROFILES__TRANSLATION__",
+    "CODEWIKI_LLM__PROFILES__QA__",
+    "CODEWIKI_LLM__PROFILES__EMBEDDING__",
+  ];
+  return Object.fromEntries(
+    profilePrefixes.flatMap((prefix) => [
+      [`${prefix}MODEL`, ""],
+      [`${prefix}PROVIDER_TYPE`, ""],
+      [`${prefix}ENDPOINT`, ""],
+      [`${prefix}API_KEY`, ""],
+    ]),
   );
 }

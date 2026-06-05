@@ -45,7 +45,9 @@ export function buildAnalysisTools({
         );
         const result = await services.analysis.update(repo.id);
         const wikiRegeneration = boolArg(args, "regenerate_wiki", true)
-          ? await services.wiki.updatePagesWithLlmFallback(repo.id)
+          ? await services.wiki.updatePagesWithLlmFallback(repo.id, "en", {
+              staleSlugs: result.stale_pages,
+            })
           : { requested: false, status: "not_run" };
         return updatePayloadFromAnalysis(result, wikiRegeneration);
       },

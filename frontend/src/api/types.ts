@@ -201,9 +201,9 @@ export type AskResponse = {
 };
 
 export type WikiCatalogItem = {
-  title: string;
-  slug: string;
-  path?: string;
+  title?: string;
+  slug?: string;
+  path?: string | null;
   order?: number;
   kind?: "page" | "category";
   topic?: string;

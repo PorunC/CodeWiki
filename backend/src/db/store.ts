@@ -223,6 +223,14 @@ export class CodeWikiStore {
     return this.wikiRepository.listDocPages(repoId, languageCode);
   }
 
+  deleteDocPagesNotIn(
+    repoId: string,
+    slugs: string[],
+    languageCode = "en",
+  ): number {
+    return this.wikiRepository.deleteDocPagesNotIn(repoId, slugs, languageCode);
+  }
+
   recordLlmRun(repoId: string, input: RecordLlmRunInput): LlmRun {
     return this.llmRunRepository.recordLlmRun(repoId, input);
   }

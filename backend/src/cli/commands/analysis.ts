@@ -75,7 +75,9 @@ export function registerAnalysisCommands(
           const repo = await resolveRepo(store, scanner, selector);
           const result = await services.analysis.update(repo.id);
           const wikiRegeneration = options.regenerateWiki
-            ? await services.wiki.updatePagesWithLlmFallback(repo.id)
+            ? await services.wiki.updatePagesWithLlmFallback(repo.id, "en", {
+                staleSlugs: result.stale_pages,
+              })
             : { requested: false, status: "not_run" };
           const payload = updatePayloadFromAnalysis(result, wikiRegeneration);
           output(

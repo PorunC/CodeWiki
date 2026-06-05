@@ -35,10 +35,7 @@ export type CodeWikiStoreApi = {
     runId: string,
     options: { status: string; stats: JsonObject; error?: string | null },
   ): MaybePromise<AnalysisRun>;
-  updateAnalysisRunStats(
-    runId: string,
-    stats: JsonObject,
-  ): MaybePromise<void>;
+  updateAnalysisRunStats(runId: string, stats: JsonObject): MaybePromise<void>;
   listAnalysisRuns(repoId: string): MaybePromise<AnalysisRun[]>;
   getAnalysisRun(runId: string): MaybePromise<AnalysisRun | null>;
   replaceGraph(
@@ -56,7 +53,9 @@ export type CodeWikiStoreApi = {
     repoId: string,
     query: string,
     filters?: GraphSearchFilters,
-  ): MaybePromise<Array<{ node: CodeGraphNode; score: number; reasons: string[] }>>;
+  ): MaybePromise<
+    Array<{ node: CodeGraphNode; score: number; reasons: string[] }>
+  >;
   replaceGraphCommunities(
     repoId: string,
     communities: GraphCommunity[],
@@ -73,7 +72,9 @@ export type CodeWikiStoreApi = {
     repoId: string,
     query: string,
     limit?: number,
-  ): MaybePromise<Array<{ chunk: CodeChunk; score: number; match_type: string }>>;
+  ): MaybePromise<
+    Array<{ chunk: CodeChunk; score: number; match_type: string }>
+  >;
   replaceCodeChunkEmbeddings(
     repoId: string,
     options: { model: string; embeddings: CodeChunkEmbedding[] },
@@ -85,7 +86,9 @@ export type CodeWikiStoreApi = {
   searchCodeChunkEmbeddings(
     repoId: string,
     options: CodeChunkEmbeddingSearchOptions,
-  ): MaybePromise<Array<{ chunk: CodeChunk; score: number; match_type: string }>>;
+  ): MaybePromise<
+    Array<{ chunk: CodeChunk; score: number; match_type: string }>
+  >;
   saveRetrievalTrace(trace: RetrievalTrace): MaybePromise<RetrievalTrace>;
   getRetrievalTrace(
     repoId: string,
@@ -111,10 +114,12 @@ export type CodeWikiStoreApi = {
     languageCode?: string,
   ): MaybePromise<DocPage | null>;
   listDocPages(repoId: string, languageCode?: string): MaybePromise<DocPage[]>;
-  recordLlmRun(
+  deleteDocPagesNotIn(
     repoId: string,
-    input: RecordLlmRunInput,
-  ): MaybePromise<LlmRun>;
+    slugs: string[],
+    languageCode?: string,
+  ): MaybePromise<number>;
+  recordLlmRun(repoId: string, input: RecordLlmRunInput): MaybePromise<LlmRun>;
   getCachedLlmRun(
     repoId: string,
     query: CachedLlmRunQuery,

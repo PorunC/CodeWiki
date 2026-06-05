@@ -4,9 +4,10 @@ import type {
   CodeGraphEdge,
   CodeGraphNode,
   GraphCommunity,
+  GraphCommunityEdge,
 } from "../types.js";
 import { buildChunks } from "./graphChunks.js";
-import { buildCommunities } from "./graphCommunities.js";
+import { buildCommunityGraph } from "./graphCommunities.js";
 import {
   codeEdge,
   codeNode,
@@ -37,6 +38,7 @@ export type RepositoryGraphBuildResult = {
   edges: CodeGraphEdge[];
   chunks: CodeChunk[];
   communities: GraphCommunity[];
+  communityEdges: GraphCommunityEdge[];
 };
 
 export function buildRepositoryGraph(
@@ -114,12 +116,19 @@ export function buildRepositoryGraph(
   addImportEdges(repoId, edges, fileNodes, imports);
   addCallEdges(repoId, edges, fileNodes, symbolsByName, calls);
 
-  const communities = buildCommunities(repoId, nodes);
+  const finalNodes = dedupeNodes(nodes);
+  const finalEdges = dedupeEdges(edges);
+  const { communities, communityEdges } = buildCommunityGraph(
+    repoId,
+    finalNodes,
+    finalEdges,
+  );
   return {
-    nodes: dedupeNodes(nodes),
-    edges: dedupeEdges(edges),
+    nodes: finalNodes,
+    edges: finalEdges,
     chunks,
     communities,
+    communityEdges,
   };
 }
 

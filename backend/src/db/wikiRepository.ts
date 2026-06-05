@@ -108,4 +108,26 @@ export class WikiRepository {
         .all(repoId, normalizeLanguage(languageCode)) as Row[]
     ).map(pageFromRow);
   }
+
+  deleteDocPagesNotIn(
+    repoId: string,
+    slugs: string[],
+    languageCode = "en",
+  ): number {
+    const normalizedLanguage = normalizeLanguage(languageCode);
+    if (!slugs.length) {
+      return this.db
+        .prepare("DELETE FROM doc_page WHERE repo_id = ? AND language_code = ?")
+        .run(repoId, normalizedLanguage).changes;
+    }
+    const placeholders = slugs.map(() => "?").join(", ");
+    return this.db
+      .prepare(
+        `
+        DELETE FROM doc_page
+        WHERE repo_id = ? AND language_code = ? AND slug NOT IN (${placeholders})
+        `,
+      )
+      .run(repoId, normalizedLanguage, ...slugs).changes;
+  }
 }

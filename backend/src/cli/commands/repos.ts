@@ -32,7 +32,7 @@ export function registerRepoCommands(
         path: string,
         options: { name?: string; sourceType: string; json?: boolean },
       ) => {
-        runWithContext(runtime, async ({ services }) => {
+        return runWithContext(runtime, async ({ services }) => {
           const repo = await services.repositories.register(path, {
             name: options.name,
             sourceType: options.sourceType,
@@ -50,7 +50,7 @@ export function registerRepoCommands(
     .command("list")
     .option("--json", "Print JSON output")
     .action((options: { json?: boolean }) => {
-      runWithContext(runtime, async ({ services }) => {
+      return runWithContext(runtime, async ({ services }) => {
         const payload = (await services.repositories.list()).map(repoPayload);
         output(
           options.json,
@@ -72,7 +72,7 @@ export function registerRepoCommands(
     .argument("<repo>", "Repository id, id prefix, or name")
     .option("--json", "Print JSON output")
     .action((selector: string, options: { json?: boolean }) => {
-      runWithContext(runtime, async ({ services }) => {
+      return runWithContext(runtime, async ({ services }) => {
         const { repo, deleted } =
           await services.repositories.deleteBySelector(selector);
         output(
@@ -94,7 +94,7 @@ export function registerRepoCommands(
         path: string,
         options: { name?: string; sourceType: string; json?: boolean },
       ) => {
-        runWithContext(runtime, ({ services }) => {
+        return runWithContext(runtime, ({ services }) => {
           const scan = services.repositories.scan(path, {
             name: options.name,
             sourceType: options.sourceType,
@@ -123,7 +123,7 @@ export function registerRepoCommands(
         selector: string | undefined,
         options: { repo?: string; json?: boolean },
       ) => {
-        runWithContext(runtime, async ({ services }) => {
+        return runWithContext(runtime, async ({ services }) => {
           const { repo, scan } = await services.repositories.filesForSelector(
             options.repo ?? selector,
           );
@@ -144,7 +144,7 @@ export function registerRepoCommands(
         selector: string | undefined,
         options: { repo?: string; sourceOnly?: boolean; json?: boolean },
       ) => {
-        runWithContext(runtime, async ({ services }) => {
+        return runWithContext(runtime, async ({ services }) => {
           const { repo, scan } = await services.repositories.filesForSelector(
             options.repo ?? selector,
           );

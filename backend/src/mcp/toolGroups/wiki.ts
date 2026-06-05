@@ -33,7 +33,8 @@ export function buildWikiTools({
       async (args) =>
         catalogResultPayload(
           await services.wiki.generateCatalogWithLlmFallback(
-            (await resolveRepo(store, scanner, optionalString(args, "repo"))).id,
+            (await resolveRepo(store, scanner, optionalString(args, "repo")))
+              .id,
             languageArg(args),
           ),
         ),
@@ -94,7 +95,8 @@ export function buildWikiTools({
       async (args) =>
         pageResultPayload(
           await services.wiki.regeneratePageWithLlmFallback(
-            (await resolveRepo(store, scanner, optionalString(args, "repo"))).id,
+            (await resolveRepo(store, scanner, optionalString(args, "repo")))
+              .id,
             requiredString(args, "slug"),
             languageArg(args),
           ),
@@ -118,9 +120,7 @@ export function buildWikiTools({
         return {
           repo_id: repo.id,
           catalog: maybeMap(catalog, catalogPayload),
-          pages: (await store.listDocPages(repo.id, language)).map(
-            pagePayload,
-          ),
+          pages: (await store.listDocPages(repo.id, language)).map(pagePayload),
         };
       },
     ),

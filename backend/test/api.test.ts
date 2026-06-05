@@ -84,11 +84,15 @@ describe("HTTP API", () => {
 
     const graphResponse = await app.inject(`/api/repos/${created.id}/graph`);
     expect(graphResponse.statusCode).toBe(200);
-    expect(
-      graphResponse
-        .json<{ nodes: Array<{ name: string }> }>()
-        .nodes.some((node) => node.name === "run"),
-    ).toBe(true);
+    const graphPayload = graphResponse.json<{
+      nodes: Array<{ name: string }>;
+      communities: Array<{ node_ids: string[] }>;
+      community_edges: Array<{ source: string; target: string; type: string }>;
+    }>();
+    expect(graphPayload.nodes.some((node) => node.name === "run")).toBe(true);
+    expect(graphPayload.communities.length).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(graphPayload.communities[0]?.node_ids)).toBe(true);
+    expect(Array.isArray(graphPayload.community_edges)).toBe(true);
 
     const namedCommunitiesResponse = await app.inject({
       method: "POST",
@@ -514,7 +518,7 @@ function asyncStore(store: CodeWikiStore): CodeWikiStoreApi {
       }
       return (...args: unknown[]) => Promise.resolve(value.apply(target, args));
     },
-  }) as unknown as CodeWikiStoreApi;
+  });
 }
 
 class TrackingScanner extends RepoScanner {

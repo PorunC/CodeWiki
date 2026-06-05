@@ -64,12 +64,12 @@ describe("repoResolver", () => {
       }),
     );
 
-    await expect(resolveRegisteredRepo(store!, "same")).rejects.toThrow(
+    await expect(resolveRegisteredRepo(store, "same")).rejects.toThrow(
       "Repository name is ambiguous",
     );
-    await expect(
-      resolveRegisteredRepo(store!, "shared-prefix"),
-    ).rejects.toThrow("Repository id prefix is ambiguous");
+    await expect(resolveRegisteredRepo(store, "shared-prefix")).rejects.toThrow(
+      "Repository id prefix is ambiguous",
+    );
   });
 
   it("creates repositories from paths only when requested", async () => {
@@ -80,7 +80,7 @@ describe("repoResolver", () => {
     const scanner = new RepoScanner();
 
     await expect(
-      resolveRepo(store!, scanner, repoPath, { createIfMissing: false }),
+      resolveRepo(store, scanner, repoPath, { createIfMissing: false }),
     ).rejects.toThrow("Repository not found");
     expect(store.listRepos()).toEqual([]);
 

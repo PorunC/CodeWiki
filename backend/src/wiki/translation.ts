@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CodeWikiStoreApi } from "../db/types.js";
-import type { JsonObject } from "../types.js";
+import type { DocPage, JsonObject } from "../types.js";
 import { catalogPayload, llmCachePayload, pagePayload } from "./payloads.js";
 
 export async function copyWikiLanguage(
@@ -20,15 +20,18 @@ export async function copyWikiLanguage(
     language_code: targetLanguage,
     structure: catalog.structure,
   });
-  const translatedPages = await Promise.all(
-    pages.map((page) =>
-      store.upsertDocPage({
-        ...page,
-        id: randomUUID(),
-        language_code: targetLanguage,
-      }),
-    ),
-  );
+  const translatedPages: DocPage[] = [];
+  for (const page of pages) {
+    translatedPages.push(
+      await Promise.resolve(
+        store.upsertDocPage({
+          ...page,
+          id: randomUUID(),
+          language_code: targetLanguage,
+        }),
+      ),
+    );
+  }
 
   return {
     repo_id: repoId,

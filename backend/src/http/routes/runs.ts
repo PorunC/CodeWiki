@@ -26,7 +26,9 @@ export function registerRunRoutes(
       const body = objectBody(request.body);
       const result = await services.analysis.update(repoId);
       const wikiRegeneration = boolBody(body.regenerate_wiki, true)
-        ? await services.wiki.updatePagesWithLlmFallback(repoId)
+        ? await services.wiki.updatePagesWithLlmFallback(repoId, "en", {
+            staleSlugs: result.stale_pages,
+          })
         : { requested: false, status: "not_run" };
       return updatePayloadFromAnalysis(result, wikiRegeneration);
     });

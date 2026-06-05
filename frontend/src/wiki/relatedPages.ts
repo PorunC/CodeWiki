@@ -1,5 +1,5 @@
 import type { WikiCatalogItem, WikiPageRecord } from "../api/types";
-import { sortCatalogItems } from "./catalog";
+import { catalogItemTitle, catalogSlug, sortCatalogItems } from "./catalog";
 import type { RelatedWikiPage } from "./types";
 
 export function relatedPagesForPage(
@@ -40,16 +40,17 @@ function flattenCatalogSummaries(
 ): Array<RelatedWikiPage & { parentSlug: string | null; depth: number; order: number; kind: string }> {
   const summaries: Array<RelatedWikiPage & { parentSlug: string | null; depth: number; order: number; kind: string }> = [];
   sortCatalogItems(items).forEach((item, index) => {
+    const itemSlug = catalogSlug(item);
     summaries.push({
-      slug: item.slug,
-      title: item.title,
-      path: item.path ?? item.slug,
+      slug: itemSlug,
+      title: catalogItemTitle(item),
+      path: item.path ?? itemSlug,
       parentSlug,
       depth,
       order: typeof item.order === "number" ? item.order : index,
       kind: item.kind ?? "page"
     });
-    summaries.push(...flattenCatalogSummaries(item.children ?? [], item.slug, depth + 1));
+    summaries.push(...flattenCatalogSummaries(item.children ?? [], itemSlug, depth + 1));
   });
   return summaries;
 }

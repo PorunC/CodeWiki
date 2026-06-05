@@ -1,5 +1,10 @@
 import type { WikiCatalogItem, WikiPageRecord, WikiResponse } from "../../api/types";
-import { firstPageSlugFromItems, sortCatalogItems } from "../catalog";
+import {
+  catalogItemTitle,
+  catalogSlug,
+  firstPageSlugFromItems,
+  sortCatalogItems
+} from "../catalog";
 import { repairConjoinedFenceHeadings } from "../markdown/normalize";
 import { stripMarkdownSourcesSection } from "../markdown/sections";
 import { relatedPagesForPage } from "../relatedPages";
@@ -148,15 +153,17 @@ function catalogRows(
 ): CatalogRow[] {
   const rows: CatalogRow[] = [];
   for (const item of sortCatalogItems(items)) {
-    const page = pageBySlug.get(item.slug);
+    const slug = catalogSlug(item);
+    const title = catalogItemTitle(item);
+    const page = pageBySlug.get(slug);
     const children = item.children ?? [];
     const targetSlug = page?.slug ?? firstPageSlugFromItems(children, pageBySlug);
     rows.push({
-      title: item.title,
+      title,
       depth,
       targetSlug,
       status: page?.status ?? (children.length > 0 ? "group" : "missing"),
-      searchText: normalizeSearchText(`${item.title} ${page?.markdown ?? ""}`)
+      searchText: normalizeSearchText(`${title} ${page?.markdown ?? ""}`)
     });
     rows.push(...catalogRows(children, pageBySlug, depth + 1));
   }
@@ -205,8 +212,9 @@ function vaultPaths(items: WikiCatalogItem[], pages: WikiPageRecord[]): Map<stri
 
   const visit = (catalogItems: WikiCatalogItem[]) => {
     for (const item of sortCatalogItems(catalogItems)) {
-      if (pages.some((page) => page.slug === item.slug)) {
-        pathBySlug.set(item.slug, uniqueVaultPath(sanitizeVaultPath(item.path ?? item.slug), usedPaths));
+      const slug = catalogSlug(item);
+      if (pages.some((page) => page.slug === slug)) {
+        pathBySlug.set(slug, uniqueVaultPath(sanitizeVaultPath(item.path ?? slug), usedPaths));
       }
       visit(item.children ?? []);
     }
@@ -256,9 +264,11 @@ function vaultCatalogLines(
 ): string[] {
   const lines: string[] = [];
   for (const item of sortCatalogItems(items)) {
-    const page = pageBySlug.get(item.slug);
+    const slug = catalogSlug(item);
+    const title = catalogItemTitle(item);
+    const page = pageBySlug.get(slug);
     const indent = "  ".repeat(depth);
-    const label = page ? `[[${pathBySlug.get(item.slug) ?? sanitizeVaultPath(item.slug)}|${item.title}]]` : item.title;
+    const label = page ? `[[${pathBySlug.get(slug) ?? sanitizeVaultPath(slug)}|${title}]]` : title;
     lines.push(`${indent}- ${label}`);
     lines.push(...vaultCatalogLines(item.children ?? [], pathBySlug, pageBySlug, depth + 1));
   }
@@ -281,7 +291,7 @@ function rewriteMarkdownForVault(markdown: string, pathBySlug: Map<string, strin
 
 function pathBySlugHasCatalogPath(items: WikiCatalogItem[], slug: string): boolean {
   for (const item of items) {
-    if (item.slug === slug) {
+    if (catalogSlug(item) === slug) {
       return true;
     }
     if (pathBySlugHasCatalogPath(item.children ?? [], slug)) {
