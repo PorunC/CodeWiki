@@ -12,6 +12,7 @@ import type {
   LlmRun,
   RepoDescriptor,
 } from "../src/types.js";
+import { catalogItemsFromStructure } from "../src/wiki/catalog.js";
 import { WikiService } from "../src/wiki/wikiService.js";
 
 describe("WikiService", () => {
@@ -127,7 +128,15 @@ describe("WikiService", () => {
       cache_hit: false,
       model: "fake/catalog",
     });
-    expect(result.catalog.structure.items).toEqual([
+    const catalogItems = catalogItemsFromStructure(result.catalog.structure);
+    expect(catalogItems.map((item) => item.slug)).toEqual([
+      "overview",
+      "architecture",
+      "reading-guide",
+      "dependencies",
+      "system-guide",
+    ]);
+    expect(catalogItems.at(-1)).toEqual(
       expect.objectContaining({
         title: "System Guide",
         slug: "system-guide",
@@ -141,7 +150,7 @@ describe("WikiService", () => {
           }),
         ],
       }),
-    ]);
+    );
     expect(llm.operations[0]?.inputPayload.repo_name).toBe("Demo Repo");
 
     const pages = await service.generateAllPagesWithLlmFallback(repo.id);
@@ -153,6 +162,10 @@ describe("WikiService", () => {
     )?.page;
 
     expect(pages.map((page) => page.page.slug)).toEqual([
+      "overview",
+      "architecture",
+      "reading-guide",
+      "dependencies",
       "system-guide",
       "runtime-flow",
     ]);

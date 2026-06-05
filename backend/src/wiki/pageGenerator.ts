@@ -12,11 +12,19 @@ import {
 import type {
   CodeChunk,
   CodeGraphNode,
+  DocCatalog,
   DocPage,
   JsonObject,
   RepoDescriptor,
   RetrievalTrace,
 } from "../types.js";
+import {
+  catalogItemChildren,
+  catalogItemsFromStructure,
+  catalogItemTitle,
+  catalogSlug,
+  type CatalogItem,
+} from "./catalog.js";
 import type { WikiPageResult } from "./payloads.js";
 
 export type WikiPageRequest = {
@@ -47,6 +55,7 @@ type WikiPageContext = {
   sourceRefs: JsonObject[];
   symbols: CodeGraphNode[];
   retrievalTrace: RetrievalTrace;
+  catalog: DocCatalog | null;
 };
 
 type NormalizedPage = {
@@ -183,6 +192,10 @@ export class WikiPageGenerator {
     }
     const graph = await this.store.getGraph(request.repoId);
     const chunks = await this.store.listCodeChunks(request.repoId);
+    const catalog = await this.store.getLatestDocCatalog(
+      request.repoId,
+      request.languageCode,
+    );
     const retrievalTrace = await this.store.saveRetrievalTrace(
       await buildRetrievalTrace(this.store, request.repoId, retrievalQuery(request), {
         maxHops: PAGE_RETRIEVAL_MAX_HOPS,
@@ -210,6 +223,7 @@ export class WikiPageGenerator {
       sourceRefs,
       symbols,
       retrievalTrace,
+      catalog,
     };
   }
 
@@ -391,6 +405,134 @@ function localPageMarkdown(
   ].join("\n");
 }
 
+function stableCatalogContext(catalog: DocCatalog | null): JsonObject | null {
+  if (!catalog) {
+    return null;
+  }
+  return {
+    title: catalog.title,
+    items: catalogItemsFromStructure(catalog.structure).map(stableCatalogItem),
+  };
+}
+
+function stableCatalogItem(item: CatalogItem): JsonObject {
+  const payload: JsonObject = {
+    title: catalogItemTitle(item),
+    slug: catalogSlug(item),
+  };
+  const path = stringValue(item.path);
+  const topic = stringValue(item.topic);
+  if (path) {
+    payload.path = path;
+  }
+  if (topic) {
+    payload.topic = topic;
+  }
+  if (item.kind) {
+    payload.kind = item.kind;
+  }
+  const children = catalogItemChildren(item).map(stableCatalogItem);
+  if (children.length) {
+    payload.children = children;
+  }
+  return payload;
+}
+
+function catalogContextForPage(context: WikiPageContext): JsonObject {
+  const items = context.catalog
+    ? catalogItemsFromStructure(context.catalog.structure)
+    : [];
+  const summaries = catalogItemSummaries(items);
+  const current =
+    summaries.find((item) => stringValue(item.slug) === context.request.slug) ??
+    fallbackCatalogSummary(context.request);
+  const parent = context.request.parentSlug
+    ? (summaries.find(
+        (item) => stringValue(item.slug) === context.request.parentSlug,
+      ) ?? null)
+    : null;
+  return {
+    current,
+    parent,
+    related_pages: relatedCatalogPages(
+      summaries,
+      context.request.slug,
+      context.request.parentSlug,
+    ),
+    child_pages: context.request.childPages.map((page) => ({
+      slug: page.slug,
+      title: page.title,
+      status: page.status,
+    })),
+    page_count: summaries.filter((item) => item.kind === "page").length,
+  };
+}
+
+function fallbackCatalogSummary(request: WikiPageRequest): JsonObject {
+  return {
+    title: request.title,
+    slug: request.slug,
+    path: request.path ?? request.slug,
+    kind: "page",
+    parent_slug: request.parentSlug,
+    depth: 0,
+    source_hints: request.sourceHints.slice(0, 4),
+  };
+}
+
+function catalogItemSummaries(
+  items: CatalogItem[],
+  parentSlug: string | null = null,
+  depth = 0,
+): JsonObject[] {
+  const summaries: JsonObject[] = [];
+  for (const item of items) {
+    const slug = catalogSlug(item);
+    const kind = item.kind ?? "page";
+    summaries.push({
+      title: catalogItemTitle(item),
+      slug,
+      path: stringValue(item.path) ?? slug,
+      kind,
+      topic: stringValue(item.topic) ?? catalogItemTitle(item),
+      parent_slug: parentSlug,
+      order: item.order ?? 0,
+      depth,
+      source_hints: Array.isArray(item.source_hints)
+        ? item.source_hints.slice(0, 4)
+        : [],
+    });
+    summaries.push(
+      ...catalogItemSummaries(catalogItemChildren(item), slug, depth + 1),
+    );
+  }
+  return summaries.slice(0, 48);
+}
+
+function relatedCatalogPages(
+  summaries: JsonObject[],
+  slug: string,
+  parentSlug: string | null,
+): JsonObject[] {
+  return summaries
+    .filter(
+      (item) =>
+        item.kind === "page" &&
+        stringValue(item.slug) !== slug,
+    )
+    .sort(
+      (left, right) =>
+        (stringValue(left.parent_slug) === parentSlug ? 0 : 1) -
+          (stringValue(right.parent_slug) === parentSlug ? 0 : 1) ||
+        (numberValue(left.depth) ?? 0) - (numberValue(right.depth) ?? 0) ||
+        (numberValue(left.order) ?? 0) - (numberValue(right.order) ?? 0) ||
+        (stringValue(left.title) ?? "").localeCompare(
+          stringValue(right.title) ?? "",
+        ),
+    )
+    .slice(0, 12);
+}
+
 function wikiPageMessages(
   context: WikiPageContext,
   pagePayload: JsonObject,
@@ -421,6 +563,7 @@ function wikiPageMessages(
           commit_hash: context.repo.commit_hash,
         },
         language_code: context.request.languageCode,
+        catalog: stableCatalogContext(context.catalog),
       }),
     },
     {
@@ -453,19 +596,12 @@ function llmInputPayload(context: WikiPageContext): JsonObject {
     topic: context.request.topic,
     language_code: context.request.languageCode,
     source_hints: context.request.sourceHints,
-    catalog_context: {
-      parent_slug: context.request.parentSlug,
-      child_pages: context.request.childPages.map((page) => ({
-        slug: page.slug,
-        title: page.title,
-        status: page.status,
-      })),
-    },
+    catalog_context: catalogContextForPage(context),
     parent_slug: context.request.parentSlug,
     parent_synthesis: {
       has_child_pages: context.request.childPages.length > 0,
       instructions:
-        "When child_page_summaries is non-empty, synthesize child boundaries and shared flow instead of listing children.",
+        "When child_page_summaries is non-empty, synthesize this parent page primarily from child overviews. Use source_chunks and graph_facts to ground citations, fill gaps, and avoid unsupported claims.",
     },
     child_page_summaries: childPageSummaries(context.request.childPages),
     page_depth_profile: {
@@ -918,40 +1054,203 @@ function isPathInside(root: string, target: string): boolean {
 
 function graphFactsPayload(trace: RetrievalTrace): JsonObject {
   return {
-    seed_nodes: trace.seed_nodes,
-    expanded_nodes: trace.expanded_nodes,
-    related_edges: trace.related_edges,
-    community_edges: trace.community_edges,
-    community_summaries: trace.community_summaries,
+    seed_nodes: trace.seed_nodes.map(promptNode),
+    expanded_nodes: trace.expanded_nodes.map(promptNode),
+    related_edges: trace.related_edges.map(promptEdge),
+    community_edges: trace.community_edges.map(promptEdge),
+    community_summaries: trace.community_summaries.map(promptCommunitySummary),
+    community_hierarchy: communityHierarchy(trace.community_summaries),
   };
+}
+
+function promptNode(node: JsonObject): JsonObject {
+  return compactJsonObject({
+    id: node.id,
+    type: node.type,
+    name: node.name,
+    file_path: node.file_path,
+    line: lineRange(node),
+    hop: node.hop,
+    score: node.score,
+    confidence: node.confidence,
+  });
+}
+
+function promptEdge(edge: JsonObject): JsonObject {
+  return compactJsonObject({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: edge.type,
+    confidence: edge.confidence,
+    reason: edge.reason,
+  });
+}
+
+function promptCommunitySummary(community: JsonObject): JsonObject {
+  const nodeIds = Array.isArray(community.node_ids)
+    ? community.node_ids.filter((value): value is string => typeof value === "string")
+    : [];
+  return compactJsonObject({
+    id: community.id,
+    name: community.name,
+    level: community.level,
+    parent_id: community.parent_id,
+    summary: community.summary,
+    node_count: numberValue(community.node_count) ?? nodeIds.length,
+    matched_node_ids: Array.isArray(community.matched_node_ids)
+      ? community.matched_node_ids
+      : nodeIds,
+  });
+}
+
+function communityHierarchy(communities: JsonObject[]): JsonObject[] {
+  const byId = new Map<string, JsonObject>();
+  const roots: JsonObject[] = [];
+  for (const community of communities) {
+    const id = stringValue(community.id);
+    if (id) {
+      byId.set(id, promptCommunitySummary(community));
+    }
+  }
+  for (const community of communities) {
+    const id = stringValue(community.id);
+    if (!id) {
+      continue;
+    }
+    const item = byId.get(id);
+    if (!item) {
+      continue;
+    }
+    const parentId = stringValue(community.parent_id);
+    const parent = parentId ? byId.get(parentId) : null;
+    if (parent) {
+      const children = Array.isArray(parent.children) ? parent.children : [];
+      children.push(item);
+      parent.children = children;
+    } else {
+      roots.push(item);
+    }
+  }
+  return roots;
+}
+
+function lineRange(item: JsonObject): string | null {
+  const startLine = numberValue(item.start_line);
+  const endLine = numberValue(item.end_line);
+  if (!startLine) {
+    return null;
+  }
+  return endLine && endLine !== startLine
+    ? `${startLine}-${endLine}`
+    : String(startLine);
+}
+
+function compactJsonObject(values: Record<string, unknown>): JsonObject {
+  const payload: JsonObject = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    if (Array.isArray(value) && !value.length) {
+      continue;
+    }
+    if (isJsonValue(value)) {
+      payload[key] = value;
+    }
+  }
+  return payload;
+}
+
+function isJsonValue(value: unknown): value is JsonObject[string] {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+  return isRecord(value) && Object.values(value).every(isJsonValue);
 }
 
 function promptContract(): JsonObject {
   return {
     source_linking: {
       source_refs: "Use only file_path/start_line/end_line values from allowed_source_refs.",
+      source_urls:
+        "The server converts validated source refs into clickable source URLs when repository git metadata is available.",
       inline_citations:
         "Use compact [[S#]] markers after source-grounded claims. Return every used marker in source_refs.",
     },
+    citation_style: {
+      inline_markers:
+        "Use compact [[S#]] markers near concrete claims. The server renders grouped source ranges separately.",
+      avoid_noise:
+        "Do not repeat long source file labels in prose. Do not add section-level Sources lines.",
+    },
     documentation_style: {
       name: "DeepWiki",
+      workflow: [
+        "GATHER with mandatory ReadFile evidence, source_chunks, and graph_facts",
+        "think through subsystem boundaries, lifecycle, contracts, state changes, extension points, and failure paths",
+        "write detailed Markdown with compact tables, concrete execution paths, and inline citations",
+      ],
       required_sections: [
         "Purpose and Scope",
-        "System Context or Architecture when evidenced",
+        "Architecture or System Context when relationships are evidenced",
         "Control Flow or Lifecycle when evidenced",
         "Data Model, API Surface, Configuration, or Failure Handling when evidenced",
+        "Extension Points or Operational Notes when change boundaries are evidenced",
+      ],
+      server_injected_sections: [
+        "Relevant source files",
+        "validated Mermaid diagrams",
+        "grouped Sources",
       ],
       preferred_tables: [
         "component/file/responsibility/evidence",
+        "symbol/function/caller/callee/evidence",
+        "route or API/symbol/purpose/evidence",
+        "data structure/owner/fields or role/evidence",
+        "configuration key/default or source/effect/evidence",
         "workflow step/owner/input/output/side effect/evidence",
         "failure mode/trigger/handling/evidence",
+        "state transition/current state/trigger/next state/evidence",
         "extension point/current owner/change path/contract/evidence",
       ],
+    },
+    detail_expectations: {
+      minimum_depth:
+        "For non-trivial pages, cover responsibility, lifecycle/control flow, dependencies, inputs and outputs, data surfaces, APIs or UI routes, configuration, validation, extension points, failure handling, state transitions, and internal tradeoffs when evidence supports them.",
+      section_depth:
+        "Implementation pages should have 5-8 substantive sections and at least four evidence-backed detail blocks when evidence is sufficient. Parent pages should synthesize child boundaries and cross-child flow rather than listing children.",
+      related_pages:
+        "Mention related pages only from catalog_context.related_pages and only when evidence supports the relationship.",
+      missing_information:
+        "If expected lifecycle, configuration, error handling, or recovery behavior is absent from source evidence, state the gap briefly instead of guessing.",
+    },
+    diagram_placement: {
+      placeholder_format: "[[DIAGRAM:<slot>]]",
+      instructions:
+        "Use only slots listed in diagram_slots. Do not emit Mermaid; the server generates diagrams from graph facts.",
+    },
+    agent_tools: {
+      available: [
+        {
+          name: "ReadFile",
+          purpose: "Read exact repository source ranges before writing.",
+        },
+      ],
+      required_for_page_generation: ["ReadFile"],
     },
     required_json_shape: {
       title: "Use the exact page title from page_payload.title.",
       markdown:
-        "# Page title\n\n## Purpose and Scope\n\nGrounded Markdown with inline [[S1]] citations and no Mermaid fences.",
+        "# Page title\n\n## Purpose and Scope\n\nGrounded Markdown with inline [[S1]] citations, optional [[DIAGRAM:slot]] placeholders from diagram_slots, and no Mermaid fences.",
       source_refs: [
         {
           citation_id: "S1",
@@ -967,12 +1266,19 @@ function promptContract(): JsonObject {
 function pageSystemPrompt(): string {
   return [
     "You are generating one DeepWiki-style Code Wiki page.",
-    "Execute GATHER, THINK, WRITE before answering: gather from readfile_evidence, source_chunks, graph_facts, and allowed_source_refs; think through responsibility, dependencies, data/control flow, boundaries, validation, and failure paths; then write detailed source-grounded Markdown.",
+    "You must execute GATHER, THINK, WRITE before answering. Treat readfile_evidence.reads as mandatory ReadFile output. If the mandatory ReadFile evidence does not support a detail, do not present the detail as fact.",
+    "In GATHER, inspect the topic, source_hints, source_chunks, graph_facts, catalog_context, and allowed_source_refs to identify the actual files and symbols involved.",
+    "In THINK, map subsystem responsibility, dependencies, data/control flow, boundaries, callers, downstream collaborators, and where errors or edge cases are handled. Verify every planned claim against ReadFile evidence, source_chunks, or graph_facts.",
+    "In WRITE, produce detailed, source-grounded Markdown as JSON. Favor depth over breadth, but do not add unsupported details.",
     'The markdown must start with "# {title}" and immediately include "## Purpose and Scope" with 1-3 concise paragraphs including the subsystem primary responsibility.',
-    "Use compact tables for dense implementation details: components, workflows, APIs, data shapes, configuration, failure modes, extension points, and state transitions.",
+    "Choose relevant sections from System Context, Core Components, Control Flow, Data Model, API Surface, Configuration, Frontend Flow, Extension Points, Failure Handling, Testing, and Operational Notes.",
+    "For non-trivial implementation pages, use 5-8 substantive sections when evidence supports them. Include evidence-backed detail blocks such as component responsibility, workflow, API/data contract, validation/failure-mode, extension point, or configuration tables.",
+    "For parent/category pages, synthesize how child pages relate and where shared control flow, data contracts, or dependencies cross child boundaries. Do not simply list child pages.",
     "Every concrete factual claim about code must be supported by ReadFile evidence, source_chunks, or graph_facts, with nearby [[S#]] citation markers from allowed_source_refs.",
     "Prefer citations whose ranges appear in readfile_evidence.recorded_source_refs. If readfile_evidence.reads is empty, say direct source evidence is missing instead of guessing.",
-    "Do not include Sources, Relevant source files, Related Pages, Mermaid sections, or Mermaid code; the server renders those.",
+    "Mention related pages only from catalog_context.related_pages. Do not invent wiki links or pages.",
+    "Do not include Sources, Relevant source files, Related Pages, On this page, Mermaid sections, or Mermaid code; the server renders those.",
+    "If diagram_slots contains a useful diagram, place the exact [[DIAGRAM:<slot>]] placeholder on its own line. Do not invent slots.",
     "Return only JSON with title, markdown, and source_refs.",
   ].join("\n\n");
 }

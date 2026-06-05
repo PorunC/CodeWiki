@@ -1,3 +1,11 @@
+import {
+  readdirSync,
+  readFileSync,
+  statSync,
+  type Dirent,
+  type Stats,
+} from "node:fs";
+import { basename, relative, resolve } from "node:path";
 import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import { buildRetrievalTrace } from "../graphrag/retrieval.js";
@@ -63,6 +71,151 @@ const MAX_CATALOG_DEPTH = 4;
 const CATALOG_GENERATION_ATTEMPTS = 3;
 const CATALOG_RETRIEVAL_LIMIT = 18;
 const CATALOG_PROMPT_VERSION = "ts-wiki-catalog-deepwiki-v2";
+const MAX_REPOSITORY_TREE_DEPTH = 3;
+const MAX_REPOSITORY_TREE_ENTRIES_PER_DIR = 80;
+const MAX_README_CHARS = 6000;
+
+const README_NAMES = [
+  "README.md",
+  "README.MD",
+  "readme.md",
+  "README.rst",
+  "README.txt",
+  "README",
+];
+
+const COMMON_KEY_FILES = [
+  "README.md",
+  "pyproject.toml",
+  "package.json",
+  "tsconfig.json",
+  "vite.config.ts",
+  "next.config.ts",
+  "requirements.txt",
+  "Dockerfile",
+  "docker-compose.yml",
+  "compose.yaml",
+  "Makefile",
+  ".env.example",
+];
+
+const EXCLUDED_CONTEXT_DIRS = new Set([
+  ".git",
+  ".hg",
+  ".svn",
+  ".idea",
+  ".vscode",
+  "__pycache__",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".mypy_cache",
+  ".venv",
+  "venv",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  "target",
+  "out",
+  ".output",
+]);
+
+const LOCKFILE_NAMES = new Set([
+  "uv.lock",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+]);
+
+const GENERATED_DIR_NAMES = new Set([
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  "build",
+  "coverage",
+  "dist",
+  "htmlcov",
+  "out",
+  "target",
+]);
+
+const GENERATED_FILE_SUFFIXES = [
+  ".bundle.js",
+  ".bundle.css",
+  ".d.ts",
+  ".generated.py",
+  ".generated.ts",
+  ".generated.tsx",
+  ".min.css",
+  ".min.js",
+];
+
+const VENDOR_DIR_NAMES = new Set([
+  ".git",
+  ".hg",
+  ".svn",
+  ".venv",
+  "node_modules",
+  "site-packages",
+  "vendor",
+  "vendors",
+  "venv",
+]);
+
+const TEST_DIR_NAMES = new Set([
+  "__tests__",
+  "e2e",
+  "spec",
+  "specs",
+  "test",
+  "tests",
+]);
+
+const SPECIAL_CATALOG_PAGES: readonly CatalogItem[] = [
+  {
+    title: "Overview",
+    slug: "overview",
+    path: "overview",
+    order: 0,
+    kind: "page",
+    topic: "repository overview, entry points, README, and main developer orientation",
+    source_hints: ["README.md"],
+    children: [],
+  },
+  {
+    title: "Architecture",
+    slug: "architecture",
+    path: "architecture",
+    order: 1,
+    kind: "page",
+    topic: "repository architecture, runtime layers, core components, and cross-module flows",
+    source_hints: [],
+    children: [],
+  },
+  {
+    title: "Reading Guide",
+    slug: "reading-guide",
+    path: "reading-guide",
+    order: 2,
+    kind: "page",
+    topic: "recommended reading order for understanding the repository from entry points to internals",
+    source_hints: ["README.md"],
+    children: [],
+  },
+  {
+    title: "Dependencies",
+    slug: "dependencies",
+    path: "dependencies",
+    order: 3,
+    kind: "page",
+    topic: "internal dependencies, external packages, imports, configuration, and integration boundaries",
+    source_hints: [],
+    children: [],
+  },
+];
 
 type CatalogScaleProfile = {
   scale: string;
@@ -239,6 +392,7 @@ export class WikiCatalogGenerator {
       throw notFoundError("Repository", request.repoId);
     }
     const graph = await this.store.getGraph(request.repoId);
+    const wikiGraph = filterWikiGraph(graph.nodes, graph.edges);
     const chunks = await this.store.listCodeChunks(request.repoId);
     const retrievalTrace = await this.store.saveRetrievalTrace(
       await buildRetrievalTrace(this.store, request.repoId, "repository overview", {
@@ -249,12 +403,12 @@ export class WikiCatalogGenerator {
     return {
       repo,
       request,
-      nodes: graph.nodes,
-      edges: graph.edges,
+      nodes: wikiGraph.nodes,
+      edges: wikiGraph.edges,
       chunks,
       communities: await this.store.listGraphCommunities(request.repoId),
       retrievalTrace,
-      localItems: buildCatalogItems(graph.nodes),
+      localItems: buildCatalogItems(wikiGraph.nodes),
     };
   }
 
@@ -399,29 +553,7 @@ function llmInputPayload(context: WikiCatalogContext): JsonObject {
     })),
     required_json_shape: {
       title: "Code Wiki",
-      items: [
-        {
-          title: "Overview",
-          slug: "overview",
-          path: "overview",
-          order: 0,
-          kind: "page",
-          topic: "repository overview",
-          source_hints: ["README.md"],
-          children: [],
-        },
-        {
-          title: "Architecture",
-          slug: "architecture",
-          path: "architecture",
-          order: 1,
-          kind: "page",
-          topic:
-            "repository architecture, runtime entry points, major subsystems, and dependencies",
-          source_hints: [],
-          children: [],
-        },
-      ],
+      items: SPECIAL_CATALOG_PAGES.map((item) => ({ ...item })),
     },
   };
 }
@@ -435,20 +567,125 @@ function normalizeCatalogCompletion(
   if (!parsed) {
     return { ...fallback, items: [], validationErrors };
   }
-  const rawItems = parsed.items;
+  const root = catalogRoot(parsed);
+  const rawItems = Array.isArray(root.items) ? root.items : root.pages;
   if (!Array.isArray(rawItems)) {
     validationErrors.push("Catalog JSON must include an items array.");
     return { ...fallback, items: [], validationErrors };
   }
   const usedSlugs = new Set<string>();
-  const items = normalizeItems(rawItems, {
-    depth: 0,
-    usedSlugs,
-    validationErrors,
-    remaining: { count: MAX_CATALOG_ITEMS },
-  });
-  const title = nonEmptyString(parsed.title) ?? fallback.title;
+  const items = limitCatalogItems(
+    sortCatalogItems(ensureSpecialCatalogPages(
+      normalizeItems(rawItems, {
+        depth: 0,
+        usedSlugs,
+        validationErrors,
+        remaining: { count: MAX_CATALOG_ITEMS },
+      }),
+    )),
+    MAX_CATALOG_ITEMS,
+  );
+  const title = nonEmptyString(root.title) ?? fallback.title;
   return { title, items, validationErrors };
+}
+
+function catalogRoot(parsed: JsonObject): JsonObject {
+  return isRecord(parsed.catalog) ? (parsed.catalog as JsonObject) : parsed;
+}
+
+function ensureSpecialCatalogPages(items: CatalogItem[]): CatalogItem[] {
+  const existingSlugs = new Set(flattenCatalogItems(items).map((item) => item.slug));
+  const nextItems = [...items];
+  for (const special of SPECIAL_CATALOG_PAGES) {
+    if (special.slug && existingSlugs.has(special.slug)) {
+      continue;
+    }
+    nextItems.push({ ...special, children: [] });
+    if (special.slug) {
+      existingSlugs.add(special.slug);
+    }
+  }
+  return nextItems.map((item) => {
+    const special = SPECIAL_CATALOG_PAGES.find((page) => page.slug === item.slug);
+    return {
+      ...item,
+      order: special?.order ?? (item.order ?? 0) + SPECIAL_CATALOG_PAGES.length,
+    };
+  });
+}
+
+function flattenCatalogItems(items: CatalogItem[]): CatalogItem[] {
+  const flattened: CatalogItem[] = [];
+  for (const item of items) {
+    flattened.push(item);
+    if (Array.isArray(item.children)) {
+      flattened.push(...flattenCatalogItems(item.children));
+    }
+  }
+  return flattened;
+}
+
+function sortCatalogItems(items: CatalogItem[]): CatalogItem[] {
+  return [...items]
+    .map((item) => {
+      const sorted: CatalogItem = { ...item };
+      if (Array.isArray(item.children) && item.children.length) {
+        sorted.children = sortCatalogItems(item.children);
+      } else {
+        delete sorted.children;
+      }
+      return sorted;
+    })
+    .sort(
+      (left, right) =>
+        (left.order ?? 0) - (right.order ?? 0) ||
+        (left.title ?? "").localeCompare(right.title ?? ""),
+    );
+}
+
+function limitCatalogItems(
+  items: CatalogItem[],
+  maxTotalItems: number,
+): CatalogItem[] {
+  const limited: CatalogItem[] = [];
+  let remaining = maxTotalItems;
+  for (const item of items) {
+    if (remaining <= 0) {
+      break;
+    }
+    const next = catalogItemWithBudget(item, remaining);
+    if (!next.item) {
+      break;
+    }
+    limited.push(next.item);
+    remaining -= next.used;
+  }
+  return limited;
+}
+
+function catalogItemWithBudget(
+  item: CatalogItem,
+  budget: number,
+): { item: CatalogItem | null; used: number } {
+  if (budget <= 0) {
+    return { item: null, used: 0 };
+  }
+  const nextItem: CatalogItem = { ...item, children: [] };
+  let used = 1;
+  let remaining = budget - 1;
+  for (const child of Array.isArray(item.children) ? item.children : []) {
+    if (remaining <= 0) {
+      break;
+    }
+    const nextChild = catalogItemWithBudget(child, remaining);
+    if (!nextChild.item) {
+      break;
+    }
+    nextItem.children?.push(nextChild.item);
+    used += nextChild.used;
+    remaining -= nextChild.used;
+  }
+  return { item: nextItem, used };
 }
 
 function catalogRepairPayload(
@@ -540,8 +777,10 @@ function repositoryContext(context: WikiCatalogContext): JsonObject {
       .filter((node) => node.type === "file" || node.type === "config")
       .map((node) => node.file_path),
   ).sort((left, right) => left.localeCompare(right));
+  const filesystemContext = repositoryFilesystemContext(context.repo.path);
   return {
-    entry_points: files
+    ...filesystemContext,
+    graph_entry_points: files
       .filter((filePath) => /(^|\/)(package\.json|pyproject\.toml|README\.md|Makefile|Dockerfile|vite\.config|tsconfig|main|index|cli|server)/i.test(filePath))
       .slice(0, 40),
     compact_tree: compactTree(files),
@@ -549,6 +788,218 @@ function repositoryContext(context: WikiCatalogContext): JsonObject {
       files.map((filePath) => filePath.split("/")[0] ?? filePath),
     ).slice(0, 40),
   };
+}
+
+function repositoryFilesystemContext(repoPath: string): JsonObject {
+  const root = resolve(repoPath);
+  return {
+    project_type: detectProjectType(root),
+    directory_tree_format: "compact",
+    directory_tree: directoryTree(root),
+    readme_content: readmeContent(root),
+    key_files: keyFiles(root),
+    entry_points: entryPoints(root),
+  };
+}
+
+function directoryTree(root: string): string {
+  if (!safeStat(root)?.isDirectory()) {
+    return basename(root);
+  }
+  const lines = [basename(root)];
+  appendTree(root, root, lines, 0);
+  return lines.join("\n");
+}
+
+function appendTree(
+  root: string,
+  directory: string,
+  lines: string[],
+  depth: number,
+): void {
+  if (depth >= MAX_REPOSITORY_TREE_DEPTH) {
+    return;
+  }
+  const entries = safeReadDir(directory)
+    .filter((entry) => !entry.name.startsWith(".") && !EXCLUDED_CONTEXT_DIRS.has(entry.name))
+    .sort((left, right) => {
+      const leftIsFile = left.isFile();
+      const rightIsFile = right.isFile();
+      return Number(leftIsFile) - Number(rightIsFile) || left.name.localeCompare(right.name);
+    })
+    .slice(0, MAX_REPOSITORY_TREE_ENTRIES_PER_DIR);
+  for (const entry of entries) {
+    const absolutePath = resolve(directory, entry.name);
+    const relativePath = relative(root, absolutePath).replace(/\\/g, "/");
+    const suffix = entry.isDirectory() ? "/" : "";
+    lines.push(`${"  ".repeat(depth + 1)}- ${relativePath}${suffix}`);
+    if (entry.isDirectory()) {
+      appendTree(root, absolutePath, lines, depth + 1);
+    }
+  }
+}
+
+function readmeContent(root: string): string {
+  for (const name of README_NAMES) {
+    const path = resolve(root, name);
+    if (!safeStat(path)?.isFile()) {
+      continue;
+    }
+    const content = safeReadFile(path).trim();
+    return content.length > MAX_README_CHARS
+      ? `${content.slice(0, MAX_README_CHARS).trimEnd()}\n\n[README truncated]`
+      : content;
+  }
+  return "";
+}
+
+function keyFiles(root: string): string[] {
+  return COMMON_KEY_FILES.filter((name) => safeStat(resolve(root, name))?.isFile());
+}
+
+function entryPoints(root: string): string[] {
+  return [
+    "backend/app/main.py",
+    "app.py",
+    "main.py",
+    "__main__.py",
+    "manage.py",
+    "frontend/src/main.tsx",
+    "frontend/src/main.ts",
+    "src/main.tsx",
+    "src/main.ts",
+    "src/App.tsx",
+    "src/App.vue",
+    "Program.cs",
+    "Startup.cs",
+  ].filter((filePath) => safeStat(resolve(root, filePath))?.isFile());
+}
+
+function detectProjectType(root: string): string {
+  const types: string[] = [];
+  if (
+    safeStat(resolve(root, "pyproject.toml"))?.isFile() ||
+    safeStat(resolve(root, "requirements.txt"))?.isFile()
+  ) {
+    types.push("python");
+  }
+  const packageJson = safeReadFile(resolve(root, "package.json"));
+  if (packageJson) {
+    types.push(
+      /"(react|next|vite|vue|angular)"/.test(packageJson) ? "frontend" : "nodejs",
+    );
+  }
+  if (safeStat(resolve(root, "go.mod"))?.isFile()) {
+    types.push("go");
+  }
+  if (safeStat(resolve(root, "Cargo.toml"))?.isFile()) {
+    types.push("rust");
+  }
+  if (safeStat(resolve(root, "pom.xml"))?.isFile()) {
+    types.push("java");
+  }
+  if (!types.length) {
+    return "unknown";
+  }
+  return types.length > 1 ? `fullstack:${types.join("+")}` : types[0] ?? "unknown";
+}
+
+function safeReadDir(path: string): Dirent[] {
+  try {
+    return readdirSync(path, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function safeReadFile(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function safeStat(path: string): Stats | null {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+}
+
+function filterWikiGraph(
+  nodes: CodeGraphNode[],
+  edges: CodeGraphEdge[],
+): { nodes: CodeGraphNode[]; edges: CodeGraphEdge[] } {
+  const filteredNodes = nodes.filter((node) => !isWikiNoiseNode(node));
+  const nodeIds = new Set(filteredNodes.map((node) => node.id));
+  return {
+    nodes: filteredNodes,
+    edges: edges.filter(
+      (edge) => nodeIds.has(edge.source_id) && nodeIds.has(edge.target_id),
+    ),
+  };
+}
+
+function isWikiNoiseNode(node: CodeGraphNode): boolean {
+  if (node.metadata.external === true) {
+    return true;
+  }
+  return Boolean(node.file_path && isWikiNoiseFile(node.file_path));
+}
+
+function isWikiNoiseFile(filePath: string): boolean {
+  return (
+    isTestFile(filePath) ||
+    isGeneratedFile(filePath) ||
+    isVendorFile(filePath)
+  );
+}
+
+function isTestFile(filePath: string): boolean {
+  const normalized = normalizedPath(filePath).toLowerCase();
+  const name = normalized.split("/").pop() ?? "";
+  const parts = new Set(normalized.split("/").filter(Boolean));
+  return (
+    name.startsWith("test_") ||
+    name.endsWith("_test.py") ||
+    name.endsWith("_test.go") ||
+    name.includes(".test.") ||
+    name.includes(".spec.") ||
+    intersects(parts, TEST_DIR_NAMES)
+  );
+}
+
+function normalizedPath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").trim();
+}
+
+function isGeneratedFile(filePath: string): boolean {
+  const normalized = normalizedPath(filePath).toLowerCase();
+  const name = normalized.split("/").pop() ?? "";
+  const parts = new Set(normalized.split("/").filter(Boolean));
+  return (
+    LOCKFILE_NAMES.has(name) ||
+    GENERATED_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix)) ||
+    intersects(parts, GENERATED_DIR_NAMES)
+  );
+}
+
+function isVendorFile(filePath: string): boolean {
+  return intersects(
+    new Set(normalizedPath(filePath).toLowerCase().split("/").filter(Boolean)),
+    VENDOR_DIR_NAMES,
+  );
+}
+
+function intersects(left: Set<string>, right: Set<string>): boolean {
+  for (const value of left) {
+    if (right.has(value)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function fileCountForNodes(nodes: CodeGraphNode[]): number {
@@ -820,7 +1271,7 @@ function normalizeItem(
     nonEmptyString(value.slug) ?? title,
     options.usedSlugs,
   );
-  const path = nonEmptyString(value.path) ?? null;
+  const path = nonEmptyString(value.path) ?? slug;
   return {
     title: title.slice(0, 120),
     slug,
@@ -828,7 +1279,7 @@ function normalizeItem(
     order: integerValue(value.order) ?? index,
     kind,
     topic: nonEmptyString(value.topic) ?? "",
-    source_hints: stringList(value.source_hints).slice(0, 12),
+    source_hints: stringList(value.source_hints).slice(0, 8),
     ...(children.length ? { children } : {}),
   };
 }
