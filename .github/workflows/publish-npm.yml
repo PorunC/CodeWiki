@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Package version to publish, matching backend-ts/package.json"
+        description: "Package version to publish, matching backend/package.json"
         required: true
         type: string
 
@@ -30,31 +30,31 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: npm
           cache-dependency-path: |
-            backend-ts/package-lock.json
+            backend/package-lock.json
             frontend/package-lock.json
 
       - name: Verify release version
-        run: npm --prefix backend-ts run release:verify
+        run: npm --prefix backend run release:verify
         env:
           CODEWIKI_RELEASE_VERSION: ${{ github.event.inputs.version || '' }}
 
       - name: Install backend dependencies
-        run: npm --prefix backend-ts ci
+        run: npm --prefix backend ci
 
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
       - name: Verify backend
-        run: npm --prefix backend-ts run verify
+        run: npm --prefix backend run verify
 
       - name: Lint frontend
         run: npm --prefix frontend run lint
 
       - name: Verify package
-        run: npm --prefix backend-ts run pack:smoke
+        run: npm --prefix backend run pack:smoke
 
       - name: Publish package
-        working-directory: backend-ts
+        working-directory: backend
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

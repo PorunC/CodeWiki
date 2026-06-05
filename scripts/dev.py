@@ -26,7 +26,7 @@ class DevConfig:
 
     @classmethod
     def from_env(cls) -> "DevConfig":
-        backend_dir = Path(os.environ.get("BACKEND_DIR", "backend-ts"))
+        backend_dir = Path(os.environ.get("BACKEND_DIR", "backend"))
         return cls(
             backend_dir=backend_dir if backend_dir.is_absolute() else ROOT / backend_dir,
             backend_host=os.environ.get("BACKEND_HOST", "127.0.0.1"),
@@ -58,7 +58,7 @@ def main() -> int:
         "--port",
         str(config.backend_port),
         "--static-dir",
-        str(ROOT / "backend-ts" / "static"),
+        str(ROOT / "backend" / "static"),
     ]
     frontend = [
         sys.executable,

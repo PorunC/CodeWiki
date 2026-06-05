@@ -17,12 +17,12 @@ RUN apt-get -o Acquire::Retries=3 update \
         build-essential \
         python3 \
     && rm -rf /var/lib/apt/lists/*
-COPY backend-ts/package.json backend-ts/package-lock.json ./backend-ts/
+COPY backend/package.json backend/package-lock.json ./backend/
 RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi \
-    && npm --prefix backend-ts ci --loglevel=info --fetch-timeout=120000 --fetch-retries=5
-COPY backend-ts ./backend-ts
-RUN npm --prefix backend-ts run build \
-    && npm --prefix backend-ts prune --omit=dev
+    && npm --prefix backend ci --loglevel=info --fetch-timeout=120000 --fetch-retries=5
+COPY backend ./backend
+RUN npm --prefix backend run build \
+    && npm --prefix backend prune --omit=dev
 
 FROM ${NODE_IMAGE} AS runtime
 
@@ -49,10 +49,10 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 
 WORKDIR /app
 
-COPY --from=backend-builder /app/backend-ts/package.json ./backend/package.json
-COPY --from=backend-builder /app/backend-ts/dist ./backend/dist
-COPY --from=backend-builder /app/backend-ts/node_modules ./backend/node_modules
-COPY --from=frontend-builder /app/backend-ts/static ./static
+COPY --from=backend-builder /app/backend/package.json ./backend/package.json
+COPY --from=backend-builder /app/backend/dist ./backend/dist
+COPY --from=backend-builder /app/backend/node_modules ./backend/node_modules
+COPY --from=frontend-builder /app/backend/static ./static
 
 RUN mkdir -p /app/data /app/storage /workspace
 

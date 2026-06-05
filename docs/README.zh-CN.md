@@ -3,7 +3,7 @@
 [English](../README.md) | [TypeScript Backend Architecture](typescript-backend.md)
 
 CodeWiki 是一个面向单用户的本地代码知识平台，用于仓库分析、源码图检索、
-Wiki 草稿生成和基于源码的本地问答。后端已经迁移到 `backend-ts`，是一个可发布到
+Wiki 草稿生成和基于源码的本地问答。后端已经迁移到 `backend`，是一个可发布到
 npm 的 TypeScript/Fastify 包，包名为 `codewiki-backend`。
 
 ## 当前范围
@@ -91,6 +91,8 @@ make start
 make lint
 make typecheck
 make test
+make test-scripts
+make lint-scripts
 make build
 make npm-pack
 make npm-smoke
@@ -103,10 +105,10 @@ make npm-smoke
 
 ## npm 包
 
-可发布包位于 `backend-ts`：
+可发布包位于 `backend`：
 
 ```bash
-cd backend-ts
+cd backend
 npm run verify
 npm run build
 npm pack --dry-run

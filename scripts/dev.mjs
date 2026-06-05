@@ -8,12 +8,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
 const config = {
   npm: process.env.NPM ?? "npm",
-  backendDir: resolveFromRoot(process.env.BACKEND_DIR ?? "backend-ts"),
+  backendDir: resolveFromRoot(process.env.BACKEND_DIR ?? "backend"),
   frontendDir: resolveFromRoot(process.env.FRONTEND_DIR ?? "frontend"),
   backendHost: process.env.BACKEND_HOST ?? "127.0.0.1",
   backendPort: portFromEnv("BACKEND_PORT", 8000),
   frontendPort: portFromEnv("FRONTEND_PORT", 5173),
-  backendStaticDir: resolveFromRoot(process.env.BACKEND_STATIC_DIR ?? "backend-ts/static")
+  backendStaticDir: resolveFromRoot(process.env.BACKEND_STATIC_DIR ?? "backend/static")
 };
 
 const children = [];

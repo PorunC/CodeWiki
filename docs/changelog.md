@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Legacy Python backend removal** — removed the old Python/FastAPI backend source,
+  backend.app-dependent pytest suite, Python backend dependency lockfile, and stale
+  development references. The TypeScript backend in `backend` is now the only
+  active backend implementation.
+
 ## [0.6.4] - 2026-06-03
 
 ### Changed

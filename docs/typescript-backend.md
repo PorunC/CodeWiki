@@ -1,9 +1,8 @@
 # TypeScript Backend Architecture
 
-This document describes the current CodeWiki backend in `backend-ts`. It is the
+This document describes the current CodeWiki backend in `backend`. It is the
 default runtime for local development, Docker, CI, MCP, CLI, and npm publishing.
-The older Python/FastAPI design notes are preserved in `docs/design.md` as legacy
-migration context.
+The previous backend implementation has been removed from the active source tree.
 
 ## Runtime Shape
 
@@ -22,7 +21,7 @@ Repository path or Git URL
   -> React/Vite frontend and editor agents
 ```
 
-The package is published from `backend-ts` as `codewiki-backend`. Runtime entry
+The package is published from `backend` as `codewiki-backend`. Runtime entry
 points are:
 
 - CLI binaries: `codewiki`, `codewiki-backend`
@@ -73,7 +72,7 @@ predictable for embedding and testing:
 - CLI commands and HTTP routes use the same service runtime instead of
   constructing domain services in transport handlers.
 
-The runtime version is read from `backend-ts/package.json` through
+The runtime version is read from `backend/package.json` through
 `src/version.ts`, and the same value is used by the CLI, MCP server info, and main
 library export.
 
@@ -91,16 +90,16 @@ small repository classes:
 
 The TypeScript runtime accepts both `sqlite:///...` and the older
 `sqlite+aiosqlite:///...` URL spelling so existing local SQLite configuration keeps
-working during migration.
+working.
 
 ## Package And CI
 
-The npm package is built and verified from `backend-ts`:
+The npm package is built and verified from `backend`:
 
 ```bash
-npm --prefix backend-ts run verify
-npm --prefix backend-ts run build
-npm --prefix backend-ts run pack:smoke
+npm --prefix backend run verify
+npm --prefix backend run build
+npm --prefix backend run pack:smoke
 ```
 
 `pack:smoke` creates an npm tarball, installs it into a clean temporary project,
@@ -113,25 +112,21 @@ and verifies:
 - packaged static frontend serving and API 404 behavior
 - stdio MCP entrypoints and required tool registration
 
-GitHub Actions uses Node 22 and publishes `backend-ts` to npm on version tags.
+GitHub Actions uses Node 22 and publishes `backend` to npm on version tags.
 The publish workflow independently runs backend verification, frontend linting,
 release-version validation, and package smoke tests before `npm publish`.
 
-## Migration Boundaries
+## Current Boundaries
 
 The current TypeScript backend intentionally favors a small dependency surface and
-publishable npm package. Some deeper Python-era capabilities remain migration
-follow-ups rather than default runtime requirements:
+publishable npm package. Some deeper capabilities remain future work rather than
+default runtime requirements:
 
 - provider-backed community generation and embeddings
 - PostgreSQL and pgvector storage
-- tree-sitter parity for all historical parser features
+- tree-sitter-backed parser depth beyond the current lightweight analysis
 - richer incremental update planning
 
-Legacy Python files and tests may remain temporarily as reference material, but
-new default development, CI, Docker, CLI, MCP, and publishing paths should target
-`backend-ts`.
-
-The root `pyproject.toml` is limited to legacy Python tooling configuration and
+The root `pyproject.toml` is limited to Python utility-script test configuration and
 does not define a Python package, build backend, or `codewiki` console scripts.
-The only publishable backend package is `backend-ts/package.json`.
+The only publishable backend package is `backend/package.json`.

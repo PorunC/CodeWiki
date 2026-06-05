@@ -8,10 +8,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const CLEAN_PATHS = [
   ".pytest_cache",
   ".ruff_cache",
-  "backend-ts/dist",
-  "backend-ts/coverage",
-  "backend-ts/static",
-  "backend/app/static",
+  "backend/dist",
+  "backend/coverage",
+  "backend/static",
   "frontend/dist",
   "frontend/.vite",
   "frontend/tsconfig.tsbuildinfo"

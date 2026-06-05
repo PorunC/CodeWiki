@@ -1,11 +1,12 @@
 .DEFAULT_GOAL := help
 
 NPM ?= npm
+PYTHON ?= python
 
 BACKEND_HOST ?= 127.0.0.1
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 5173
-BACKEND_DIR := backend-ts
+BACKEND_DIR := backend
 BACKEND_STATIC_DIR ?= $(CURDIR)/$(BACKEND_DIR)/static
 FRONTEND_DIR := frontend
 FRONTEND_NPM := node scripts/frontend-npm.mjs
@@ -18,7 +19,7 @@ export FRONTEND_DIR
 export FRONTEND_PORT
 export NPM
 
-.PHONY: help install install-backend install-frontend start dev restart check-ports backend frontend kill test lint lint-backend typecheck lint-frontend build build-backend build-frontend npm-pack npm-smoke clean
+.PHONY: help install install-backend install-frontend start dev restart check-ports backend frontend kill test test-scripts lint lint-backend lint-scripts typecheck lint-frontend build build-backend build-frontend npm-pack npm-smoke clean
 
 help:
 	@echo "Code Wiki Platform"
@@ -32,7 +33,9 @@ help:
 	@echo "  make frontend         Start only the Vite frontend"
 	@echo "  make kill             Kill processes listening on ports 8000 and 5173"
 	@echo "  make test             Run TypeScript backend tests"
+	@echo "  make test-scripts     Run Python utility script tests"
 	@echo "  make lint             Run backend and frontend lint checks"
+	@echo "  make lint-scripts     Run Python utility script lint checks"
 	@echo "  make typecheck        Run TypeScript backend type checks"
 	@echo "  make build            Build the backend package and frontend"
 	@echo "  make npm-pack         Dry-run the npm package contents"
@@ -76,10 +79,16 @@ kill:
 test:
 	$(NPM) --prefix $(BACKEND_DIR) test
 
+test-scripts:
+	$(PYTHON) -m pytest -q
+
 lint: lint-backend lint-frontend
 
 lint-backend:
 	$(NPM) --prefix $(BACKEND_DIR) run lint
+
+lint-scripts:
+	$(PYTHON) -m ruff check scripts tests/scripts
 
 typecheck:
 	$(NPM) --prefix $(BACKEND_DIR) run typecheck

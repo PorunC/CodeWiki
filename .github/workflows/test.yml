@@ -27,23 +27,23 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: |
-            backend-ts/package-lock.json
+            backend/package-lock.json
             frontend/package-lock.json
 
       - name: Install backend dependencies
-        run: npm --prefix backend-ts ci
+        run: npm --prefix backend ci
 
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
       - name: Lint backend
-        run: npm --prefix backend-ts run lint
+        run: npm --prefix backend run lint
 
       - name: Typecheck backend
-        run: npm --prefix backend-ts run typecheck
+        run: npm --prefix backend run typecheck
 
       - name: Test backend
-        run: npm --prefix backend-ts test
+        run: npm --prefix backend test
 
       - name: Lint frontend
         run: npm --prefix frontend run lint
@@ -52,4 +52,4 @@ jobs:
         run: npm --prefix frontend run build
 
       - name: Smoke-test npm package
-        run: npm --prefix backend-ts run pack:smoke
+        run: npm --prefix backend run pack:smoke

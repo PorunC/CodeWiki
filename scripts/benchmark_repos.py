@@ -655,7 +655,7 @@ def codewiki_command(args: list[str]) -> list[str]:
     return [
         os.environ.get("NPM", "npm"),
         "--prefix",
-        str(PROJECT_ROOT / "backend-ts"),
+        str(PROJECT_ROOT / "backend"),
         "exec",
         "--",
         "tsx",

@@ -1,2 +1,0 @@
-"""Pydantic API schemas."""
-

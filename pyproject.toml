@@ -1,29 +1,13 @@
-# Legacy Python tooling configuration.
+# Python utility-script tooling configuration.
 #
-# The default backend and publishable package now live in backend-ts as the
-# codewiki-backend npm package. This file is intentionally limited to Python
-# tooling for legacy reference tests and migration work; it is not a Python
-# package manifest and does not define codewiki console scripts.
+# The backend and publishable package live in backend as the codewiki-backend
+# npm package. This file only configures Python checks for repository utility
+# scripts and their tests; it is not a Python package manifest.
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 
-[tool.mypy]
-python_version = "3.12"
-plugins = ["pydantic.mypy"]
-files = ["backend/app"]
-ignore_missing_imports = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-warn_return_any = false
-disallow_untyped_defs = false
-check_untyped_defs = true
-no_implicit_optional = true
-
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/scripts"]
 pythonpath = ["."]
-filterwarnings = [
-  "ignore:coroutine 'Logging\\.async_success_handler' was never awaited:RuntimeWarning",
-]

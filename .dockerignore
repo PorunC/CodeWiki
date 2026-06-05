@@ -3,7 +3,6 @@
 .venv
 .pytest_cache
 .ruff_cache
-.mypy_cache
 .tmp
 __pycache__
 *.py[cod]
@@ -13,14 +12,12 @@ __pycache__
 !.env.example
 node_modules
 frontend/node_modules
-backend-ts/node_modules
+backend/node_modules
 frontend/dist
-backend-ts/dist
-backend-ts/static
+backend/dist
+backend/static
 frontend/tsconfig.tsbuildinfo
-backend-ts/coverage
-backend/app/static
-codewiki.egg-info
+backend/coverage
 build
 dist
 data

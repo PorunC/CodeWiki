@@ -74,10 +74,10 @@ Edge distribution after cold index and after small-delta sync matched:
 - Cold indexing the 2,000-module synthetic repository took 3.132s and incremental
   sync after a one-file delta took 2.909s.
 - The first 2,000-module stress run exposed an incremental containment regression:
-  file-to-symbol `contains` edges were lost for reused files after sync. The fix in
-  `backend/app/services/incremental/symbol_recovery.py` prevents recovered symbols
-  from treating file nodes as symbol parents, so GraphBuilder correctly falls back
-  to file containment. The rerun confirmed stable edge counts before and after sync.
+  file-to-symbol `contains` edges were lost for reused files after sync. The legacy
+  fix prevented recovered symbols from treating file nodes as symbol parents, so
+  GraphBuilder correctly fell back to file containment. The rerun confirmed stable
+  edge counts before and after sync.
 
 ## Follow-ups
 

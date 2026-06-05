@@ -123,6 +123,6 @@ python scripts/benchmark_lite_mode.py --files 2000 --fanout 4 --timeout-seconds 
 ```
 
 Both benchmark scripts run the local TypeScript backend through
-`npm --prefix backend-ts exec -- tsx -- src/cli.ts`. Set `CODEWIKI_CLI` to a
-shell-style command, such as `node backend-ts/dist/cli.js`, to benchmark a built
+`npm --prefix backend exec -- tsx -- src/cli.ts`. Set `CODEWIKI_CLI` to a
+shell-style command, such as `node backend/dist/cli.js`, to benchmark a built
 or globally installed CLI instead.

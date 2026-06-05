@@ -7,7 +7,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
-.mypy_cache/
 .venv/
 venv/
 
@@ -17,8 +16,7 @@ build/
 .vite/
 .tmp/
 *.tsbuildinfo
-backend-ts/static/
-backend/app/static/
+backend/static/
 
 data/
 storage/
@@ -29,4 +27,3 @@ storage/
 coverage/
 .coverage
 graphify-out/
-*.egg-info/

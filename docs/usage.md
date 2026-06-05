@@ -7,7 +7,7 @@ workflows, CLI commands, Docker, and HTTP APIs for CodeWiki.
 
 ## Current Scope
 
-- TypeScript/Fastify backend in `backend-ts`, published as the npm package
+- TypeScript/Fastify backend in `backend`, published as the npm package
   `codewiki-backend`.
 - React/Vite frontend with repository management, graph explorer, wiki reader, ask,
   and settings pages.
@@ -130,6 +130,8 @@ Useful checks:
 make lint
 make typecheck
 make test
+make test-scripts
+make lint-scripts
 make build
 make npm-pack
 make npm-smoke
@@ -137,10 +139,10 @@ make npm-smoke
 
 ## npm Package
 
-The publishable package lives in `backend-ts`:
+The publishable package lives in `backend`:
 
 ```bash
-cd backend-ts
+cd backend
 npm run verify
 npm run build
 npm pack --dry-run

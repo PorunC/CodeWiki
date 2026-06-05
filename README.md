@@ -22,7 +22,7 @@
 
 CodeWiki is a single-user code intelligence platform for repository analysis,
 source-grounded graph retrieval, wiki generation, and local Q&A. The backend is now
-a TypeScript/Fastify npm package in `backend-ts`, with SQLite storage and a CLI that
+a TypeScript/Fastify npm package in `backend`, with SQLite storage and a CLI that
 can be installed globally from npm.
 
 ## Screenshots
@@ -113,8 +113,6 @@ CODEWIKI_LLM__DEFAULT__API_KEY="$OPENAI_API_KEY"
   LLM profiles, CLI, MCP, HTTP API, and supported languages.
 - [TypeScript Backend Architecture](docs/typescript-backend.md): current backend
   module boundaries, dependency ownership, package entrypoints, and CI/publish flow.
-- [Legacy Design Notes](docs/design.md): historical Python backend design and
-  migration context.
 - [Benchmarking Guide](docs/benchmarking.md) and
   [Benchmark Report](docs/benchmark-report-2026-05-22.md): benchmark workflow and
   current results.
@@ -128,6 +126,8 @@ make start
 make lint
 make typecheck
 make test
+make test-scripts
+make lint-scripts
 make build
 make npm-pack
 make npm-smoke
@@ -140,10 +140,10 @@ Default local URLs:
 
 ### npm Package
 
-The publishable package lives in `backend-ts`:
+The publishable package lives in `backend`:
 
 ```bash
-cd backend-ts
+cd backend
 npm run verify
 npm run build
 npm pack --dry-run
