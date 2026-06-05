@@ -51,6 +51,14 @@ describe("HTTP API", () => {
     expect(createResponse.statusCode).toBe(200);
     const created = createResponse.json<{ id: string }>();
 
+    const reposResponse = await app.inject("/api/repos");
+    expect(reposResponse.statusCode).toBe(200);
+    expect(
+      reposResponse
+        .json<Array<{ id: string; name: string }>>()
+        .map((repo) => repo.id),
+    ).toEqual([created.id]);
+
     const filesResponse = await app.inject(`/api/repos/${created.id}/files`);
     expect(filesResponse.statusCode).toBe(200);
     expect(scanner.scannedFileRoots).toEqual([repo]);

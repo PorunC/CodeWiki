@@ -20,10 +20,13 @@ export function registerRepoRoutes(
   app.post("/api/repos", async (request, reply) => {
     const body = objectBody(request.body);
     try {
-      const repo = services.repositories.register(stringField(body, "path"), {
-        name: optionalString(body.name),
-        sourceType: optionalString(body.source_type) ?? "local",
-      });
+      const repo = await services.repositories.register(
+        stringField(body, "path"),
+        {
+          name: optionalString(body.name),
+          sourceType: optionalString(body.source_type) ?? "local",
+        },
+      );
       return repoPayload(repo);
     } catch (error) {
       return routeError(reply, error);
@@ -44,13 +47,13 @@ export function registerRepoRoutes(
   });
 
   app.get("/api/repos", async () =>
-    services.repositories.list().map(repoPayload),
+    (await services.repositories.list()).map(repoPayload),
   );
 
   app.get("/api/repos/:repoId", async (request, reply) => {
     const { repoId } = params(request.params);
     try {
-      return repoPayload(services.repositories.get(repoId));
+      return repoPayload(await services.repositories.get(repoId));
     } catch (error) {
       return routeError(reply, error);
     }
@@ -59,7 +62,7 @@ export function registerRepoRoutes(
   app.delete("/api/repos/:repoId", async (request, reply) => {
     const { repoId } = params(request.params);
     try {
-      services.repositories.delete(repoId);
+      await services.repositories.delete(repoId);
       return reply.status(204).send();
     } catch (error) {
       return routeError(reply, error);
@@ -69,7 +72,7 @@ export function registerRepoRoutes(
   app.get("/api/repos/:repoId/files", async (request, reply) => {
     const { repoId } = params(request.params);
     try {
-      const { repo, scan } = services.repositories.filesForId(repoId);
+      const { repo, scan } = await services.repositories.filesForId(repoId);
       return repoFilesPayload(repo, scan);
     } catch (error) {
       return routeError(reply, error);

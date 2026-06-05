@@ -19,7 +19,7 @@ export function buildRepositoryTools({ services }: ToolRuntime): ToolSpec[] {
       "codewiki_repos_list",
       "List repositories registered in the local CodeWiki database.",
       objectSchema({}),
-      () => services.repositories.list().map(repoPayload),
+      async () => (await services.repositories.list()).map(repoPayload),
     ),
     tool(
       "codewiki_repo_add",
@@ -36,10 +36,10 @@ export function buildRepositoryTools({ services }: ToolRuntime): ToolSpec[] {
         },
         ["path"],
       ),
-      (args) => {
+      async (args) => {
         const name = optionalString(args, "name");
         return repoPayload(
-          services.repositories.register(requiredString(args, "path"), {
+          await services.repositories.register(requiredString(args, "path"), {
             ...(name ? { name } : {}),
             sourceType: optionalString(args, "source_type") ?? "local",
           }),
@@ -50,8 +50,8 @@ export function buildRepositoryTools({ services }: ToolRuntime): ToolSpec[] {
       "codewiki_repo_delete",
       "Delete a registered repository and its indexed data.",
       objectSchema({ repo: repoSelectorSchema() }, ["repo"]),
-      (args) => {
-        const { repo, deleted } = services.repositories.deleteBySelector(
+      async (args) => {
+        const { repo, deleted } = await services.repositories.deleteBySelector(
           requiredString(args, "repo"),
         );
         return { repo_id: repo.id, deleted };
@@ -85,8 +85,8 @@ export function buildRepositoryTools({ services }: ToolRuntime): ToolSpec[] {
       "codewiki_files_tree",
       "Scan a registered repository and return its file tree and file list.",
       objectSchema({ repo: repoSelectorSchema() }),
-      (args) => {
-        const repo = services.repositories.resolve(
+      async (args) => {
+        const repo = await services.repositories.resolve(
           optionalString(args, "repo"),
         );
         const scan = services.repositories.filesForRepo(repo);
