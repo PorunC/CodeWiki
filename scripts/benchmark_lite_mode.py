@@ -11,9 +11,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
+import shlex
 import shutil
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -126,7 +127,7 @@ def generate_python_repo(root: Path, *, files: int, fanout: int) -> None:
 
 
 def run_lite(scenario: str, args: list[str], timeout_seconds: float) -> LiteCommandResult:
-    command = [sys.executable, "-c", "from backend.app.cli.main import main; main()", *args]
+    command = codewiki_command(args)
     started = time.perf_counter()
     completed = subprocess.run(
         command,
@@ -147,6 +148,23 @@ def run_lite(scenario: str, args: list[str], timeout_seconds: float) -> LiteComm
         payload=payload,
         stderr_tail=completed.stderr[-4000:],
     )
+
+
+def codewiki_command(args: list[str]) -> list[str]:
+    override = os.environ.get("CODEWIKI_CLI")
+    if override:
+        return [*shlex.split(override), *args]
+    return [
+        os.environ.get("NPM", "npm"),
+        "--prefix",
+        str(PROJECT_ROOT / "backend-ts"),
+        "exec",
+        "--",
+        "tsx",
+        "--",
+        "src/cli.ts",
+        *args,
+    ]
 
 
 def parse_json_output(output: str) -> dict[str, Any]:

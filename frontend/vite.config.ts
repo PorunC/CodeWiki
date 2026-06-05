@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: "../backend/app/static",
+    outDir: "../backend-ts/static",
     emptyOutDir: true
   },
   server: {

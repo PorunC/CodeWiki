@@ -54,6 +54,40 @@ def test_clone_command_always_uses_shallow_depth_one() -> None:
     ]
 
 
+def test_repository_benchmark_uses_local_typescript_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CODEWIKI_CLI", raising=False)
+    monkeypatch.delenv("NPM", raising=False)
+
+    assert benchmark_repos.codewiki_command(["--version"]) == [
+        "npm",
+        "--prefix",
+        str(benchmark_repos.PROJECT_ROOT / "backend-ts"),
+        "exec",
+        "--",
+        "tsx",
+        "--",
+        "src/cli.ts",
+        "--version",
+    ]
+
+
+def test_benchmark_cli_command_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEWIKI_CLI", "node dist/cli.js")
+
+    assert benchmark_repos.codewiki_command(["--version"]) == [
+        "node",
+        "dist/cli.js",
+        "--version",
+    ]
+    assert benchmark_lite_mode.codewiki_command(["lite", "status", "."]) == [
+        "node",
+        "dist/cli.js",
+        "lite",
+        "status",
+        ".",
+    ]
+
+
 def test_summary_csv_flattens_payload_metrics(tmp_path) -> None:
     csv_path = tmp_path / "summary.csv"
     benchmark_repos.write_summary_csv(

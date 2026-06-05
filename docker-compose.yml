@@ -1,18 +1,4 @@
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_DB: codewiki
-      POSTGRES_USER: codewiki
-      POSTGRES_PASSWORD: codewiki
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codewiki -d codewiki"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   codewiki:
     build:
       context: .
@@ -20,11 +6,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      CODEWIKI_DATABASE_URL: sqlite+aiosqlite:////app/data/codewiki.sqlite3
-      # For PostgreSQL, switch the URL and uncomment depends_on below.
-      # CODEWIKI_DATABASE_URL: postgresql+psycopg://codewiki:codewiki@postgres:5432/codewiki
+      CODEWIKI_DATABASE_URL: sqlite:////app/data/codewiki.sqlite3
       CODEWIKI_STORAGE_DIR: /app/storage
       # Add LLM settings here or pass them with --env-file .env.
+      # Ask and wiki flows can use OpenAI-compatible chat completions when
+      # matching task profiles are configured.
       # CODEWIKI_LLM__DEFAULT__MODEL: openai/gpt-4.1
       # CODEWIKI_LLM__DEFAULT__API_KEY: ${OPENAI_API_KEY:-}
     volumes:
@@ -33,11 +19,7 @@ services:
       # Mount repositories you want to analyze under /workspace.
       - .:/workspace/CodeWiki:ro
     restart: unless-stopped
-    # depends_on:
-    #   postgres:
-    #     condition: service_healthy
 
 volumes:
   codewiki-data:
   codewiki-storage:
-  postgres-data:

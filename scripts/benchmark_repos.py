@@ -606,14 +606,7 @@ def run_codewiki(
     dry_run: bool,
     progress: ProgressReporter,
 ) -> dict[str, Any]:
-    command = [
-        sys.executable,
-        "-c",
-        "from backend.app.cli.main import main; main()",
-        "--database-url",
-        db_url,
-        *args,
-    ]
+    command = codewiki_command(["--database-url", db_url, *args])
     progress.start(f"{repo.key}:{scenario}")
     if dry_run:
         progress.bar.write("dry-run: " + format_command(command))
@@ -653,6 +646,23 @@ def run_codewiki(
         "stderr_tail": result.stderr[-4000:],
         "command": result.command,
     }
+
+
+def codewiki_command(args: list[str]) -> list[str]:
+    override = os.environ.get("CODEWIKI_CLI")
+    if override:
+        return [*shlex.split(override), *args]
+    return [
+        os.environ.get("NPM", "npm"),
+        "--prefix",
+        str(PROJECT_ROOT / "backend-ts"),
+        "exec",
+        "--",
+        "tsx",
+        "--",
+        "src/cli.ts",
+        *args,
+    ]
 
 
 def run_command(

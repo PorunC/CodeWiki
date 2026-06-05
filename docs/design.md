@@ -1,5 +1,10 @@
 # Code Wiki Platform Design
 
+> Legacy note: this document describes the earlier Python/FastAPI backend design.
+> The current default backend is the TypeScript/Fastify npm package in
+> `backend-ts`; see `docs/typescript-backend.md` for the active architecture,
+> package boundaries, CI, and npm publishing flow.
+
 ## 1. 目标定位
 
 Code Wiki Platform 是一个单用户、本地优先的代码理解平台。它把一个本地目录或

@@ -29,14 +29,11 @@ During long runs it uses `tqdm` progress bars and prints per-step status lines
 for the active clone/analyze/update command.
 For long analyze/update commands, the runner also emits periodic heartbeats like
 `RUNNING vscode:warm elapsed 35m12s`; tune the interval with `--status-interval`.
-Analyze commands are invoked with `--progress`, so Code Wiki also reports internal
-progress such as scan counts, parse file counts, graph size, community counts,
-and persistence stages. In an interactive terminal these updates refresh the same
-status area instead of printing a long stream of progress rows: the first line
-keeps the overall benchmark bar, the second line shows the current stage, and
-the third line shows detailed context such as the current file path. Command
-failures are printed in a separated error block so stderr does not run into the
-progress display.
+Analyze commands still pass the legacy `--progress` flag so older benchmark
+commands remain accepted by the TypeScript CLI. The runner prints periodic
+heartbeats for long commands; richer internal stage progress is a future TS
+backend follow-up. Command failures are printed in a separated error block so
+stderr does not run into the progress display.
 
 ## Prepare repositories
 
@@ -124,3 +121,8 @@ Use a larger module count for heavier local stress runs:
 ```bash
 python scripts/benchmark_lite_mode.py --files 2000 --fanout 4 --timeout-seconds 900
 ```
+
+Both benchmark scripts run the local TypeScript backend through
+`npm --prefix backend-ts exec -- tsx -- src/cli.ts`. Set `CODEWIKI_CLI` to a
+shell-style command, such as `node backend-ts/dist/cli.js`, to benchmark a built
+or globally installed CLI instead.

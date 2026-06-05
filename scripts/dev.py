@@ -19,15 +19,16 @@ except ModuleNotFoundError:
 
 @dataclass(frozen=True)
 class DevConfig:
-    backend_app: str
+    backend_dir: Path
     backend_host: str
     backend_port: int
     frontend_port: int
 
     @classmethod
     def from_env(cls) -> "DevConfig":
+        backend_dir = Path(os.environ.get("BACKEND_DIR", "backend-ts"))
         return cls(
-            backend_app=os.environ.get("BACKEND_APP", "backend.app.main:app"),
+            backend_dir=backend_dir if backend_dir.is_absolute() else ROOT / backend_dir,
             backend_host=os.environ.get("BACKEND_HOST", "127.0.0.1"),
             backend_port=port_from_env("BACKEND_PORT", 8000),
             frontend_port=port_from_env("FRONTEND_PORT", 5173),
@@ -45,21 +46,19 @@ def main() -> int:
         return 1
 
     backend = [
-        sys.executable,
-        "-m",
-        "uvicorn",
-        config.backend_app,
-        "--reload",
-        "--reload-dir",
-        str(ROOT / "backend"),
-        "--reload-exclude",
-        "storage/*",
-        "--reload-exclude",
-        "data/*",
+        os.environ.get("NPM", "npm"),
+        "--prefix",
+        str(config.backend_dir),
+        "run",
+        "dev",
+        "--",
+        "serve",
         "--host",
         config.backend_host,
         "--port",
         str(config.backend_port),
+        "--static-dir",
+        str(ROOT / "backend-ts" / "static"),
     ]
     frontend = [
         sys.executable,

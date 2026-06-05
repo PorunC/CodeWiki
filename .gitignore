@@ -15,7 +15,9 @@ node_modules/
 dist/
 build/
 .vite/
+.tmp/
 *.tsbuildinfo
+backend-ts/static/
 backend/app/static/
 
 data/

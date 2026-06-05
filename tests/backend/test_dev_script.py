@@ -36,7 +36,7 @@ def test_main_refuses_to_start_when_dev_ports_are_occupied(monkeypatch, capsys) 
     assert "make kill" in output
 
 
-def test_main_restricts_backend_reload_to_backend_sources(monkeypatch) -> None:
+def test_main_starts_typescript_backend(monkeypatch) -> None:
     commands: list[list[str]] = []
 
     monkeypatch.setattr(dev_script, "listener_pids_by_port", lambda _ports: {})
@@ -51,10 +51,16 @@ def test_main_restricts_backend_reload_to_backend_sources(monkeypatch) -> None:
     assert dev_script.main() == 0
 
     backend_command = commands[0]
-    assert "--reload-dir" in backend_command
-    assert str(dev_script.ROOT / "backend") in backend_command
-    assert "storage/*" in backend_command
-    assert "data/*" in backend_command
+    assert backend_command[:5] == [
+        "npm",
+        "--prefix",
+        str(dev_script.ROOT / "backend-ts"),
+        "run",
+        "dev",
+    ]
+    assert "serve" in backend_command
+    assert "--static-dir" in backend_command
+    assert str(dev_script.ROOT / "backend-ts" / "static") in backend_command
 
 
 def test_normalize_return_code_treats_sigterm_as_graceful_shutdown() -> None:

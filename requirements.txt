@@ -1,4 +1,7 @@
-# Runtime dependencies mirrored from pyproject.toml.
+# Legacy Python backend dependencies.
+#
+# The default backend is the TypeScript/npm package in backend-ts. Keep this
+# file only for historical Python backend tests and migration reference work.
 aiosqlite>=0.20.0
 click>=8.1.0
 fastapi>=0.115.0

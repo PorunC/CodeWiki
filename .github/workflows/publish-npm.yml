@@ -1,0 +1,60 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to publish, matching backend-ts/package.json"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: |
+            backend-ts/package-lock.json
+            frontend/package-lock.json
+
+      - name: Verify release version
+        run: npm --prefix backend-ts run release:verify
+        env:
+          CODEWIKI_RELEASE_VERSION: ${{ github.event.inputs.version || '' }}
+
+      - name: Install backend dependencies
+        run: npm --prefix backend-ts ci
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+
+      - name: Verify backend
+        run: npm --prefix backend-ts run verify
+
+      - name: Lint frontend
+        run: npm --prefix frontend run lint
+
+      - name: Verify package
+        run: npm --prefix backend-ts run pack:smoke
+
+      - name: Publish package
+        working-directory: backend-ts
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

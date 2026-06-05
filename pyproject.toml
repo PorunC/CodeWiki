@@ -1,89 +1,9 @@
-[project]
-name = "codewiki"
-version = "0.6.4"
-description = "Code wiki platform with AST graph analysis, GraphRAG, SQLite/PostgreSQL storage, and LiteLLM."
-readme = "README.md"
-license = "MIT"
-requires-python = ">=3.12"
-authors = [
-  { name = "PorunC", email = "09982.misaka@gmail.com" },
-]
-keywords = ["code-wiki", "graphrag", "fastapi", "llm", "documentation", "postgresql", "pgvector"]
-classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Environment :: Console",
-  "Framework :: FastAPI",
-  "Intended Audience :: Developers",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.12",
-  "Topic :: Database",
-  "Topic :: Documentation",
-  "Topic :: Software Development :: Documentation",
-  "Topic :: Software Development :: Libraries :: Application Frameworks",
-]
-dependencies = [
-  "aiosqlite>=0.20.0",
-  "click>=8.1.0",
-  "fastapi>=0.115.0",
-  "graspologic>=3.4.4; python_version < '3.13'",
-  "httpx[socks]>=0.28.1",
-  "litellm>=1.60.0",
-  "mermaid-parser-py>=0.0.4",
-  "networkx>=3.4.0",
-  "pathspec>=0.12.1",
-  "pydantic>=2.10.0",
-  "pydantic-settings>=2.7.0",
-  "psycopg[binary]>=3.2.0",
-  "python-dotenv>=1.0.1",
-  "sqlite-vec>=0.1.9",
-  "sqlalchemy>=2.0.35",
-  "tqdm>=4.67.0",
-  "tree-sitter>=0.23.0",
-  "tree-sitter-c>=0.24.2",
-  "tree-sitter-c-sharp>=0.23.5",
-  "tree-sitter-cpp>=0.23.4",
-  "tree-sitter-go>=0.25.0",
-  "tree-sitter-java>=0.23.5",
-  "tree-sitter-javascript>=0.25.0",
-  "tree-sitter-python>=0.25.0",
-  "tree-sitter-rust>=0.24.2",
-  "tree-sitter-typescript>=0.23.2",
-  "uvicorn[standard]>=0.34.0",
-]
-
-[project.scripts]
-codewiki = "backend.app.cli:main"
-codewiki-mcp = "backend.app.mcp_server:main"
-
-[project.urls]
-Homepage = "https://github.com/PorunC/CodeWiki"
-Repository = "https://github.com/PorunC/CodeWiki"
-Issues = "https://github.com/PorunC/CodeWiki/issues"
-
-[project.optional-dependencies]
-dev = [
-  "mypy>=1.14.0",
-  "pytest>=8.3.0",
-  "pytest-asyncio>=0.25.0",
-  "ruff>=0.8.0",
-]
-
-[build-system]
-requires = ["setuptools>=70", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-include = ["backend*"]
-exclude = ["data*", "docs*", "frontend*", "tests*"]
-
-[tool.setuptools.package-data]
-"backend.app.prompts" = ["*.md"]
-"backend.app" = ["static/**/*"]
-
-[tool.setuptools.cmdclass]
-build_py = "backend.build_frontend.build_py"
-sdist = "backend.build_frontend.sdist"
+# Legacy Python tooling configuration.
+#
+# The default backend and publishable package now live in backend-ts as the
+# codewiki-backend npm package. This file is intentionally limited to Python
+# tooling for legacy reference tests and migration work; it is not a Python
+# package manifest and does not define codewiki console scripts.
 
 [tool.ruff]
 line-length = 100

@@ -4,6 +4,7 @@
 .pytest_cache
 .ruff_cache
 .mypy_cache
+.tmp
 __pycache__
 *.py[cod]
 .DS_Store
@@ -12,8 +13,12 @@ __pycache__
 !.env.example
 node_modules
 frontend/node_modules
+backend-ts/node_modules
 frontend/dist
+backend-ts/dist
+backend-ts/static
 frontend/tsconfig.tsbuildinfo
+backend-ts/coverage
 backend/app/static
 codewiki.egg-info
 build

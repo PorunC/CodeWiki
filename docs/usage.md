@@ -1,36 +1,34 @@
 # CodeWiki Usage Guide
 
-[Project README](../README.md) | [简体中文](README.zh-CN.md)
+[Project README](../README.md) | [Architecture](typescript-backend.md) | [简体中文](README.zh-CN.md)
 
-This guide covers installation, runtime configuration, repository workflows, CLI
-commands, MCP integration, HTTP APIs, and supported AST languages for CodeWiki.
+This guide covers the TypeScript/npm backend, runtime configuration, repository
+workflows, CLI commands, Docker, and HTTP APIs for CodeWiki.
 
 ## Current Scope
 
-- FastAPI backend with repository management, analysis runs, GraphRAG, wiki, ask, graph,
-  file, run, and settings APIs.
-- React/Vite frontend with repository management plus graph explorer, wiki reader,
-  ask, and settings pages.
-- AST-backed code graph extraction for Python, TypeScript/TSX, JavaScript/JSX, Java,
-  Go, Rust, C, C++, and C#.
-- Deterministic graph edges for imports, exports, definitions, inheritance,
-  implementations, calls, route handlers, source references, and configuration usage.
-- GraphRAG retrieval with source chunks, optional embeddings, community summaries,
-  and cached LLM runs.
-- SQLite by default, with opt-in PostgreSQL storage, PostgreSQL full-text search, and
-  pgvector-backed vector search when the database extension is available.
-- DeepWiki-style wiki generation with catalog planning, detailed page generation,
-  source citations, automatic diagrams, multi-language translation, and incremental
-  updates.
-- Pure frontend wiki exports: interactive standalone HTML and Obsidian vault ZIP.
-- Design notes live in [design.md](design.md).
+- TypeScript/Fastify backend in `backend-ts`, published as the npm package
+  `codewiki-backend`.
+- React/Vite frontend with repository management, graph explorer, wiki reader, ask,
+  and settings pages.
+- SQLite storage with the existing CodeWiki table names for repositories, analysis
+  runs, graph nodes/edges, chunks, communities, and wiki pages.
+- Local repository and Git URL registration, `.gitignore` handling, file tree APIs,
+  and lightweight language detection.
+- Deterministic lightweight graph analysis for files, definitions, imports, calls,
+  source chunks, wiki drafts, and source-grounded Q&A.
+- LLM environment variables are parsed and exposed by the settings API. Ask and wiki
+  catalog/page flows can optionally use an OpenAI-compatible chat completion
+  provider with cached runs. A stdio MCP server is included in the npm package.
+  Provider-backed community generation, PostgreSQL, pgvector, and tree-sitter parity
+  remain migration follow-ups.
 
 ## Installation
 
-Install the Python package from PyPI:
+Install the npm package:
 
 ```bash
-pip install codewiki
+npm install -g codewiki-backend
 codewiki --help
 ```
 
@@ -40,10 +38,11 @@ Start CodeWiki after installation:
 codewiki serve
 ```
 
-Then open `http://127.0.0.1:8000` for the Web UI. The Python package includes the
-built frontend; a source checkout is only needed for frontend development with Vite.
+Then open `http://127.0.0.1:8000` for the Web UI if you are serving a build that
+includes frontend assets. From a source checkout, use `make start` to run the backend
+and Vite together.
 
-### Docker
+## Docker
 
 Build and run CodeWiki with Docker Compose:
 
@@ -56,101 +55,26 @@ storage cache in Docker volumes, and mounts this checkout at `/workspace/CodeWik
 you can register that path from the UI or CLI. To analyze another local repository,
 add another bind mount under `/workspace` in `docker-compose.yml`.
 
-The compose file also includes a PostgreSQL service using the `pgvector/pgvector`
-image. To run against PostgreSQL, switch `CODEWIKI_DATABASE_URL` to the commented
-PostgreSQL URL in `docker-compose.yml` and enable the `depends_on` block for the
-`postgres` service.
-
-For LLM-backed wiki and Q&A features, pass `CODEWIKI_LLM__*` environment variables in
-`docker-compose.yml` or run with `docker compose --env-file .env up --build`.
-
 ## Database Configuration
 
 CodeWiki defaults to a local SQLite database:
 
 ```bash
+CODEWIKI_DATABASE_URL=sqlite:///./data/codewiki.sqlite3
+```
+
+The TypeScript backend also accepts the old Python SQLite URL spelling:
+
+```bash
 CODEWIKI_DATABASE_URL=sqlite+aiosqlite:///./data/codewiki.sqlite3
 ```
 
-PostgreSQL 15+ is supported through `psycopg`:
-
-```bash
-CODEWIKI_DATABASE_URL=postgresql+psycopg://codewiki:codewiki@localhost:5432/codewiki
-```
-
-On PostgreSQL, CodeWiki creates the relational schema, uses PostgreSQL full-text
-search for graph nodes and source chunks, and attempts to enable the `vector`
-extension. If pgvector is installed and available to the database user, embedding
-search uses dimension-specific pgvector tables with HNSW cosine indexes. If pgvector
-setup fails, repository analysis, wiki generation, LLM runs, and text retrieval remain
-usable while vector hits are skipped.
-
-Configure local environment variables with:
-
-```bash
-codewiki config
-codewiki config --set CODEWIKI_LLM__DEFAULT__MODEL=openai/gpt-4.1
-codewiki config --profile qa --model openai/gpt-4.1 --api-key "$OPENAI_API_KEY"
-codewiki config --list
-```
-
-## Wiki Workflow
-
-1. Register and analyze a repository.
-2. Build GraphRAG source chunks, optionally with embeddings.
-3. Generate a wiki catalog.
-4. Generate wiki pages from the catalog.
-5. Use update/regenerate flows when code changes.
-
-Wiki pages are generated from deterministic graph facts and retrieved source chunks.
-The page prompt enforces a gather/think/write workflow and includes ReadFile evidence so
-the model must stay close to real source files. Source references are validated before a
-page is promoted to `generated`; otherwise the page is saved as `draft` with validation
-errors.
-
-Mermaid diagrams are generated server-side from validated graph facts. Invalid diagrams
-are filtered out instead of failing the whole page, so a bad graph block should not turn
-a good wiki page into a draft.
-
-## Wiki Languages
-
-The base wiki language is generated first. Other languages are produced by translating
-the base catalog and pages while preserving slugs, source references, code identifiers,
-links, and Markdown structure.
-
-Set configured translation languages in `.env`:
-
-```bash
-CODEWIKI_WIKI_BASE_LANGUAGE=en
-CODEWIKI_WIKI_TRANSLATION_LANGUAGES=zh
-```
-
-The frontend wiki page has an English/Chinese language switch above the left catalog
-navigation. If a requested non-base language is missing, the backend generates the base
-wiki first and then translates it.
-
-## Wiki Export
-
-The frontend wiki toolbar can export the currently selected language as:
-
-- Interactive HTML: a standalone static page with catalog navigation, page switching,
-  rendered Markdown, source sections, related pages, and Mermaid rendering.
-- Obsidian vault: a ZIP containing Markdown pages, wiki links, source metadata, and
-  minimal `.obsidian` settings.
-
-Exports are built entirely in the browser from already-loaded wiki data and do not
-require a backend export API.
-
 ## LLM Configuration
 
-Run `codewiki config` or copy `.env.example` and fill in a default model profile:
-
-```bash
-cp .env.example .env
-```
-
-The default profile is used for every task unless a task-specific profile overrides it.
-This is the simplest "use one model for everything" setup:
+The TypeScript backend always supports deterministic local retrieval and wiki
+drafting. Ask and wiki generation flows use local output by default, and
+automatically switch to cached OpenAI-compatible chat completions when a matching
+LLM profile is configured:
 
 ```bash
 CODEWIKI_LLM__MODE=sdk
@@ -158,58 +82,29 @@ CODEWIKI_LLM__DEFAULT__MODEL=provider/strong-coding-model
 CODEWIKI_LLM__DEFAULT__PROVIDER_TYPE=
 CODEWIKI_LLM__DEFAULT__ENDPOINT=
 CODEWIKI_LLM__DEFAULT__API_KEY=
-# Optional global output limit. Leave unset to use task defaults; 0 omits max_tokens.
-# CODEWIKI_LLM__DEFAULT__MAX_TOKENS=0
-CODEWIKI_LLM__TIMEOUT_SECONDS=120
-CODEWIKI_LLM__MAX_RETRIES=3
-CODEWIKI_LLM__CACHE_ENABLED=true
+CODEWIKI_LLM__DEFAULT__MAX_TOKENS=
+
+CODEWIKI_LLM__PROFILES__QA__MODEL=
+CODEWIKI_LLM__PROFILES__QA__API_KEY=
+
+CODEWIKI_LLM__PROFILES__CATALOG__MODEL=
+CODEWIKI_LLM__PROFILES__CATALOG__API_KEY=
+CODEWIKI_LLM__PROFILES__PAGE__MODEL=
+CODEWIKI_LLM__PROFILES__PAGE__API_KEY=
 ```
 
-Each LLM task can override model, provider type, endpoint, API key, and max output tokens:
+## Repository Workflow
 
 ```bash
-# Fast/cheap catalog planning. Raise this for large DeepWiki catalogs.
-CODEWIKI_LLM__PROFILES__CATALOG__MODEL=
-CODEWIKI_LLM__PROFILES__CATALOG__PROVIDER_TYPE=
-CODEWIKI_LLM__PROFILES__CATALOG__ENDPOINT=
-CODEWIKI_LLM__PROFILES__CATALOG__API_KEY=
-CODEWIKI_LLM__PROFILES__CATALOG__MAX_TOKENS=12000
-
-# Strong source-grounded wiki page generation
-CODEWIKI_LLM__PROFILES__PAGE__MODEL=
-CODEWIKI_LLM__PROFILES__PAGE__PROVIDER_TYPE=
-CODEWIKI_LLM__PROFILES__PAGE__ENDPOINT=
-CODEWIKI_LLM__PROFILES__PAGE__API_KEY=
-CODEWIKI_LLM__PROFILES__PAGE__MAX_TOKENS=12000
-
-# Translation
-CODEWIKI_LLM__PROFILES__TRANSLATION__MODEL=
-CODEWIKI_LLM__PROFILES__TRANSLATION__PROVIDER_TYPE=
-CODEWIKI_LLM__PROFILES__TRANSLATION__ENDPOINT=
-CODEWIKI_LLM__PROFILES__TRANSLATION__API_KEY=
-CODEWIKI_LLM__PROFILES__TRANSLATION__MAX_TOKENS=12000
-
-# Ask / QA
-CODEWIKI_LLM__PROFILES__QA__MODEL=
-CODEWIKI_LLM__PROFILES__QA__PROVIDER_TYPE=
-CODEWIKI_LLM__PROFILES__QA__ENDPOINT=
-CODEWIKI_LLM__PROFILES__QA__API_KEY=
-# Set 0 to avoid forcing max_tokens on streaming QA.
-CODEWIKI_LLM__PROFILES__QA__MAX_TOKENS=0
-
-# Embeddings, used when GraphRAG vector indexing is enabled
-CODEWIKI_LLM__PROFILES__EMBEDDING__MODEL=
-CODEWIKI_LLM__PROFILES__EMBEDDING__PROVIDER_TYPE=
-CODEWIKI_LLM__PROFILES__EMBEDDING__ENDPOINT=
-CODEWIKI_LLM__PROFILES__EMBEDDING__API_KEY=
+codewiki repos add . --name my-repo
+codewiki analyze my-repo
+codewiki wiki catalog my-repo
+codewiki wiki pages my-repo
+codewiki ask "How does the main workflow fit together?" my-repo
 ```
 
-Provider examples depend on LiteLLM. For OpenAI-compatible endpoints, set an endpoint
-and API key. For native LiteLLM providers, set `PROVIDER_TYPE` and model according to
-LiteLLM's provider naming.
-
-Failed LLM provider calls are recorded in `llm_run` with `status=error`; API responses
-return a `run_id` where possible so failures can be traced without exposing API keys.
+Most repository arguments accept an id, id prefix, registered name, path, or Git URL.
+Use `--json` on CLI commands when machine-readable output is useful.
 
 ## Development
 
@@ -217,7 +112,7 @@ return a `run_id` where possible so failures can be traced without exposing API 
 # Install backend and frontend dependencies
 make install
 
-# Start FastAPI and Vite
+# Start the TypeScript backend and Vite
 make start
 
 # Stop local dev servers on the configured ports
@@ -226,16 +121,50 @@ make kill
 
 Default local URLs:
 
-- Backend: `http://127.0.0.1:8000`
+- TypeScript backend: `http://127.0.0.1:8000`
 - Frontend: `http://127.0.0.1:5173`
 
 Useful checks:
 
 ```bash
 make lint
+make typecheck
 make test
 make build
+make npm-pack
+make npm-smoke
 ```
+
+## npm Package
+
+The publishable package lives in `backend-ts`:
+
+```bash
+cd backend-ts
+npm run verify
+npm run build
+npm pack --dry-run
+npm run pack:smoke
+```
+
+Package entrypoints:
+
+- CLI binaries: `codewiki`, `codewiki-backend`
+- MCP binary: `codewiki-mcp`
+- Library export: `codewiki-backend`
+- Server export: `codewiki-backend/server`
+- MCP export: `codewiki-backend/mcp`
+
+## MCP
+
+The npm package includes a stdio MCP server:
+
+```bash
+codewiki-mcp
+```
+
+It exposes local repository, analysis, graph, GraphRAG context, wiki, and ask
+tools backed by the TypeScript services and the configured SQLite database.
 
 ## CLI
 
@@ -245,181 +174,42 @@ codewiki repos add . --name my-repo
 codewiki repos list
 codewiki repos scan .
 
-# Full analysis and GraphRAG
-codewiki analyze .
-codewiki graphrag build .
-codewiki graphrag build . --embeddings
-
-# Symbol and graph intelligence
-codewiki graph search "AuthService"
-codewiki graph callers generate_page
-codewiki graph impact GraphRAGRetriever
-codewiki graph explore "wiki page generation"
-git diff --name-only | codewiki graph affected --stdin
+# Analyze and build local graph/chunk data
+codewiki analyze my-repo
 
 # Wiki generation
-codewiki wiki catalog .
-codewiki wiki pages .
-codewiki wiki update . --language en
-codewiki wiki page overview .
+codewiki wiki catalog my-repo
+codewiki wiki pages my-repo
+codewiki wiki list my-repo --json
+codewiki wiki read overview my-repo
 
-# Incremental graph update, with wiki regeneration enabled by default
-codewiki update .
-codewiki watch .
+# Source-grounded local Q&A
+codewiki ask "Where are wiki pages generated?" my-repo
 
-# GraphRAG grounded Q&A
-codewiki ask "How does the main workflow fit together?"
-codewiki ask --repo my-repo "Where are wiki pages generated?"
-
-# MCP server for local AI assistants
-codewiki mcp
-# or: codewiki-mcp
-
-# Lite Mode: project-local, no-LLM agent index
-codewiki lite index .
-codewiki lite query AuthService
-codewiki lite context "how authentication works"
-codewiki lite trace LoginForm createSession
-codewiki lite affected src/auth.py
-codewiki mcp --lite --path .
+# Serve HTTP API and frontend assets
+codewiki serve --host 127.0.0.1 --port 8000
 ```
-
-Most commands accept a repository id, id prefix, registered name, path, or Git URL.
-Use `--json` on CLI commands when machine-readable output is useful.
-
-## Lite Mode
-
-Lite Mode is the lightweight path for local AI assistants and scripts. It creates a
-project-local SQLite index at `.codewiki/codewiki-lite.sqlite3` and uses the same AST
-graph facts as the full platform, but skips LLM calls, Wiki generation, GraphRAG chunk
-building, PostgreSQL, and the Web UI. Use it when you want CodeWiki to behave like a
-local code-intelligence index for agent context.
-
-```bash
-# Initialize or rebuild the local lite index
-codewiki lite init .
-codewiki lite index .
-
-# Inspect freshness and keep the index updated
-codewiki lite status .
-codewiki lite sync .
-codewiki lite watch .
-
-# Search and inspect indexed code
-codewiki lite query AuthService
-codewiki lite files .
-codewiki lite files . --tree
-codewiki lite node generate_page
-codewiki lite context "wiki page generation"
-
-# Relationship and impact analysis
-codewiki lite callers generate_page
-codewiki lite callees GraphRAGRetriever
-codewiki lite impact GraphRAGRetriever
-codewiki lite trace WikiGenerator PageGenerator
-git diff --name-only | codewiki lite affected --stdin
-
-# Remove the project-local lite index
-codewiki lite uninit . --force
-```
-
-`codewiki lite files` reads from the index by default so assistants can inspect the
-known project tree without scanning the filesystem. Add `--live` when you explicitly
-want a fresh filesystem scan.
-
-`codewiki lite status` reports whether the index has pending file changes and lists
-changed, new, and deleted files in JSON output. `codewiki lite sync` updates once, while
-`codewiki lite watch` polls for changes and refreshes the graph without generating wiki
-pages or source chunks.
-
-To expose the lite index over MCP:
-
-```bash
-# Configure Claude Code for this project and Codex CLI globally
-codewiki lite agents install . --target claude --location local
-codewiki lite agents install . --target codex --location global
-```
-
-The agent installer writes the MCP server entry, a marked CodeWiki Lite instructions
-section, and Claude Code permissions when `--auto-allow` is enabled. Use
-`codewiki lite agents print-config claude` or `codewiki lite agents print-config codex
---location global` to inspect snippets without writing files.
-
-```json
-{
-  "mcpServers": {
-    "codewiki-lite": {
-      "command": "codewiki",
-      "args": ["mcp", "--lite", "--path", "."]
-    }
-  }
-}
-```
-
-When `codewiki mcp --lite` starts, it registers the target path if needed and catches up
-an existing index before serving tools. Pass `--no-sync` to skip startup catch-up. Lite
-MCP tools include `codewiki_context`, `codewiki_trace`, `codewiki_node`, graph
-search/callers/callees/impact/explore/status, indexed files, and affected-file
-analysis. If files changed after indexing, context-style MCP responses include a
-pending-sync warning and the affected paths.
-
-## MCP Server
-
-CodeWiki can run as a local stdio MCP server so AI assistants can use the analyzed
-repository graph and wiki as tools:
-
-```json
-{
-  "mcpServers": {
-    "codewiki": {
-      "command": "codewiki",
-      "args": ["mcp"],
-      "env": {
-        "CODEWIKI_DATABASE_URL": "sqlite+aiosqlite:///./data/codewiki.sqlite3"
-      }
-    }
-  }
-}
-```
-
-The MCP server exposes tools for repository registration/listing, AST analysis,
-GraphRAG index building and retrieval, LLM-backed Q&A, graph search/exploration,
-affected-file analysis, and generated wiki page reads.
 
 ## HTTP API Highlights
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/repos/{repo_id}/wiki/catalog?language=en` | Generate a wiki catalog |
-| `POST` | `/api/repos/{repo_id}/wiki/pages/generate?language=en` | Generate all wiki pages |
-| `POST` | `/api/repos/{repo_id}/wiki/pages/update?language=en` | Incrementally update stale/missing pages |
-| `POST` | `/api/repos/{repo_id}/wiki/pages/{slug}/regenerate?language=en` | Regenerate one page |
-| `POST` | `/api/repos/{repo_id}/wiki/translate` | Translate catalog and pages |
-| `GET` | `/api/repos/{repo_id}/wiki?language=en` | Read the wiki catalog and pages |
-| `POST` | `/api/repos/{repo_id}/ask` | Ask a GraphRAG-grounded question |
-| `GET` | `/api/repos/{repo_id}/graph/search?q=...` | Search indexed symbols |
-| `GET` | `/api/repos/{repo_id}/graph/callers?symbol=...` | Find callers/references |
-| `GET` | `/api/repos/{repo_id}/graph/callees?symbol=...` | Find callees/references |
-| `GET` | `/api/repos/{repo_id}/graph/impact?symbol=...` | Analyze change impact |
-| `POST` | `/api/repos/{repo_id}/graph/explore` | Build grouped source exploration context |
-| `POST` | `/api/repos/{repo_id}/graph/affected` | Find affected files/tests/wiki pages |
-
-## Supported AST Languages
-
-| Language | Parser | Extracted facts |
-|---|---|---|
-| Python | tree-sitter capture parser | imports, classes, functions, methods, decorators, calls, references, FastAPI-style endpoints |
-| TypeScript / TSX | tree-sitter capture parser | imports/exports, classes, interfaces, type aliases, functions, methods, calls, route endpoints |
-| JavaScript / JSX | tree-sitter capture parser | imports/exports, classes, functions, methods, calls, route endpoints |
-| Java | tree-sitter capture parser | package/imports, classes, interfaces, records, enums, methods, constructors, inheritance, implementations, Spring-style endpoints |
-| Go | tree-sitter capture parser | package/imports, structs, interfaces, type aliases, functions, receiver methods, calls, router-style endpoints |
-| Rust | tree-sitter capture parser | imports, structs, enums, traits, impls, functions, methods, calls |
-| C | tree-sitter capture parser | includes, structs, functions, calls |
-| C++ | tree-sitter capture parser | includes, classes, structs, functions, methods, inheritance, calls |
-| C# | tree-sitter capture parser | usings, namespaces, classes, interfaces, methods, inheritance, calls |
+| `GET` | `/api/health` | Health check |
+| `POST` | `/api/repos` | Register a local path or Git URL |
+| `GET` | `/api/repos` | List repositories |
+| `GET` | `/api/repos/{repo_id}/files` | Read live repository files and tree |
+| `POST` | `/api/repos/{repo_id}/analyze` | Run TypeScript graph analysis |
+| `GET` | `/api/repos/{repo_id}/graph` | Read graph nodes, edges, and communities |
+| `GET` | `/api/repos/{repo_id}/graph/search?q=...` | Search indexed nodes |
+| `GET` | `/api/repos/{repo_id}/graph/status` | Read graph status summary |
+| `POST` | `/api/repos/{repo_id}/wiki/catalog?language=en` | Generate a local or provider-backed wiki catalog |
+| `POST` | `/api/repos/{repo_id}/wiki/pages/generate?language=en` | Generate wiki pages |
+| `GET` | `/api/repos/{repo_id}/wiki?language=en` | Read wiki catalog and pages |
+| `POST` | `/api/repos/{repo_id}/ask` | Ask a source-grounded local question |
 
 ## Notes
 
-The core contract is that code facts come from deterministic scanners and AST parsers
-first. GraphRAG and LLM workflows consume those facts for retrieval, synthesis, and wiki
-generation rather than inventing structure.
+The current TypeScript graph analyzer intentionally favors a small dependency surface
+and npm publishability. It uses lightweight parsing heuristics now, while keeping the
+database shape and HTTP payloads aligned with the previous backend so deeper parser,
+LLM, and vector-search migrations can continue incrementally.

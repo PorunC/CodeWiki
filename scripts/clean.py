@@ -11,6 +11,10 @@ def main() -> int:
     for relative_path in [
         ".pytest_cache",
         ".ruff_cache",
+        "backend-ts/dist",
+        "backend-ts/coverage",
+        "backend-ts/static",
+        "backend/app/static",
         "frontend/dist",
         "frontend/.vite",
         "frontend/tsconfig.tsbuildinfo",
