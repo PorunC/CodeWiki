@@ -7,6 +7,7 @@ import {
   catalogGenerationNodesFromStructure,
   childPageRecordsForItem,
   findCatalogGenerationNode,
+  type CatalogItem,
   type GenerationNode,
 } from "./catalog.js";
 import { WikiCatalogGenerator } from "./catalogGenerator.js";
@@ -140,6 +141,8 @@ export class WikiService {
         languageCode,
         title: catalogItemTitle(node.item),
         path: node.item.path ?? null,
+        topic: wikiPageTopic(node.item),
+        sourceHints: wikiPageSourceHints(node.item),
         parentSlug: node.parentSlug,
         childPages: childPageRecordsForItem(node.item, pagesBySlug),
       }),
@@ -182,6 +185,8 @@ export class WikiService {
       languageCode,
       title: catalogItemTitle(node.item),
       path: node.item.path ?? null,
+      topic: wikiPageTopic(node.item),
+      sourceHints: wikiPageSourceHints(node.item),
       parentSlug: node.parentSlug,
       childPages: childPageRecordsForItem(node.item, pagesBySlug),
     });
@@ -426,6 +431,8 @@ export class WikiService {
       languageCode,
       title: catalogItemTitle(node.item),
       path: node.item.path ?? null,
+      topic: wikiPageTopic(node.item),
+      sourceHints: wikiPageSourceHints(node.item),
       parentSlug: node.parentSlug,
       childPages,
     };
@@ -545,4 +552,21 @@ function orderedResults(
   return nodes
     .map((node) => resultsBySlug.get(node.slug))
     .filter((result): result is WikiPageResult => Boolean(result));
+}
+
+function wikiPageTopic(item: CatalogItem): string {
+  if (typeof item.topic === "string" && item.topic.trim()) {
+    return item.topic.trim();
+  }
+  const title = catalogItemTitle(item);
+  const path = typeof item.path === "string" ? item.path : "";
+  return [title, path].filter(Boolean).join(" ");
+}
+
+function wikiPageSourceHints(item: CatalogItem): string[] {
+  return Array.isArray(item.source_hints)
+    ? item.source_hints.filter(
+        (hint): hint is string => typeof hint === "string" && hint.trim() !== "",
+      )
+    : [];
 }
