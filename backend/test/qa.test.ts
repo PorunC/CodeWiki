@@ -115,6 +115,30 @@ describe("QuestionAnswerer LLM integration", () => {
     });
     expect(runs[0]?.error).toContain("api_key=[REDACTED]");
   });
+
+  it("returns source URLs for answer citations when repo git metadata is available", async () => {
+    const context = createIndexedRepo({
+      git_url: "git@github.com:acme/demo.git",
+      commit_hash: "abc123",
+    });
+    store = context.store;
+    const questionAnswerer = new QuestionAnswerer(store);
+
+    const response = await questionAnswerer.answer(context.repo.id, {
+      question: "helper",
+      include_graph: false,
+    });
+
+    expect(response.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file_path: "src/util.ts",
+          source_url:
+            "https://github.com/acme/demo/blob/abc123/src/util.ts#L1-L3",
+        }),
+      ]),
+    );
+  });
 });
 
 class FakeGateway implements LlmGateway {
@@ -168,7 +192,10 @@ class FakeGateway implements LlmGateway {
   }
 }
 
-function createIndexedRepo(): { store: CodeWikiStore; repo: RepoDescriptor } {
+function createIndexedRepo(repoOverrides: Partial<RepoDescriptor> = {}): {
+  store: CodeWikiStore;
+  repo: RepoDescriptor;
+} {
   const root = mkdtempSync(join(tmpdir(), "codewiki-qa-"));
   const store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
   const repo = store.upsertRepo({
@@ -178,6 +205,7 @@ function createIndexedRepo(): { store: CodeWikiStore; repo: RepoDescriptor } {
     source_type: "local",
     git_url: null,
     commit_hash: null,
+    ...repoOverrides,
   });
   store.replaceGraph(repo.id, {
     nodes: graphNodes(repo.id),

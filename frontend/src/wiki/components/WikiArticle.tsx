@@ -1,4 +1,4 @@
-import { BookOpenText } from "lucide-react";
+import { BookOpenText, ExternalLink, Network } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -169,20 +169,49 @@ export function WikiArticle({
               {sourceGroups.map((group) => (
                 <section key={group.filePath} className="wiki-source-group">
                   <h4>
-                    <span>{group.filePath}</span>
+                    {group.fileHref ? (
+                      <a
+                        className="wiki-source-file-link"
+                        href={group.fileHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`Open ${group.filePath} source`}
+                      >
+                        <span>{group.filePath}</span>
+                        <ExternalLink size={12} />
+                      </a>
+                    ) : (
+                      <span>{group.filePath}</span>
+                    )}
                     <strong>{group.refs.length}</strong>
                   </h4>
                   <div className="wiki-source-ranges">
                     {group.refs.map((source) => (
-                      <button
+                      <div
                         key={`${source.file_path}:${source.start_line}:${source.end_line}`}
-                        type="button"
-                        title={`Open ${formatSourceRef(source)} in graph`}
-                        onClick={() => openSourceInGraph(page.repo_id, source)}
+                        className="wiki-source-range"
                       >
-                        {source.citation_id ? <span>{source.citation_id}</span> : null}
-                        L{source.start_line}-L{source.end_line}
-                      </button>
+                        <button
+                          type="button"
+                          title={`Open ${formatSourceRef(source)} in graph`}
+                          onClick={() => openSourceInGraph(page.repo_id, source)}
+                        >
+                          <Network size={12} />
+                          {source.citation_id ? <span>{source.citation_id}</span> : null}
+                          L{source.start_line}-L{source.end_line}
+                        </button>
+                        {source.source_url ? (
+                          <a
+                            href={source.source_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`Open ${formatSourceRef(source)} source`}
+                          >
+                            <ExternalLink size={12} />
+                            Source
+                          </a>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 </section>
@@ -248,6 +277,7 @@ function slugifyHeading(title: string): string {
 
 type SourceGroup = {
   filePath: string;
+  fileHref: string | null;
   refs: SourceRef[];
 };
 
@@ -273,10 +303,21 @@ function groupSourceRefs(sourceRefs: SourceRef[]): SourceGroup[] {
     group.push(sourceRef);
     groups.set(sourceRef.file_path, group);
   });
-  return Array.from(groups, ([filePath, refs]) => ({
-    filePath,
-    refs: refs
+  return Array.from(groups, ([filePath, refs]) => {
+    const sortedRefs = refs
       .slice()
-      .sort((left, right) => left.start_line - right.start_line || left.end_line - right.end_line)
-  }));
+      .sort((left, right) => left.start_line - right.start_line || left.end_line - right.end_line);
+    return {
+      filePath,
+      fileHref: sourceFileHref(sortedRefs[0]),
+      refs: sortedRefs
+    };
+  });
+}
+
+function sourceFileHref(source: SourceRef | undefined): string | null {
+  if (!source?.source_url) {
+    return null;
+  }
+  return source.source_url.replace(/#L\d+(?:-L\d+)?$/, "");
 }

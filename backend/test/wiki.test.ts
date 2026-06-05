@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -363,6 +363,154 @@ describe("WikiService", () => {
     expect(store.getDocPage(repo.id, "runtime-flow")).toBeTruthy();
     expect(store.getDocPage(repo.id, "old-page")).toBeNull();
   });
+
+  it("renders LLM pages with server diagrams, source URLs, and grouped sources", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-page-rendering-"));
+    writeDemoSourceFiles(root);
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo({
+      ...repoDescriptor(root),
+      git_url: "git@github.com:acme/demo.git",
+      commit_hash: "abc123",
+    });
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: [
+        ...graphEdges(repo.id),
+        {
+          id: "edge-main-imports-util",
+          repo_id: repo.id,
+          source_id: "main-file",
+          target_id: "util-file",
+          type: "imports",
+          confidence: 1,
+          weight: 1,
+          is_inferred: false,
+          metadata: {},
+        },
+      ],
+      chunks: codeChunks(repo.id),
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Rendered Wiki",
+      structure: {
+        items: [
+          {
+            title: "Main Runtime",
+            slug: "main-runtime",
+            kind: "page",
+            path: "src",
+            topic: "src/main.ts",
+            source_hints: ["src/main.ts", "src/util.ts"],
+          },
+        ],
+      },
+    });
+    const service = new WikiService(
+      store,
+      new FakeWikiLlm({
+        page: {
+          title: "Main Runtime",
+          markdown: [
+            "# Main Runtime",
+            "",
+            "## Purpose and Scope",
+            "",
+            "The runtime calls the helper. [[S1]]",
+            "",
+            "```mermaid",
+            "flowchart TD",
+            "  invented --> graph",
+            "```",
+            "",
+            "Sources: this inline source line should be removed.",
+          ].join("\n"),
+          source_refs: [{ citation_id: "S1" }],
+        },
+      }),
+    );
+
+    const [result] = await service.generateAllPagesWithLlmFallback(repo.id);
+    const page = result?.page;
+
+    expect(page?.status).toBe("generated");
+    expect(page?.markdown).not.toContain("invented --> graph");
+    expect(page?.markdown).not.toContain("Sources: this inline source line");
+    expect(page?.markdown).toContain(
+      "### Main Runtime component relationships",
+    );
+    expect(page?.markdown).toContain("```mermaid");
+    expect(page?.markdown).toContain(
+      "- [src/main.ts](https://github.com/acme/demo/blob/abc123/src/main.ts)",
+    );
+    expect(page?.markdown).toContain(
+      "[S1](https://github.com/acme/demo/blob/abc123/src/main.ts#L1-L3",
+    );
+    expect(page?.markdown).toContain("## Sources");
+    expect(page?.markdown).toContain(
+      "  - S1 [L1-L3](https://github.com/acme/demo/blob/abc123/src/main.ts#L1-L3)",
+    );
+    expect(page?.source_refs[0]).toMatchObject({
+      citation_id: "S1",
+      file_path: "src/main.ts",
+      start_line: 1,
+      end_line: 3,
+      read_via: "ReadFile",
+      source_url: "https://github.com/acme/demo/blob/abc123/src/main.ts#L1-L3",
+    });
+  });
+
+  it("saves draft pages when LLM source refs fail strict validation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-page-draft-"));
+    writeDemoSourceFiles(root);
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Draft Wiki",
+      structure: {
+        items: [
+          {
+            title: "Main Runtime",
+            slug: "main-runtime",
+            kind: "page",
+            path: "src",
+            topic: "src/main.ts",
+            source_hints: ["src/main.ts"],
+          },
+        ],
+      },
+    });
+    const service = new WikiService(
+      store,
+      new FakeWikiLlm({
+        page: {
+          title: "Main Runtime",
+          markdown:
+            "# Main Runtime\n\n## Purpose and Scope\n\nUnsupported claim.",
+          source_refs: [
+            { file_path: "missing.ts", start_line: 1, end_line: 1 },
+          ],
+        },
+      }),
+    );
+
+    const [result] = await service.generateAllPagesWithLlmFallback(repo.id);
+
+    expect(result?.page.status).toBe("draft");
+    expect(result?.page.source_refs).toEqual([]);
+    expect(result?.page.markdown).toContain("## Validation Errors");
+    expect(result?.validation_errors).toContain(
+      "source_refs[0] file does not exist in repo: missing.ts.",
+    );
+    expect(result?.validation_errors).toContain(
+      "At least one valid source_ref is required.",
+    );
+  });
 });
 
 class FakeWikiLlm {
@@ -443,6 +591,18 @@ function repoDescriptor(root: string): RepoDescriptor {
     git_url: null,
     commit_hash: null,
   };
+}
+
+function writeDemoSourceFiles(root: string): void {
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(
+    join(root, "src/main.ts"),
+    "export function run() {\n  return helper(41);\n}\n",
+  );
+  writeFileSync(
+    join(root, "src/util.ts"),
+    "export function helper(x: number) {\n  return x + 1;\n}\n",
+  );
 }
 
 function graphNodes(repoId: string): CodeGraphNode[] {

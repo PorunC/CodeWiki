@@ -188,7 +188,7 @@ export type SourceRef = {
   file_path: string;
   start_line: number;
   end_line: number;
-  source_url?: string;
+  source_url?: string | null;
 };
 
 export type AskResponse = {

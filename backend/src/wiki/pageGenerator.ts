@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import { buildRetrievalTrace } from "../graphrag/retrieval.js";
@@ -9,6 +9,10 @@ import {
   type CachedLlmCompletion,
   type LlmOperation,
 } from "../llm/cache.js";
+import {
+  sourceUrlBaseForRepo,
+  sourceUrlForRange,
+} from "../services/sourceUrls.js";
 import type {
   CodeChunk,
   CodeGraphNode,
@@ -52,7 +56,7 @@ type WikiPageContext = {
   request: WikiPageRequest;
   matchingNodes: CodeGraphNode[];
   matchingChunks: CodeChunk[];
-  sourceRefs: JsonObject[];
+  sourceRefs: SourceRef[];
   symbols: CodeGraphNode[];
   retrievalTrace: RetrievalTrace;
   catalog: DocCatalog | null;
@@ -61,8 +65,27 @@ type WikiPageContext = {
 type NormalizedPage = {
   title: string;
   markdown: string;
-  sourceRefs: JsonObject[];
+  sourceRefs: SourceRef[];
+  diagrams: MermaidDiagram[];
   validationErrors: string[];
+};
+
+type SourceRef = JsonObject & {
+  citation_id?: string;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  chunk_id?: string;
+  source_url?: string;
+  read_via?: string;
+};
+
+type MermaidDiagram = {
+  slot: string;
+  kind: "component" | "symbol_flow" | "sequence";
+  title: string;
+  headingHint: string;
+  lines: string[];
 };
 
 const PAGE_GENERATION_ATTEMPTS = 2;
@@ -76,6 +99,11 @@ const PAGE_PROMPT_VERSION = "ts-wiki-page-deepwiki-v2";
 const CITATION_MARKER_RE = /\[\[(S\d+)]]/g;
 const CITATION_LIKE_MARKER_RE = /\[\[(S[^[\]]*)]]/g;
 const MERMAID_FENCE_RE = /```mermaid[\s\S]*?```/gi;
+const DIAGRAM_SLOT_RE = /^\s*\[\[DIAGRAM:([a-zA-Z0-9_-]+)]]\s*$/gm;
+const FENCED_DIAGRAM_SLOT_RE =
+  /^[ \t]*`{3,}[ \t]*\n[ \t]*\[\[DIAGRAM:([a-zA-Z0-9_-]+)]][ \t]*\n[ \t]*`{3,}[ \t]*$/gm;
+const INLINE_SOURCES_LINE_RE = /^(?:>\s*)?(?:\*\*)?sources?(?:\*\*)?:\s+\S/i;
+const BOLD_INLINE_SOURCES_LINE_RE = /^(?:>\s*)?\*\*sources?:\*\*\s+\S/i;
 
 export class WikiPageGenerator {
   constructor(
@@ -101,27 +129,30 @@ export class WikiPageGenerator {
     request: WikiPageRequest,
   ): Promise<WikiPageResult> {
     const context = await this.pageContext(request);
-    const localPage = await this.savePage(
-      context,
-      localPageMarkdown(
-        request.title,
-        context.matchingNodes,
-        context.matchingChunks,
-        context.symbols,
-        request.childPages,
-      ),
-    );
     if (
       !this.llm?.isConfigured("page") ||
       (!context.matchingChunks.length && !request.childPages.length)
     ) {
-      return { page: localPage, validation_errors: [] };
+      return {
+        page: await this.savePage(
+          context,
+          localPageMarkdown(
+            request.title,
+            context.matchingNodes,
+            context.matchingChunks,
+            context.symbols,
+            request.childPages,
+          ),
+        ),
+        validation_errors: [],
+      };
     }
 
     try {
       let attemptPayload = llmInputPayload(context);
       let validationErrors: string[] = [];
       let completion: CachedLlmCompletion | null = null;
+      let lastNormalized: NormalizedPage | null = null;
       for (let attempt = 0; attempt < PAGE_GENERATION_ATTEMPTS; attempt += 1) {
         completion = await this.llm.complete(request.repoId, {
           taskType: "page",
@@ -136,6 +167,7 @@ export class WikiPageGenerator {
           completion.result.content,
           context,
         );
+        lastNormalized = normalized;
         validationErrors = normalized.validationErrors;
         if (!validationErrors.length) {
           return {
@@ -160,7 +192,15 @@ export class WikiPageGenerator {
       }
 
       return {
-        page: localPage,
+        page: await this.savePage(
+          context,
+          draftMarkdown(context.request.title, validationErrors),
+          {
+            title: lastNormalized?.title ?? context.request.title,
+            sourceRefs: lastNormalized?.sourceRefs ?? [],
+            status: "draft",
+          },
+        ),
         validation_errors: validationErrors,
         llm: {
           status: "fallback",
@@ -171,9 +211,19 @@ export class WikiPageGenerator {
         },
       };
     } catch (error) {
+      const validationErrors = [
+        `LLM provider call failed: ${error instanceof Error ? error.message : String(error)}`,
+      ];
       return {
-        page: localPage,
-        validation_errors: [],
+        page: await this.savePage(
+          context,
+          draftMarkdown(context.request.title, validationErrors),
+          {
+            sourceRefs: [],
+            status: "draft",
+          },
+        ),
+        validation_errors: validationErrors,
         llm: {
           status: "fallback",
           error: error instanceof Error ? error.message : String(error),
@@ -197,10 +247,15 @@ export class WikiPageGenerator {
       request.languageCode,
     );
     const retrievalTrace = await this.store.saveRetrievalTrace(
-      await buildRetrievalTrace(this.store, request.repoId, retrievalQuery(request), {
-        maxHops: PAGE_RETRIEVAL_MAX_HOPS,
-        limit: PAGE_SOURCE_LIMIT,
-      }),
+      await buildRetrievalTrace(
+        this.store,
+        request.repoId,
+        retrievalQuery(request),
+        {
+          maxHops: PAGE_RETRIEVAL_MAX_HOPS,
+          limit: PAGE_SOURCE_LIMIT,
+        },
+      ),
     );
     const pathNodes = nodesForPath(graph.nodes, request.path);
     const traceNodeIds = nodeIdsFromTrace(retrievalTrace);
@@ -211,7 +266,7 @@ export class WikiPageGenerator {
       ...chunksForSourceHints(chunks, request.sourceHints),
       ...chunksForNodes(chunks, pathNodes),
     ]).slice(0, PAGE_SOURCE_LIMIT);
-    const sourceRefs = sourceRefsForChunks(matchingChunks);
+    const sourceRefs = sourceRefsForChunks(matchingChunks, repo);
     const symbols = matchingNodes
       .filter((node) => node.type !== "file" && node.type !== "config")
       .slice(0, PAGE_SYMBOL_LIMIT);
@@ -272,14 +327,27 @@ function chunksForNodes(
   return chunks.filter((chunk) => nodeFilePaths.has(chunk.file_path));
 }
 
-function sourceRefsForChunks(chunks: CodeChunk[]): JsonObject[] {
+function sourceRefsForChunks(
+  chunks: CodeChunk[],
+  repo: RepoDescriptor,
+): SourceRef[] {
+  const sourceUrlBase = sourceUrlBaseForRepo(repo);
   return chunks.map((chunk, index) => ({
     citation_id: `S${index + 1}`,
     file_path: chunk.file_path,
     start_line: chunk.start_line,
     end_line: chunk.end_line,
     chunk_id: chunk.id,
-    source_url: null,
+    ...(sourceUrlBase
+      ? {
+          source_url: sourceUrlForRange(
+            sourceUrlBase,
+            chunk.file_path,
+            chunk.start_line,
+            chunk.end_line,
+          ),
+        }
+      : {}),
   }));
 }
 
@@ -340,7 +408,10 @@ function pathMatchesHint(filePath: string, hint: string): boolean {
 }
 
 function normalizedPath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").trim();
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .trim();
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -515,11 +586,7 @@ function relatedCatalogPages(
   parentSlug: string | null,
 ): JsonObject[] {
   return summaries
-    .filter(
-      (item) =>
-        item.kind === "page" &&
-        stringValue(item.slug) !== slug,
-    )
+    .filter((item) => item.kind === "page" && stringValue(item.slug) !== slug)
     .sort(
       (left, right) =>
         (stringValue(left.parent_slug) === parentSlug ? 0 : 1) -
@@ -615,7 +682,7 @@ function llmInputPayload(context: WikiPageContext): JsonObject {
       available_edge_types: availableEdgeTypes,
       available_node_types: availableNodeTypes,
     },
-    diagram_slots: [],
+    diagram_slots: diagramSlotsPayload(mermaidDiagramsFromContext(context)),
     evidence_inventory: evidenceInventory,
     context_pack: context.retrievalTrace.context_pack,
     source_chunks: sourceChunkMetadata(context.matchingChunks),
@@ -656,30 +723,52 @@ function normalizePageCompletion(
       title: fallbackTitle,
       markdown: "",
       sourceRefs: [],
+      diagrams: [],
       validationErrors,
     };
   }
 
   const title = nonEmptyString(parsed.title) ?? fallbackTitle;
-  const markdown = normalizeCitationLikeMarkers(
+  let markdown = normalizeCitationLikeMarkers(
     stripMermaid(nonEmptyString(parsed.markdown) ?? ""),
   ).trim();
-  let sourceRefs = validateSourceRefs(parsed.source_refs, context, validationErrors);
-  sourceRefs = includeMarkdownCitationRefs(markdown, sourceRefs, context.sourceRefs);
+  const sourceValidation = validateSourceRefs(parsed.source_refs, context);
+  let sourceRefs = sourceValidation.sourceRefs;
+  sourceRefs = includeMarkdownCitationRefs(
+    markdown,
+    sourceRefs,
+    context.sourceRefs,
+  );
   sourceRefs = filterUnusedSourceRefs(markdown, sourceRefs);
+  if (context.sourceRefs.length && !sourceRefs.length) {
+    validationErrors.push(
+      ...sourceValidation.errors,
+      "At least one valid source_ref is required.",
+    );
+  } else {
+    sourceRefs = mergeReadFileSourceRefs(
+      sourceRefs,
+      readSourceRefsForContext(context),
+      sourceUrlBaseForRepo(context.repo),
+    );
+    markdown = stripUnknownCitationMarkers(markdown, sourceRefs);
+  }
+  const diagrams = mermaidDiagramsFromContext(context);
   validationErrors.push(...validatePageMarkdown(markdown, fallbackTitle));
   validationErrors.push(...validateCitationMarkers(markdown, sourceRefs));
-  if (context.sourceRefs.length && !sourceRefs.length) {
-    validationErrors.push("At least one valid source_ref is required.");
-  }
+  validationErrors.push(...validateDiagramPlaceholders(markdown, diagrams));
 
   return {
     title,
-    markdown: composePageMarkdown(
-      replaceCitationMarkers(markdown, sourceRefs),
-      sourceRefs,
-    ),
+    markdown: validationErrors.length
+      ? markdown
+      : composePageMarkdown(
+          replaceCitationMarkers(markdown, sourceRefs),
+          diagrams,
+          sourceRefs,
+        ),
     sourceRefs,
+    diagrams,
     validationErrors,
   };
 }
@@ -687,67 +776,112 @@ function normalizePageCompletion(
 function validateSourceRefs(
   rawRefs: unknown,
   context: WikiPageContext,
-  validationErrors: string[],
-): JsonObject[] {
+): { sourceRefs: SourceRef[]; errors: string[] } {
   if (!Array.isArray(rawRefs)) {
-    validationErrors.push("source_refs must be an array.");
-    return [];
+    return { sourceRefs: [], errors: ["source_refs must be an array."] };
   }
-  const allowedByCitation = new Map(
-    context.sourceRefs
-      .map((ref) => [stringValue(ref.citation_id), ref] as const)
-      .filter((entry): entry is readonly [string, JsonObject] =>
-        Boolean(entry[0]),
-      ),
-  );
-  const sourceRefs: JsonObject[] = [];
+  const repoRoot = resolve(context.repo.path);
+  const sourceUrlBase = sourceUrlBaseForRepo(context.repo);
+  const allowedByCitation = sourceRefsByCitationId(context.sourceRefs);
+  const sourceRefs: SourceRef[] = [];
+  const errors: string[] = [];
   const seen = new Set<string>();
   rawRefs.forEach((rawRef, index) => {
     if (!isRecord(rawRef)) {
-      validationErrors.push(`source_refs[${index}] must be an object.`);
+      errors.push(`source_refs[${index}] must be an object.`);
       return;
     }
     const citationId = nonEmptyString(rawRef.citation_id);
-    const allowed =
-      (citationId ? allowedByCitation.get(citationId) : null) ??
-      context.sourceRefs.find((ref) => sameSourceRange(rawRef, ref));
-    if (!allowed) {
-      validationErrors.push(
-        citationId
-          ? `source_refs[${index}] uses unknown citation_id: ${citationId}.`
-          : `source_refs[${index}] must match an allowed source range.`,
+    const allowed = citationId ? allowedByCitation.get(citationId) : null;
+    if (citationId && !allowed) {
+      errors.push(
+        `source_refs[${index}] uses unknown citation_id: ${citationId}.`,
       );
       return;
     }
-    const key = sourceRangeKey(allowed);
+    const filePath = allowed?.file_path ?? nonEmptyString(rawRef.file_path);
+    const startLine = allowed?.start_line ?? numberValue(rawRef.start_line);
+    const endLine = allowed?.end_line ?? numberValue(rawRef.end_line);
+    if (!filePath || !startLine || !endLine) {
+      errors.push(
+        `source_refs[${index}] must include file_path, start_line, end_line.`,
+      );
+      return;
+    }
+    if (startLine < 1 || endLine < startLine) {
+      errors.push(`source_refs[${index}] has invalid line range.`);
+      return;
+    }
+    const absolutePath = resolve(repoRoot, filePath);
+    if (!isPathInside(repoRoot, absolutePath) || !existsSync(absolutePath)) {
+      errors.push(
+        `source_refs[${index}] file does not exist in repo: ${filePath}.`,
+      );
+      return;
+    }
+    let lines: string[];
+    try {
+      lines = readFileSync(absolutePath, "utf8").split(/\r?\n/);
+    } catch {
+      errors.push(`source_refs[${index}] file could not be read: ${filePath}.`);
+      return;
+    }
+    if (endLine > lines.length) {
+      errors.push(
+        `source_refs[${index}] line range exceeds file length: ${filePath}.`,
+      );
+      return;
+    }
+    const matchingChunk = matchingSourceChunk(
+      context.matchingChunks,
+      filePath,
+      startLine,
+      endLine,
+      lines,
+    );
+    if (!matchingChunk) {
+      errors.push(
+        `source_refs[${index}] is not covered by the retrieved source_chunks: ${filePath}:${startLine}-${endLine}.`,
+      );
+      return;
+    }
+    const key = `${filePath}:${startLine}:${endLine}`;
     if (seen.has(key)) {
       return;
     }
     seen.add(key);
-    sourceRefs.push(allowed);
+    const resolvedCitationId =
+      citationId ??
+      citationIdForRange(context.sourceRefs, filePath, startLine, endLine);
+    const ref: SourceRef = {
+      file_path: filePath,
+      start_line: startLine,
+      end_line: endLine,
+      chunk_id: matchingChunk.id,
+    };
+    if (resolvedCitationId) {
+      ref.citation_id = resolvedCitationId;
+    }
+    if (sourceUrlBase) {
+      ref.source_url = sourceUrlForRange(
+        sourceUrlBase,
+        filePath,
+        startLine,
+        endLine,
+      );
+    }
+    sourceRefs.push(ref);
   });
-  return sourceRefs;
+  return { sourceRefs, errors };
 }
 
 function includeMarkdownCitationRefs(
   markdown: string,
-  sourceRefs: JsonObject[],
-  allowedSourceRefs: JsonObject[],
-): JsonObject[] {
-  const byCitationId = new Map(
-    sourceRefs
-      .map((ref) => [stringValue(ref.citation_id), ref] as const)
-      .filter((entry): entry is readonly [string, JsonObject] =>
-        Boolean(entry[0]),
-      ),
-  );
-  const allowedByCitationId = new Map(
-    allowedSourceRefs
-      .map((ref) => [stringValue(ref.citation_id), ref] as const)
-      .filter((entry): entry is readonly [string, JsonObject] =>
-        Boolean(entry[0]),
-      ),
-  );
+  sourceRefs: SourceRef[],
+  allowedSourceRefs: SourceRef[],
+): SourceRef[] {
+  const byCitationId = sourceRefsByCitationId(sourceRefs);
+  const allowedByCitationId = sourceRefsByCitationId(allowedSourceRefs);
   for (const citationId of citationMarkers(markdown)) {
     if (!byCitationId.has(citationId)) {
       const allowed = allowedByCitationId.get(citationId);
@@ -761,8 +895,8 @@ function includeMarkdownCitationRefs(
 
 function filterUnusedSourceRefs(
   markdown: string,
-  sourceRefs: JsonObject[],
-): JsonObject[] {
+  sourceRefs: SourceRef[],
+): SourceRef[] {
   const markers = new Set(citationMarkers(markdown));
   if (!markers.size) {
     return sourceRefs;
@@ -775,7 +909,7 @@ function filterUnusedSourceRefs(
 
 function validateCitationMarkers(
   markdown: string,
-  sourceRefs: JsonObject[],
+  sourceRefs: SourceRef[],
 ): string[] {
   const sourceRefMarkers = new Set(
     sourceRefs
@@ -792,7 +926,10 @@ function validateCitationMarkers(
     : [];
 }
 
-function validatePageMarkdown(markdown: string, expectedTitle: string): string[] {
+function validatePageMarkdown(
+  markdown: string,
+  expectedTitle: string,
+): string[] {
   const errors: string[] = [];
   const lines = markdown.trim().split(/\r?\n/);
   if (!lines[0]?.startsWith("# ")) {
@@ -802,16 +939,21 @@ function validatePageMarkdown(markdown: string, expectedTitle: string): string[]
     errors.push(`markdown H1 must match page title: ${expectedTitle}.`);
   }
   if (!markdown.includes("## Purpose and Scope")) {
-    errors.push("markdown must include required heading: ## Purpose and Scope.");
+    errors.push(
+      "markdown must include required heading: ## Purpose and Scope.",
+    );
   }
   return errors;
 }
 
 function composePageMarkdown(
   markdown: string,
-  sourceRefs: JsonObject[],
+  diagrams: MermaidDiagram[],
+  sourceRefs: SourceRef[],
 ): string {
-  const body = insertRelevantSourceFiles(stripSourcesSection(markdown), sourceRefs);
+  let body = stripInlineSourcesLines(stripSourcesSection(markdown));
+  body = insertRelevantSourceFiles(body, sourceRefs);
+  body = placeDiagrams(body, diagrams);
   return [body, sourcesMarkdown(sourceRefs)]
     .filter((section) => section.trim())
     .join("\n\n");
@@ -819,7 +961,7 @@ function composePageMarkdown(
 
 function insertRelevantSourceFiles(
   markdown: string,
-  sourceRefs: JsonObject[],
+  sourceRefs: SourceRef[],
 ): string {
   if (!sourceRefs.length || /^## Relevant source files$/im.test(markdown)) {
     return markdown.trim();
@@ -830,7 +972,12 @@ function insertRelevantSourceFiles(
   );
   const relevant = [
     "## Relevant source files",
-    ...files.map((filePath) => `- [${filePath}](source-link)`),
+    ...files.map((filePath) => {
+      const ref = sourceRefs.find(
+        (sourceRef) => sourceRef.file_path === filePath,
+      );
+      return `- [${filePath}](${sourceFileHref(ref)})`;
+    }),
   ].join("\n");
   if (lines[0]?.startsWith("# ")) {
     return [lines[0], relevant, lines.slice(1).join("\n").trim()]
@@ -840,21 +987,22 @@ function insertRelevantSourceFiles(
   return [relevant, markdown.trim()].join("\n\n");
 }
 
-function sourcesMarkdown(sourceRefs: JsonObject[]): string {
+function sourcesMarkdown(sourceRefs: SourceRef[]): string {
   if (!sourceRefs.length) {
     return "";
   }
   const lines = ["## Sources"];
-  for (const ref of sourceRefs) {
-    const citationId = stringValue(ref.citation_id);
-    const filePath = stringValue(ref.file_path);
-    const startLine = numberValue(ref.start_line);
-    const endLine = numberValue(ref.end_line);
-    if (!filePath || !startLine || !endLine) {
-      continue;
+  for (const [filePath, refs] of groupedSourceRefs(sourceRefs)) {
+    const fileHref = sourceFileHref(refs[0]);
+    lines.push(
+      `- ${fileHref === "source-link" ? filePath : `[${filePath}](${fileHref})`}`,
+    );
+    for (const ref of refs) {
+      const citationId = ref.citation_id ? `${ref.citation_id} ` : "";
+      lines.push(
+        `  - ${citationId}[L${ref.start_line}-L${ref.end_line}](${sourceRefHref(ref)})`,
+      );
     }
-    const prefix = citationId ? `${citationId} ` : "";
-    lines.push(`- ${prefix}${filePath}:L${startLine}-L${endLine}`);
   }
   return lines.join("\n");
 }
@@ -867,29 +1015,478 @@ function stripSourcesSection(markdown: string): string {
 
 function replaceCitationMarkers(
   markdown: string,
-  sourceRefs: JsonObject[],
+  sourceRefs: SourceRef[],
 ): string {
-  const byCitationId = new Map(
+  const byCitationId = sourceRefsByCitationId(sourceRefs);
+  const normalizedMarkdown = separateAdjacentCitationMarkers(
+    stripRedundantSourceLabels(unwrapCodeWrappedCitationMarkers(markdown)),
+  );
+  return normalizedMarkdown.replace(
+    CITATION_MARKER_RE,
+    (marker, citationId: string) => {
+      const ref = byCitationId.get(citationId);
+      if (!ref) {
+        return marker;
+      }
+      return `[${citationId}](${sourceRefHref(ref)} "${sourceRefLabel(ref)}")`;
+    },
+  );
+}
+
+function sourceRefLabel(ref: SourceRef): string {
+  return `${ref.file_path}:L${ref.start_line}-L${ref.end_line}`.replace(
+    /"/g,
+    "'",
+  );
+}
+
+function sourceRefsByCitationId(
+  sourceRefs: SourceRef[],
+): Map<string, SourceRef> {
+  return new Map(
     sourceRefs
       .map((ref) => [stringValue(ref.citation_id), ref] as const)
-      .filter((entry): entry is readonly [string, JsonObject] =>
+      .filter((entry): entry is readonly [string, SourceRef] =>
         Boolean(entry[0]),
       ),
   );
-  return markdown.replace(CITATION_MARKER_RE, (marker, citationId: string) => {
-    const ref = byCitationId.get(citationId);
-    if (!ref) {
-      return marker;
-    }
-    return `[${citationId}](source-link "${sourceRefLabel(ref)}")`;
-  });
 }
 
-function sourceRefLabel(ref: JsonObject): string {
-  const filePath = stringValue(ref.file_path) ?? "source";
-  const startLine = numberValue(ref.start_line) ?? 1;
-  const endLine = numberValue(ref.end_line) ?? startLine;
-  return `${filePath}:L${startLine}-L${endLine}`.replace(/"/g, "'");
+function citationIdForRange(
+  sourceRefs: SourceRef[],
+  filePath: string,
+  startLine: number,
+  endLine: number,
+): string | null {
+  return (
+    sourceRefs.find(
+      (ref) =>
+        ref.file_path === filePath &&
+        ref.start_line === startLine &&
+        ref.end_line === endLine &&
+        Boolean(ref.citation_id),
+    )?.citation_id ?? null
+  );
+}
+
+function matchingSourceChunk(
+  chunks: CodeChunk[],
+  filePath: string,
+  startLine: number,
+  endLine: number,
+  lines: string[],
+): CodeChunk | null {
+  const selectedContent = lines.slice(startLine - 1, endLine).join("\n");
+  return (
+    chunks.find(
+      (chunk) =>
+        chunk.file_path === filePath &&
+        startLine >= chunk.start_line &&
+        endLine <= chunk.end_line &&
+        chunk.content.includes(selectedContent),
+    ) ?? null
+  );
+}
+
+function readSourceRefsForContext(context: WikiPageContext): SourceRef[] {
+  return readFileEvidenceData(context).sourceRefs;
+}
+
+function readFileEvidenceData(context: WikiPageContext): {
+  reads: JsonObject[];
+  sourceRefs: SourceRef[];
+} {
+  const reads: JsonObject[] = [];
+  const recordedSourceRefs: SourceRef[] = [];
+  const repoRoot = resolve(context.repo.path);
+  let totalChars = 0;
+  for (const ref of prioritizeSourceRefs(
+    context.sourceRefs,
+    context.request.sourceHints,
+  )) {
+    if (reads.length >= PAGE_READFILE_LIMIT) {
+      break;
+    }
+    const {
+      file_path: filePath,
+      start_line: startLine,
+      end_line: endLine,
+    } = ref;
+    const absolutePath = resolve(repoRoot, filePath);
+    if (!isPathInside(repoRoot, absolutePath) || !existsSync(absolutePath)) {
+      continue;
+    }
+    try {
+      const lines = readFileSync(absolutePath, "utf8").split(/\r?\n/);
+      if (startLine < 1 || endLine < startLine || endLine > lines.length) {
+        continue;
+      }
+      const content = numberedLines(lines, startLine, endLine);
+      if (
+        content.length > PAGE_READFILE_SINGLE_MAX_CHARS ||
+        totalChars + content.length > PAGE_READFILE_MAX_CHARS
+      ) {
+        continue;
+      }
+      totalChars += content.length;
+      reads.push({
+        tool_call: "ReadFile",
+        file_path: filePath,
+        start_line: startLine,
+        end_line: endLine,
+        content,
+      });
+      recordedSourceRefs.push({ ...ref, read_via: "ReadFile" });
+    } catch {
+      // Ignore unreadable files; source_chunks still provide bounded evidence.
+    }
+  }
+  return { reads, sourceRefs: recordedSourceRefs };
+}
+
+function mergeReadFileSourceRefs(
+  sourceRefs: SourceRef[],
+  readSourceRefs: SourceRef[],
+  sourceUrlBase: string | null,
+): SourceRef[] {
+  const merged: SourceRef[] = [];
+  const byRange = new Map<string, SourceRef>();
+  for (const ref of [...sourceRefs, ...readSourceRefs]) {
+    const key = `${ref.file_path}:${ref.start_line}:${ref.end_line}`;
+    const existing = byRange.get(key);
+    if (existing) {
+      if (ref.read_via) {
+        existing.read_via = ref.read_via;
+      }
+      continue;
+    }
+    const next: SourceRef = { ...ref };
+    if (sourceUrlBase && !next.source_url) {
+      next.source_url = sourceUrlForRange(
+        sourceUrlBase,
+        next.file_path,
+        next.start_line,
+        next.end_line,
+      );
+    }
+    byRange.set(key, next);
+    merged.push(next);
+  }
+  return merged;
+}
+
+function stripUnknownCitationMarkers(
+  markdown: string,
+  sourceRefs: SourceRef[],
+): string {
+  const validMarkers = new Set(
+    sourceRefs
+      .map((ref) => ref.citation_id)
+      .filter((value): value is string => Boolean(value)),
+  );
+  return markdown.replace(CITATION_MARKER_RE, (marker, citationId: string) =>
+    validMarkers.has(citationId) ? marker : "",
+  );
+}
+
+function sourceRefHref(ref: SourceRef): string {
+  return ref.source_url || "source-link";
+}
+
+function sourceFileHref(ref: SourceRef | undefined): string {
+  if (!ref?.source_url) {
+    return "source-link";
+  }
+  return ref.source_url.replace(/#L\d+(?:-L\d+)?$/, "");
+}
+
+function groupedSourceRefs(
+  sourceRefs: SourceRef[],
+): Array<[string, SourceRef[]]> {
+  const grouped = new Map<string, SourceRef[]>();
+  for (const ref of sourceRefs) {
+    const refs = grouped.get(ref.file_path) ?? [];
+    refs.push(ref);
+    grouped.set(ref.file_path, refs);
+  }
+  return [...grouped.entries()].map(([filePath, refs]) => [
+    filePath,
+    refs.sort(
+      (left, right) =>
+        left.start_line - right.start_line || left.end_line - right.end_line,
+    ),
+  ]);
+}
+
+function stripInlineSourcesLines(markdown: string): string {
+  const kept: string[] = [];
+  let inFence = false;
+  for (const line of markdown.split(/\r?\n/)) {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      kept.push(line);
+      continue;
+    }
+    const trimmed = line.trim();
+    if (
+      !inFence &&
+      !trimmed.startsWith("#") &&
+      (INLINE_SOURCES_LINE_RE.test(trimmed) ||
+        BOLD_INLINE_SOURCES_LINE_RE.test(trimmed))
+    ) {
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function diagramSlotsPayload(diagrams: MermaidDiagram[]): JsonObject[] {
+  return diagrams.map((diagram) => ({
+    slot: diagram.slot,
+    kind: diagram.kind,
+    title: diagram.title,
+    heading_hint: diagram.headingHint,
+  }));
+}
+
+function mermaidDiagramsFromContext(
+  context: WikiPageContext,
+): MermaidDiagram[] {
+  const diagrams = [
+    componentDiagram(context),
+    symbolFlowDiagram(context),
+  ].filter((diagram): diagram is MermaidDiagram => Boolean(diagram));
+  return diagrams.slice(0, 2);
+}
+
+function componentDiagram(context: WikiPageContext): MermaidDiagram | null {
+  const files = uniqueStrings(
+    context.matchingNodes.map((node) => node.file_path),
+  ).slice(0, 8);
+  if (!files.length) {
+    return null;
+  }
+  const fileId = new Map(
+    files.map((filePath, index) => [filePath, `C${index}`]),
+  );
+  const lines = ["flowchart TD"];
+  for (const filePath of files) {
+    lines.push(`  ${fileId.get(filePath)}["${escapeMermaidLabel(filePath)}"]`);
+  }
+  const nodeById = new Map(
+    context.matchingNodes.map((node) => [node.id, node]),
+  );
+  const edges = context.retrievalTrace.related_edges.slice(0, 12);
+  for (const edge of edges) {
+    const sourceNode = nodeById.get(stringValue(edge.source) ?? "");
+    const targetNode = nodeById.get(stringValue(edge.target) ?? "");
+    const sourceFile = sourceNode?.file_path;
+    const targetFile = targetNode?.file_path;
+    if (!sourceFile || !targetFile || sourceFile === targetFile) {
+      continue;
+    }
+    const sourceId = fileId.get(sourceFile);
+    const targetId = fileId.get(targetFile);
+    if (sourceId && targetId) {
+      lines.push(
+        `  ${sourceId} -->|${escapeMermaidLabel(stringValue(edge.type) ?? "relates")}| ${targetId}`,
+      );
+    }
+  }
+  return {
+    slot: "component",
+    kind: "component",
+    title: `${context.request.title} component relationships`,
+    headingHint: "System Context",
+    lines,
+  };
+}
+
+function symbolFlowDiagram(context: WikiPageContext): MermaidDiagram | null {
+  const nodes = context.matchingNodes
+    .filter((node) => node.type !== "file" && node.type !== "config")
+    .slice(0, 10);
+  if (!nodes.length) {
+    return null;
+  }
+  const nodeId = new Map(nodes.map((node, index) => [node.id, `S${index}`]));
+  const lines = ["flowchart TD"];
+  for (const node of nodes) {
+    lines.push(
+      `  ${nodeId.get(node.id)}["${escapeMermaidLabel(`${node.name} (${node.type})`)}"]`,
+    );
+  }
+  for (const edge of context.retrievalTrace.related_edges.slice(0, 16)) {
+    const sourceId = nodeId.get(stringValue(edge.source) ?? "");
+    const targetId = nodeId.get(stringValue(edge.target) ?? "");
+    if (sourceId && targetId) {
+      lines.push(
+        `  ${sourceId} -->|${escapeMermaidLabel(stringValue(edge.type) ?? "uses")}| ${targetId}`,
+      );
+    }
+  }
+  return {
+    slot: "symbol-flow",
+    kind: "symbol_flow",
+    title: `${context.request.title} implementation flow`,
+    headingHint: "Control Flow",
+    lines,
+  };
+}
+
+function escapeMermaidLabel(value: string): string {
+  return value.replace(/["\\]/g, "'").replace(/\|/g, "/");
+}
+
+function validateDiagramPlaceholders(
+  markdown: string,
+  diagrams: MermaidDiagram[],
+): string[] {
+  const allowedSlots = new Set(diagrams.map((diagram) => diagram.slot));
+  const unknown = [...markdown.matchAll(DIAGRAM_SLOT_RE)]
+    .map((match) => match[1])
+    .filter(
+      (slot): slot is string =>
+        typeof slot === "string" && !allowedSlots.has(slot),
+    );
+  return unknown.length
+    ? [
+        `markdown contains unknown diagram placeholders: ${uniqueStrings(unknown).join(", ")}.`,
+      ]
+    : [];
+}
+
+function placeDiagrams(markdown: string, diagrams: MermaidDiagram[]): string {
+  if (!diagrams.length) {
+    return markdown
+      .replace(FENCED_DIAGRAM_SLOT_RE, "")
+      .replace(DIAGRAM_SLOT_RE, "")
+      .trim();
+  }
+  const bySlot = new Map(diagrams.map((diagram) => [diagram.slot, diagram]));
+  const used = new Set<string>();
+  const replaceSlot = (_marker: string, slot: string) => {
+    const diagram = bySlot.get(slot);
+    if (!diagram) {
+      return "";
+    }
+    used.add(slot);
+    return diagramMarkdown(diagram);
+  };
+  let placed = markdown.replace(FENCED_DIAGRAM_SLOT_RE, replaceSlot);
+  placed = placed.replace(DIAGRAM_SLOT_RE, replaceSlot);
+  for (const diagram of diagrams) {
+    if (used.has(diagram.slot)) {
+      continue;
+    }
+    placed = insertDiagramNearHeading(placed, diagram);
+  }
+  return placed.trim();
+}
+
+function insertDiagramNearHeading(
+  markdown: string,
+  diagram: MermaidDiagram,
+): string {
+  const headings = [
+    `## ${diagram.headingHint}`,
+    ...(diagram.kind === "component"
+      ? ["## Architecture", "## Core Components", "## Purpose and Scope"]
+      : [
+          "## Control Flow",
+          "## Core Workflows",
+          "## API Surface",
+          "## Purpose and Scope",
+        ]),
+  ];
+  for (const heading of headings) {
+    const inserted = insertAfterHeading(
+      markdown,
+      heading,
+      diagramMarkdown(diagram),
+    );
+    if (inserted !== markdown) {
+      return inserted;
+    }
+  }
+  return [markdown.trim(), diagramMarkdown(diagram)]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function insertAfterHeading(
+  markdown: string,
+  heading: string,
+  insertion: string,
+): string {
+  const lines = markdown.split(/\r?\n/);
+  const index = lines.findIndex((line) => line.trim() === heading);
+  if (index < 0) {
+    return markdown;
+  }
+  let insertAt = index + 1;
+  while (insertAt < lines.length && !lines[insertAt]?.trim()) {
+    insertAt += 1;
+  }
+  return [
+    ...lines.slice(0, insertAt),
+    "",
+    insertion,
+    "",
+    ...lines.slice(insertAt),
+  ]
+    .join("\n")
+    .trim();
+}
+
+function diagramMarkdown(diagram: MermaidDiagram): string {
+  return [
+    `### ${diagram.title}`,
+    "",
+    "```mermaid",
+    ...diagram.lines,
+    "```",
+  ].join("\n");
+}
+
+function unwrapCodeWrappedCitationMarkers(markdown: string): string {
+  return markdown.replace(/`(\[\[S\d+]])`/g, "$1");
+}
+
+function separateAdjacentCitationMarkers(markdown: string): string {
+  return markdown.replace(/(]])(?=\[\[S\d+]])/g, "$1 ");
+}
+
+function stripRedundantSourceLabels(markdown: string): string {
+  return markdown
+    .replace(
+      /[（(]\s*[^）)\n]*?(?:\/|\\)[^）)\n]*?(?:第\s*\d+\s*[–-]\s*\d+\s*行|lines?\s+\d+\s*[–-]\s*\d+)\s*(\[\[S\d+]])\s*[）)]/gi,
+      " $1",
+    )
+    .replace(
+      /(\[\[S\d+]])\s*[（(]\s*(?:[^）)\n]*?\s+)?(?:第\s*)?\d+\s*[–-]\s*\d+\s*行?\s*[）)]/gi,
+      "$1",
+    )
+    .replace(
+      /(\[\[S\d+]])\s*[（(]\s*(?:[^）)\n]*?\s+)?lines?\s+\d+\s*[–-]\s*\d+\s*[）)]/gi,
+      "$1",
+    )
+    .replace(/ {2,}(?=\[\[S\d+]])/g, " ");
+}
+
+function draftMarkdown(title: string, errors: string[]): string {
+  return [
+    `# ${title}`,
+    "",
+    "This page was not promoted because generation or validation failed.",
+    "",
+    "## Validation Errors",
+    ...errors.map((error) => `- ${error}`),
+  ].join("\n");
 }
 
 function pageRepairPayload(
@@ -919,8 +1516,10 @@ function childPageSummaries(pages: DocPage[]): JsonObject[] {
 
 function evidenceInventoryPayload(context: WikiPageContext): JsonObject {
   const nodeTypes = uniqueStrings(
-    [...context.retrievalTrace.seed_nodes, ...context.retrievalTrace.expanded_nodes]
-      .map((node) => stringValue(node.type) ?? "unknown"),
+    [
+      ...context.retrievalTrace.seed_nodes,
+      ...context.retrievalTrace.expanded_nodes,
+    ].map((node) => stringValue(node.type) ?? "unknown"),
   );
   const edgeTypes = uniqueStrings(
     context.retrievalTrace.related_edges.map(
@@ -961,7 +1560,10 @@ function readFileEvidence(context: WikiPageContext): JsonObject {
   const recordedSourceRefs: JsonObject[] = [];
   const repoRoot = resolve(context.repo.path);
   let totalChars = 0;
-  for (const ref of prioritizeSourceRefs(context.sourceRefs, context.request.sourceHints)) {
+  for (const ref of prioritizeSourceRefs(
+    context.sourceRefs,
+    context.request.sourceHints,
+  )) {
     if (reads.length >= PAGE_READFILE_LIMIT) {
       break;
     }
@@ -1014,19 +1616,20 @@ function readFileEvidence(context: WikiPageContext): JsonObject {
 }
 
 function prioritizeSourceRefs(
-  sourceRefs: JsonObject[],
+  sourceRefs: SourceRef[],
   sourceHints: string[],
-): JsonObject[] {
+): SourceRef[] {
   if (!sourceHints.length) {
     return sourceRefs;
   }
-  const hinted: JsonObject[] = [];
-  const other: JsonObject[] = [];
+  const hinted: SourceRef[] = [];
+  const other: SourceRef[] = [];
   for (const ref of sourceRefs) {
-    const filePath = stringValue(ref.file_path);
+    const filePath = ref.file_path;
     if (
-      filePath &&
-      sourceHints.some((hint) => pathMatchesHint(filePath, normalizedPath(hint)))
+      sourceHints.some((hint) =>
+        pathMatchesHint(filePath, normalizedPath(hint)),
+      )
     ) {
       hinted.push(ref);
     } else {
@@ -1036,7 +1639,11 @@ function prioritizeSourceRefs(
   return [...hinted, ...other];
 }
 
-function numberedLines(lines: string[], startLine: number, endLine: number): string {
+function numberedLines(
+  lines: string[],
+  startLine: number,
+  endLine: number,
+): string {
   const width = String(endLine).length;
   const selected: string[] = [];
   for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
@@ -1048,8 +1655,11 @@ function numberedLines(lines: string[], startLine: number, endLine: number): str
 }
 
 function isPathInside(root: string, target: string): boolean {
-  const path = relative(root, target);
-  return Boolean(path) && !path.startsWith("..") && !resolve(path).startsWith("..");
+  const relativePath = relative(root, target);
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !isAbsolute(relativePath))
+  );
 }
 
 function graphFactsPayload(trace: RetrievalTrace): JsonObject {
@@ -1089,7 +1699,9 @@ function promptEdge(edge: JsonObject): JsonObject {
 
 function promptCommunitySummary(community: JsonObject): JsonObject {
   const nodeIds = Array.isArray(community.node_ids)
-    ? community.node_ids.filter((value): value is string => typeof value === "string")
+    ? community.node_ids.filter(
+        (value): value is string => typeof value === "string",
+      )
     : [];
   return compactJsonObject({
     id: community.id,
@@ -1180,7 +1792,8 @@ function isJsonValue(value: unknown): value is JsonObject[string] {
 function promptContract(): JsonObject {
   return {
     source_linking: {
-      source_refs: "Use only file_path/start_line/end_line values from allowed_source_refs.",
+      source_refs:
+        "Use only file_path/start_line/end_line values from allowed_source_refs.",
       source_urls:
         "The server converts validated source refs into clickable source URLs when repository git metadata is available.",
       inline_citations:
@@ -1325,31 +1938,22 @@ function stripMermaid(markdown: string): string {
 }
 
 function normalizeCitationLikeMarkers(markdown: string): string {
-  return markdown.replace(CITATION_LIKE_MARKER_RE, (marker, content: string) => {
-    if (/^\[\[S\d+]]$/.test(marker)) {
-      return marker;
-    }
-    const citationIds = content.match(/\bS\d+\b/g) ?? [];
-    return citationIds.map((citationId) => `[[${citationId}]]`).join(" ");
-  });
+  return markdown.replace(
+    CITATION_LIKE_MARKER_RE,
+    (marker, content: string) => {
+      if (/^\[\[S\d+]]$/.test(marker)) {
+        return marker;
+      }
+      const citationIds = content.match(/\bS\d+\b/g) ?? [];
+      return citationIds.map((citationId) => `[[${citationId}]]`).join(" ");
+    },
+  );
 }
 
 function citationMarkers(markdown: string): string[] {
   return [...markdown.matchAll(CITATION_MARKER_RE)]
     .map((match) => match[1])
     .filter((value): value is string => typeof value === "string");
-}
-
-function sameSourceRange(left: Record<string, unknown>, right: JsonObject): boolean {
-  return (
-    nonEmptyString(left.file_path) === stringValue(right.file_path) &&
-    numberValue(left.start_line) === numberValue(right.start_line) &&
-    numberValue(left.end_line) === numberValue(right.end_line)
-  );
-}
-
-function sourceRangeKey(ref: JsonObject): string {
-  return `${stringValue(ref.file_path) ?? ""}:${numberValue(ref.start_line) ?? 0}:${numberValue(ref.end_line) ?? 0}`;
 }
 
 function stringValue(value: unknown): string | null {

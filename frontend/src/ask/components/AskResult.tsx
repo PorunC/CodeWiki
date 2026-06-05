@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { ExternalLink, Sparkles } from "lucide-react";
 
 import type { AskResponse, SourceRef } from "../../api/types";
 
@@ -35,18 +35,64 @@ function AskSources({ sources }: { sources: SourceRef[] }) {
   if (sources.length === 0) {
     return null;
   }
+  const groups = groupSourceRefs(sources).slice(0, 8);
   return (
     <div className="ask-section">
       <h3>Sources</h3>
-      <div className="ask-chip-list">
-        {sources.slice(0, 8).map((source) => (
-          <span key={`${source.file_path}:${source.start_line}:${source.end_line}`} className="ask-chip">
-            {source.file_path}:L{source.start_line}-L{source.end_line}
-          </span>
+      <div className="ask-source-list">
+        {groups.map((group) => (
+          <div key={group.filePath} className="ask-source-group">
+            <span>{group.filePath}</span>
+            <div>
+              {group.refs.map((source) =>
+                source.source_url ? (
+                  <a
+                    key={`${source.file_path}:${source.start_line}:${source.end_line}`}
+                    className="ask-chip"
+                    href={source.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {source.citation_id ? `${source.citation_id} ` : ""}
+                    L{source.start_line}-L{source.end_line}
+                    <ExternalLink size={11} />
+                  </a>
+                ) : (
+                  <span
+                    key={`${source.file_path}:${source.start_line}:${source.end_line}`}
+                    className="ask-chip"
+                  >
+                    {source.citation_id ? `${source.citation_id} ` : ""}
+                    L{source.start_line}-L{source.end_line}
+                  </span>
+                )
+              )}
+            </div>
+          </div>
         ))}
       </div>
     </div>
   );
+}
+
+type SourceGroup = {
+  filePath: string;
+  refs: SourceRef[];
+};
+
+function groupSourceRefs(sourceRefs: SourceRef[]): SourceGroup[] {
+  const groups = new Map<string, SourceRef[]>();
+  sourceRefs.forEach((sourceRef) => {
+    const group = groups.get(sourceRef.file_path) ?? [];
+    group.push(sourceRef);
+    groups.set(sourceRef.file_path, group);
+  });
+  return Array.from(groups, ([filePath, refs]) => ({
+    filePath,
+    refs: refs
+      .slice()
+      .sort((left, right) => left.start_line - right.start_line || left.end_line - right.end_line)
+  }));
 }
 
 function AskRelatedNodes({ nodes }: { nodes: AskResponse["related_nodes"] }) {

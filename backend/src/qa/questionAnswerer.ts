@@ -5,6 +5,11 @@ import {
   type CachedLlmCompletion,
   type LlmOperation,
 } from "../llm/cache.js";
+import {
+  sourceUrlBaseForRepo,
+  sourceUrlForRange,
+} from "../services/sourceUrls.js";
+import type { CodeChunk } from "../types.js";
 import type { JsonObject } from "../types.js";
 
 export type QuestionAnswerRequest = {
@@ -27,7 +32,7 @@ type SourceCitation = {
   file_path: string;
   start_line: number;
   end_line: number;
-  source_url: null;
+  source_url: string | null;
 };
 
 type SourceSnippet = SourceCitation & {
@@ -111,24 +116,17 @@ export class QuestionAnswerer {
     const graphHits = await this.store.searchCodeNodes(repoId, question, {
       limit: 10,
     });
-    const promptSources = hits.map((hit, index) => ({
-      citation_id: `S${index + 1}`,
-      file_path: hit.chunk.file_path,
-      start_line: hit.chunk.start_line,
-      end_line: hit.chunk.end_line,
-      source_url: null,
-    }));
+    const sourceUrlBase = sourceUrlBaseForRepo(repo);
+    const promptSources = hits.map((hit, index) =>
+      sourceCitation(hit.chunk, index, sourceUrlBase),
+    );
     return {
       repoName: repo.name,
       question,
       promptSources,
       sources: payload.include_sources === false ? [] : promptSources,
       sourceSnippets: hits.slice(0, 8).map((hit, index) => ({
-        citation_id: `S${index + 1}`,
-        file_path: hit.chunk.file_path,
-        start_line: hit.chunk.start_line,
-        end_line: hit.chunk.end_line,
-        source_url: null,
+        ...sourceCitation(hit.chunk, index, sourceUrlBase),
         content: hit.chunk.content,
       })),
       relatedNodes:
@@ -166,6 +164,27 @@ export class QuestionAnswerer {
       trace_id: crypto.randomUUID(),
     };
   }
+}
+
+function sourceCitation(
+  chunk: CodeChunk,
+  index: number,
+  sourceUrlBase: string | null,
+): SourceCitation {
+  return {
+    citation_id: `S${index + 1}`,
+    file_path: chunk.file_path,
+    start_line: chunk.start_line,
+    end_line: chunk.end_line,
+    source_url: sourceUrlBase
+      ? sourceUrlForRange(
+          sourceUrlBase,
+          chunk.file_path,
+          chunk.start_line,
+          chunk.end_line,
+        )
+      : null,
+  };
 }
 
 function graphNodePayload(node: {

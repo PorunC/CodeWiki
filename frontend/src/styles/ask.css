@@ -99,22 +99,56 @@
   text-transform: uppercase;
 }
 
-.ask-chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .ask-chip {
+  align-items: center;
   background: rgba(74, 124, 155, 0.12);
   border: 1px solid rgba(74, 124, 155, 0.24);
   border-radius: 999px;
   color: var(--color-info-text);
+  display: inline-flex;
   font-size: 11px;
   font-weight: 800;
+  gap: 4px;
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 4px 7px;
+  text-decoration: none;
+}
+
+a.ask-chip:hover,
+a.ask-chip:focus-visible {
+  background: rgba(74, 124, 155, 0.18);
+  border-color: rgba(74, 124, 155, 0.38);
+  color: var(--color-info-text-strong);
+  outline: none;
+}
+
+.ask-source-list {
+  display: grid;
+  gap: 7px;
+}
+
+.ask-source-group {
+  background: var(--color-subtle-fill);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+}
+
+.ask-source-group > span {
+  color: var(--color-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.ask-source-group > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .ask-node-list {
@@ -149,4 +183,3 @@
   font-size: 11px;
   text-transform: uppercase;
 }
-

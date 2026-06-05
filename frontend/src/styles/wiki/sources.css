@@ -55,6 +55,24 @@
   min-width: 0;
 }
 
+.wiki-source-file-link {
+  align-items: center;
+  color: var(--color-accent-strong);
+  display: inline-flex;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.wiki-source-file-link:hover,
+.wiki-source-file-link:focus-visible {
+  color: var(--color-text-primary);
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .wiki-source-group h4 span {
   flex: 1;
   min-width: 0;
@@ -80,7 +98,14 @@
   gap: 6px;
 }
 
-.wiki-source-ranges button {
+.wiki-source-range {
+  display: inline-flex;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.wiki-source-range button,
+.wiki-source-range a {
   align-items: center;
   background: rgba(74, 124, 155, 0.1);
   border: 1px solid rgba(74, 124, 155, 0.24);
@@ -95,14 +120,21 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 5px 8px;
+  text-decoration: none;
 }
 
-.wiki-source-ranges button span {
+.wiki-source-range button span {
   color: var(--color-accent-strong);
 }
 
-.wiki-source-ranges button:hover,
-.wiki-source-ranges button:focus-visible {
+.wiki-source-range a {
+  color: var(--color-accent-strong);
+}
+
+.wiki-source-range button:hover,
+.wiki-source-range button:focus-visible,
+.wiki-source-range a:hover,
+.wiki-source-range a:focus-visible {
   background: rgba(74, 124, 155, 0.18);
   border-color: rgba(74, 124, 155, 0.38);
   color: var(--color-info-text-strong);
