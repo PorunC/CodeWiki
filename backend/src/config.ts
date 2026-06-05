@@ -13,6 +13,7 @@ export type LlmProfileSettings = {
 export type CodeWikiSettings = {
   appName: string;
   databaseUrl: string;
+  databaseProvider: "sqlite" | "postgresql";
   databasePath: string;
   storageDir: string;
   host: string;
@@ -29,12 +30,17 @@ export function getSettings(env?: NodeJS.ProcessEnv): CodeWikiSettings {
   const sourceEnv = env ?? environmentWithDotEnv();
   const databaseUrl =
     sourceEnv.CODEWIKI_DATABASE_URL ?? "sqlite:///./data/codewiki.sqlite3";
-  const databasePath = sqlitePathFromUrl(databaseUrl);
-  mkdirSync(dirname(databasePath), { recursive: true });
+  const databaseProvider = databaseProviderFromUrl(databaseUrl);
+  const databasePath =
+    databaseProvider === "sqlite" ? sqlitePathFromUrl(databaseUrl) : "";
+  if (databaseProvider === "sqlite") {
+    mkdirSync(dirname(databasePath), { recursive: true });
+  }
 
   return {
     appName: sourceEnv.CODEWIKI_APP_NAME ?? "Code Wiki Platform",
     databaseUrl,
+    databaseProvider,
     databasePath,
     storageDir: resolve(sourceEnv.CODEWIKI_STORAGE_DIR ?? "./storage"),
     host: sourceEnv.CODEWIKI_HOST ?? sourceEnv.BACKEND_HOST ?? "127.0.0.1",
@@ -48,6 +54,21 @@ export function getSettings(env?: NodeJS.ProcessEnv): CodeWikiSettings {
       profiles: readProfiles(sourceEnv),
     },
   };
+}
+
+export function databaseProviderFromUrl(
+  databaseUrl: string,
+): CodeWikiSettings["databaseProvider"] {
+  if (/^sqlite(\+aiosqlite)?:/.test(databaseUrl)) {
+    return "sqlite";
+  }
+  if (/^postgres(ql)?:\/\//.test(databaseUrl)) {
+    return "postgresql";
+  }
+  throw new Error(
+    `Unsupported database URL for the TypeScript backend: ${databaseUrl}. ` +
+      "Use sqlite:///path, sqlite+aiosqlite:///path, or postgresql://user:pass@host:port/db.",
+  );
 }
 
 export function sqlitePathFromUrl(databaseUrl: string): string {

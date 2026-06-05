@@ -36,21 +36,27 @@ export function buildGraphTools({
       "codewiki_graph_dump",
       "Return the full stored graph nodes, edges, communities, and community edges.",
       objectSchema({ repo: repoSelectorSchema() }),
-      (args) =>
-        graphResponse(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-        ),
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphResponse(store, repo.id);
+      },
     ),
     tool(
       "codewiki_graph_status",
       "Show graph index statistics for a repository.",
       objectSchema({ repo: repoSelectorSchema() }),
-      (args) =>
-        graphStatus(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-        ),
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphStatus(store, repo.id);
+      },
     ),
     tool(
       "codewiki_graph_search",
@@ -64,8 +70,12 @@ export function buildGraphTools({
         name: { type: "string", description: "Optional name substring." },
         limit: { type: "integer", default: 20 },
       }),
-      (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         const query = optionalString(args, "query") ?? "";
         return graphSearch(store, repo.id, query, searchFilters(args));
       },
@@ -81,14 +91,20 @@ export function buildGraphTools({
         },
         ["symbol"],
       ),
-      (args) =>
-        graphRelationships(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphRelationships(
+          store,
+          repo.id,
           requiredString(args, "symbol"),
           "callers",
           intArg(args, "limit", 20),
-        ),
+        );
+      },
     ),
     tool(
       "codewiki_graph_callees",
@@ -101,14 +117,20 @@ export function buildGraphTools({
         },
         ["symbol"],
       ),
-      (args) =>
-        graphRelationships(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphRelationships(
+          store,
+          repo.id,
           requiredString(args, "symbol"),
           "callees",
           intArg(args, "limit", 20),
-        ),
+        );
+      },
     ),
     tool(
       "codewiki_graph_impact",
@@ -121,13 +143,19 @@ export function buildGraphTools({
         },
         ["symbol"],
       ),
-      (args) =>
-        graphImpact(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphImpact(
+          store,
+          repo.id,
           requiredString(args, "symbol"),
           intArg(args, "depth", 2),
-        ),
+        );
+      },
     ),
     tool(
       "codewiki_graph_explore",
@@ -141,8 +169,12 @@ export function buildGraphTools({
         },
         ["query"],
       ),
-      (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         return graphExplore(
           store,
           repo.id,
@@ -166,12 +198,14 @@ export function buildGraphTools({
         },
         ["file_paths"],
       ),
-      (args) =>
-        graphAffected(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-          stringListArg(args, "file_paths"),
-        ),
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphAffected(store, repo.id, stringListArg(args, "file_paths"));
+      },
     ),
     tool(
       "codewiki_context",
@@ -186,17 +220,22 @@ export function buildGraphTools({
         },
         ["task"],
       ),
-      (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         const task = requiredString(args, "task");
+        const context = await graphExplore(
+          store,
+          repo.id,
+          task,
+          intArg(args, "max_nodes", 160),
+          intArg(args, "max_files", 12),
+        );
         return {
-          ...graphExplore(
-            store,
-            repo.id,
-            task,
-            intArg(args, "max_nodes", 160),
-            intArg(args, "max_files", 12),
-          ),
+          ...context,
           task,
         };
       },
@@ -213,14 +252,20 @@ export function buildGraphTools({
         },
         ["from_symbol", "to_symbol"],
       ),
-      (args) =>
-        graphTrace(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphTrace(
+          store,
+          repo.id,
           requiredString(args, "from_symbol"),
           requiredString(args, "to_symbol"),
           intArg(args, "max_depth", 8),
-        ),
+        );
+      },
     ),
     tool(
       "codewiki_node",
@@ -228,12 +273,14 @@ export function buildGraphTools({
       objectSchema({ repo: repoSelectorSchema(), symbol: symbolSchema() }, [
         "symbol",
       ]),
-      (args) =>
-        graphNodeContext(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-          requiredString(args, "symbol"),
-        ),
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphNodeContext(store, repo.id, requiredString(args, "symbol"));
+      },
     ),
     tool(
       "codewiki_graph_node_read",
@@ -245,22 +292,27 @@ export function buildGraphTools({
         },
         ["node_id"],
       ),
-      (args) =>
-        graphNodeRead(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-          requiredString(args, "node_id"),
-        ),
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphNodeRead(store, repo.id, requiredString(args, "node_id"));
+      },
     ),
     tool(
       "codewiki_communities_list",
       "List detected graph communities for a repository.",
       objectSchema({ repo: repoSelectorSchema() }),
-      (args) =>
-        graphCommunitiesList(
+      async (args) => {
+        const repo = await resolveRepo(
           store,
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-        ),
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return graphCommunitiesList(store, repo.id);
+      },
     ),
     tool(
       "codewiki_communities_name",
@@ -269,11 +321,16 @@ export function buildGraphTools({
         repo: repoSelectorSchema(),
         max_communities: { type: "integer", default: 40 },
       }),
-      async (args) =>
-        services.communityNaming.nameCommunities(
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-          { maxCommunities: intArg(args, "max_communities", 40) },
-        ),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.communityNaming.nameCommunities(repo.id, {
+          maxCommunities: intArg(args, "max_communities", 40),
+        });
+      },
     ),
   ];
 }

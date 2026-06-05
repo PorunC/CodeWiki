@@ -4,7 +4,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { getSettings, type CodeWikiSettings } from "../config.js";
-import { CodeWikiStore } from "../db/store.js";
+import { createCodeWikiStore } from "../db/factory.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { RepoScanner } from "../scanner/scanner.js";
 import {
   createBackendRuntime,
@@ -14,7 +15,7 @@ import { registerApiRoutes } from "./routes/index.js";
 
 type ServerOptions = {
   settings?: CodeWikiSettings;
-  store?: CodeWikiStore;
+  store?: CodeWikiStoreApi;
   scanner?: RepoScanner;
   services?: BackendServices;
   logger?: boolean;
@@ -25,7 +26,7 @@ export async function createServer(
 ): Promise<FastifyInstance> {
   const settings = options.settings ?? getSettings();
   const ownsStore = options.store === undefined;
-  const store = options.store ?? new CodeWikiStore(settings.databasePath);
+  const store = options.store ?? createCodeWikiStore(settings.databaseUrl);
   const scanner =
     options.scanner ?? new RepoScanner({ storageDir: settings.storageDir });
   const runtime = createBackendRuntime(
@@ -44,7 +45,7 @@ export async function createServer(
 
   if (ownsStore) {
     app.addHook("onClose", async () => {
-      store.close();
+      await store.close();
     });
   }
   return app;

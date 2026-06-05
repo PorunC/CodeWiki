@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import { RepoScanner } from "../scanner/scanner.js";
 import type {
@@ -14,7 +14,7 @@ import { buildRepositoryGraph } from "./repositoryGraphBuilder.js";
 
 export class AnalysisService {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly scanner: RepoScanner,
   ) {}
 
@@ -250,7 +250,7 @@ export class AnalysisService {
 
 export { buildRepositoryGraph } from "./repositoryGraphBuilder.js";
 
-export function analysisRunResponse(store: CodeWikiStore, runId: string) {
+export function analysisRunResponse(store: CodeWikiStoreApi, runId: string) {
   const run = store.getAnalysisRun(runId);
   if (!run) {
     throw notFoundError("Analysis run", runId);
@@ -308,7 +308,7 @@ function uniqueSorted(values: string[]): string[] {
 }
 
 function stalePagesForFiles(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   filePaths: string[],
 ): string[] {

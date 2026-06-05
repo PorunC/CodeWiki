@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError, validationError } from "../errors.js";
 import type { LlmEmbeddingGateway } from "../llm/gateway.js";
 import type { GraphRAGBuildResult, RetrievalTrace } from "../types.js";
@@ -7,7 +7,7 @@ import { buildRetrievalTrace, type RetrievalOptions } from "./retrieval.js";
 
 export class GraphRAGService {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly embeddings?: LlmEmbeddingGateway,
   ) {}
 

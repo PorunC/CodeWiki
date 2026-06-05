@@ -1,5 +1,5 @@
 import { digest } from "../analysis/graphUtils.js";
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { validationError } from "../errors.js";
 import { providerUserIdForRepo } from "../llm/cache.js";
 import type { LlmEmbeddingGateway } from "../llm/gateway.js";
@@ -18,7 +18,7 @@ export type CodeChunkHit = {
 
 export class EmbeddingIndex {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly provider: LlmEmbeddingGateway,
     private readonly batchSize = 32,
   ) {}

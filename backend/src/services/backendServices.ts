@@ -1,6 +1,6 @@
 import { AnalysisService } from "../analysis/analysisService.js";
 import type { CodeWikiSettings } from "../config.js";
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { CommunityNamingService } from "../graph/communityNamingService.js";
 import { GraphRAGService } from "../graphrag/graphragService.js";
 import { CachedLlmService } from "../llm/cache.js";
@@ -12,7 +12,7 @@ import { RepositoryService } from "./repositoryService.js";
 
 export type BackendServiceDependencies = {
   settings: CodeWikiSettings;
-  store: CodeWikiStore;
+  store: CodeWikiStoreApi;
   scanner: RepoScanner;
 };
 

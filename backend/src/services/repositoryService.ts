@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import type { RepoScanner } from "../scanner/scanner.js";
 import type {
@@ -31,11 +31,14 @@ export type RepositoryDeleteResult = {
 
 export class RepositoryService {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly scanner: RepoScanner,
   ) {}
 
-  register(path: string, options: RepositoryInputOptions = {}): RepoDescriptor {
+  async register(
+    path: string,
+    options: RepositoryInputOptions = {},
+  ): Promise<RepoDescriptor> {
     return this.store.upsertRepo(
       this.scanner.describe(path, scannerOptions(options)),
     );
@@ -45,46 +48,46 @@ export class RepositoryService {
     return this.scanner.scan(path, scannerOptions(options));
   }
 
-  list(): RepoDescriptor[] {
+  async list(): Promise<RepoDescriptor[]> {
     return this.store.listRepos();
   }
 
-  get(repoId: string): RepoDescriptor {
-    const repo = this.store.getRepo(repoId);
+  async get(repoId: string): Promise<RepoDescriptor> {
+    const repo = await this.store.getRepo(repoId);
     if (!repo) {
       throw notFoundError("Repository", repoId);
     }
     return repo;
   }
 
-  delete(repoId: string): boolean {
-    if (!this.store.deleteRepo(repoId)) {
+  async delete(repoId: string): Promise<boolean> {
+    if (!(await this.store.deleteRepo(repoId))) {
       throw notFoundError("Repository", repoId);
     }
     return true;
   }
 
-  deleteBySelector(selector: string): RepositoryDeleteResult {
-    const repo = this.resolveRegistered(selector);
-    return { repo, deleted: this.delete(repo.id) };
+  async deleteBySelector(selector: string): Promise<RepositoryDeleteResult> {
+    const repo = await this.resolveRegistered(selector);
+    return { repo, deleted: await this.delete(repo.id) };
   }
 
-  resolveRegistered(selector: string): RepoDescriptor {
+  async resolveRegistered(selector: string): Promise<RepoDescriptor> {
     return resolveRegisteredRepo(this.store, selector);
   }
 
-  selected(selector: string | undefined): RepoDescriptor {
+  async selected(selector: string | undefined): Promise<RepoDescriptor> {
     return selectedRepo(this.store, selector);
   }
 
   resolve(
     selector: string | null | undefined,
     options: RepoResolveOptions = {},
-  ): RepoDescriptor {
+  ): Promise<RepoDescriptor> {
     return resolveRepo(this.store, this.scanner, selector, options);
   }
 
-  ensure(selector: string): RepoDescriptor {
+  async ensure(selector: string): Promise<RepoDescriptor> {
     return ensureRepo(this.store, this.scanner, selector);
   }
 
@@ -95,13 +98,15 @@ export class RepositoryService {
     });
   }
 
-  filesForId(repoId: string): RepositoryFilesResult {
-    const repo = this.get(repoId);
+  async filesForId(repoId: string): Promise<RepositoryFilesResult> {
+    const repo = await this.get(repoId);
     return { repo, scan: this.filesForRepo(repo) };
   }
 
-  filesForSelector(selector: string | undefined): RepositoryFilesResult {
-    const repo = this.selected(selector);
+  async filesForSelector(
+    selector: string | undefined,
+  ): Promise<RepositoryFilesResult> {
+    const repo = await this.selected(selector);
     return { repo, scan: this.filesForRepo(repo) };
   }
 }

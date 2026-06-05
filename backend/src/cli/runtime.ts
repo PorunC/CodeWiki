@@ -1,7 +1,8 @@
 import type { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { getSettings, type CodeWikiSettings } from "../config.js";
-import { CodeWikiStore } from "../db/store.js";
+import { createCodeWikiStore } from "../db/factory.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { RepoScanner } from "../scanner/scanner.js";
 import {
   createBackendRuntime,
@@ -14,7 +15,7 @@ export type JsonOption = {
 
 export type CliContext = {
   settings: CodeWikiSettings;
-  store: CodeWikiStore;
+  store: CodeWikiStoreApi;
   scanner: RepoScanner;
   services: BackendServices;
 };
@@ -33,14 +34,14 @@ export function createCliRuntime(program: Command): CliRuntime {
 
 export function runWithContext(
   runtime: CliRuntime,
-  fn: (context: CliContext) => void,
-): void {
-  runCli(() => {
+  fn: (context: CliContext) => void | Promise<void>,
+): Promise<void> {
+  return runCliAsync(async () => {
     const context = runtime.context();
     try {
-      fn(context);
+      await fn(context);
     } finally {
-      context.store.close();
+      await context.store.close();
     }
   });
 }
@@ -54,7 +55,7 @@ export function runWithContextAsync(
     try {
       await fn(context);
     } finally {
-      context.store.close();
+      await context.store.close();
     }
   });
 }
@@ -147,7 +148,7 @@ export async function runCliAsync(fn: () => Promise<void>): Promise<void> {
 function createContext(program: Command): CliContext {
   withDatabaseOverride(program);
   const settings = getSettings();
-  const store = new CodeWikiStore(settings.databasePath);
+  const store = createCodeWikiStore(settings.databaseUrl);
   const scanner = new RepoScanner({ storageDir: settings.storageDir });
   return createBackendRuntime({ settings, store, scanner });
 }

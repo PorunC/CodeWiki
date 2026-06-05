@@ -1,5 +1,5 @@
 import type { FastifyReply } from "fastify";
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { CodeWikiError, notFoundError, validationError } from "../errors.js";
 import type { RepoDescriptor } from "../types.js";
 
@@ -11,7 +11,7 @@ export type RouteParams = {
   slug: string;
 };
 
-export type RepositoryReader = Pick<CodeWikiStore, "getRepo">;
+export type RepositoryReader = Pick<CodeWikiStoreApi, "getRepo">;
 
 export function httpError(
   reply: FastifyReply,
@@ -46,11 +46,11 @@ export function routeErrorStatus(
   return fallbackStatusCode;
 }
 
-export function requireRepo(
+export async function requireRepo(
   store: RepositoryReader,
   repoId: string,
-): RepoDescriptor {
-  const repo = store.getRepo(repoId);
+): Promise<RepoDescriptor> {
+  const repo = await store.getRepo(repoId);
   if (!repo) {
     throw notFoundError("Repository", repoId);
   }
@@ -64,7 +64,7 @@ export async function withRepo<T>(
   handler: (repo: RepoDescriptor) => T | Promise<T>,
 ): Promise<T | FastifyReply> {
   try {
-    return await handler(requireRepo(store, repoId));
+    return await handler(await requireRepo(store, repoId));
   } catch (error) {
     return routeError(reply, error);
   }

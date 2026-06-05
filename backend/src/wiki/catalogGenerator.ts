@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import {
   LlmCallError,
@@ -56,7 +56,7 @@ const MAX_CATALOG_DEPTH = 4;
 
 export class WikiCatalogGenerator {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly llm?: WikiCatalogLlm,
   ) {}
 

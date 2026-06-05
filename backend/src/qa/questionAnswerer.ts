@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError, validationError } from "../errors.js";
 import {
   LlmCallError,
@@ -45,7 +45,7 @@ type QuestionContext = {
 
 export class QuestionAnswerer {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly llm?: QuestionAnswerLlm,
   ) {}
 

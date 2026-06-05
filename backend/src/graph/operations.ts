@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import type { CodeGraphEdge, CodeGraphNode, JsonObject } from "../types.js";
 import { nameGraphCommunities } from "./communityNaming.js";
 
@@ -12,16 +12,20 @@ export type GraphSearchFilters = {
 
 export type GraphRelationshipDirection = "callers" | "callees";
 
-export function graphResponse(
-  store: CodeWikiStore,
+export async function graphResponse(
+  store: CodeWikiStoreApi,
   repoId: string,
-): JsonObject {
-  const graph = store.getGraph(repoId);
+): Promise<JsonObject> {
+  const [graph, communities, communityEdges] = await Promise.all([
+    store.getGraph(repoId),
+    store.listGraphCommunities(repoId),
+    store.listGraphCommunityEdges(repoId),
+  ]);
   return {
     repo_id: repoId,
     nodes: graph.nodes.map(graphNodePayload),
     edges: graph.edges.map(graphEdgePayload),
-    communities: store.listGraphCommunities(repoId).map((community) => ({
+    communities: communities.map((community) => ({
       id: community.id,
       name: community.name,
       level: community.level,
@@ -30,7 +34,7 @@ export function graphResponse(
       node_ids: community.node_ids,
       summary: community.summary ?? "",
     })),
-    community_edges: store.listGraphCommunityEdges(repoId).map((edge) => ({
+    community_edges: communityEdges.map((edge) => ({
       id: edge.id,
       source: edge.source_community_id,
       target: edge.target_community_id,
@@ -43,8 +47,14 @@ export function graphResponse(
   };
 }
 
-export function graphStatus(store: CodeWikiStore, repoId: string): JsonObject {
-  const graph = store.getGraph(repoId);
+export async function graphStatus(
+  store: CodeWikiStoreApi,
+  repoId: string,
+): Promise<JsonObject> {
+  const [graph, chunks] = await Promise.all([
+    store.getGraph(repoId),
+    store.listCodeChunks(repoId),
+  ]);
   return {
     repo_id: repoId,
     file_count: graph.nodes.filter(
@@ -52,7 +62,7 @@ export function graphStatus(store: CodeWikiStore, repoId: string): JsonObject {
     ).length,
     node_count: graph.nodes.length,
     edge_count: graph.edges.length,
-    chunk_count: store.listCodeChunks(repoId).length,
+    chunk_count: chunks.length,
     nodes_by_type: countBy(graph.nodes, (node) => node.type),
     edges_by_type: countBy(graph.edges, (edge) => edge.type),
     languages: countBy(
@@ -62,16 +72,17 @@ export function graphStatus(store: CodeWikiStore, repoId: string): JsonObject {
   };
 }
 
-export function graphSearch(
-  store: CodeWikiStore,
+export async function graphSearch(
+  store: CodeWikiStoreApi,
   repoId: string,
   query: string,
   filters: GraphSearchFilters = {},
-): JsonObject {
+): Promise<JsonObject> {
+  const results = await store.searchCodeNodes(repoId, query, filters);
   return {
     repo_id: repoId,
     query,
-    results: store.searchCodeNodes(repoId, query, filters).map((hit) => ({
+    results: results.map((hit) => ({
       node: graphNodePayload(hit.node),
       score: hit.score,
       reasons: hit.reasons,
@@ -79,14 +90,14 @@ export function graphSearch(
   };
 }
 
-export function graphRelationships(
-  store: CodeWikiStore,
+export async function graphRelationships(
+  store: CodeWikiStoreApi,
   repoId: string,
   symbol: string,
   direction: GraphRelationshipDirection,
   limit: number,
-): JsonObject {
-  const graph = store.getGraph(repoId);
+): Promise<JsonObject> {
+  const graph = await store.getGraph(repoId);
   const node = findGraphNode(graph.nodes, symbol);
   if (!node) {
     return { repo_id: repoId, symbol, relationships: [] };
@@ -118,13 +129,13 @@ export function graphRelationships(
   return { repo_id: repoId, symbol, relationships };
 }
 
-export function graphImpact(
-  store: CodeWikiStore,
+export async function graphImpact(
+  store: CodeWikiStoreApi,
   repoId: string,
   symbol: string,
   depth = 2,
-): JsonObject {
-  const graph = store.getGraph(repoId);
+): Promise<JsonObject> {
+  const graph = await store.getGraph(repoId);
   const roots = graph.nodes.filter(
     (node) => node.name === symbol || node.id === symbol,
   );
@@ -158,12 +169,12 @@ export function graphImpact(
   };
 }
 
-export function graphAffected(
-  store: CodeWikiStore,
+export async function graphAffected(
+  store: CodeWikiStoreApi,
   repoId: string,
   filePaths: string[],
-): JsonObject {
-  const graph = store.getGraph(repoId);
+): Promise<JsonObject> {
+  const graph = await store.getGraph(repoId);
   const affectedNodeIds = graph.nodes
     .filter((node) => filePaths.includes(node.file_path))
     .map((node) => node.id);
@@ -178,22 +189,23 @@ export function graphAffected(
   };
 }
 
-export function graphExplore(
-  store: CodeWikiStore,
+export async function graphExplore(
+  store: CodeWikiStoreApi,
   repoId: string,
   query: string,
   maxNodes: number,
   maxFiles = 8,
-): JsonObject {
-  const hits = store.searchCodeNodes(repoId, query, { limit: maxNodes });
-  const sourceSections = store
-    .searchCodeChunks(repoId, query, maxFiles)
-    .map((hit) => ({
-      file_path: hit.chunk.file_path,
-      start_line: hit.chunk.start_line,
-      end_line: hit.chunk.end_line,
-      content: hit.chunk.content,
-    }));
+): Promise<JsonObject> {
+  const [hits, chunkHits] = await Promise.all([
+    store.searchCodeNodes(repoId, query, { limit: maxNodes }),
+    store.searchCodeChunks(repoId, query, maxFiles),
+  ]);
+  const sourceSections = chunkHits.map((hit) => ({
+    file_path: hit.chunk.file_path,
+    start_line: hit.chunk.start_line,
+    end_line: hit.chunk.end_line,
+    content: hit.chunk.content,
+  }));
   return {
     repo_id: repoId,
     query,
@@ -212,14 +224,14 @@ export function graphExplore(
   };
 }
 
-export function graphTrace(
-  store: CodeWikiStore,
+export async function graphTrace(
+  store: CodeWikiStoreApi,
   repoId: string,
   fromSymbol: string,
   toSymbol: string,
   maxDepth: number,
-): JsonObject {
-  const graph = store.getGraph(repoId);
+): Promise<JsonObject> {
+  const graph = await store.getGraph(repoId);
   const start = findGraphNode(graph.nodes, fromSymbol);
   const target = findGraphNode(graph.nodes, toSymbol);
   if (!start || !target) {
@@ -295,12 +307,12 @@ export function graphTrace(
   };
 }
 
-export function graphNodeContext(
-  store: CodeWikiStore,
+export async function graphNodeContext(
+  store: CodeWikiStoreApi,
   repoId: string,
   symbol: string,
-): JsonObject {
-  const graph = store.getGraph(repoId);
+): Promise<JsonObject> {
+  const graph = await store.getGraph(repoId);
   const node = findGraphNode(graph.nodes, symbol);
   if (!node) {
     throw new Error(`Graph node not found: ${symbol}`);
@@ -321,19 +333,18 @@ export function graphNodeContext(
       )
       .map(graphNodePayload),
     adjacent_edges: adjacentEdges.map(graphEdgePayload),
-    source_sections: store
-      .listCodeChunks(repoId)
+    source_sections: (await store.listCodeChunks(repoId))
       .filter((chunk) => chunk.file_path === node.file_path)
       .slice(0, 3),
   };
 }
 
-export function graphNodeRead(
-  store: CodeWikiStore,
+export async function graphNodeRead(
+  store: CodeWikiStoreApi,
   repoId: string,
   nodeId: string,
-): JsonObject {
-  const graph = store.getGraph(repoId);
+): Promise<JsonObject> {
+  const graph = await store.getGraph(repoId);
   const node = graph.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) {
     throw new Error(`Node not found: ${nodeId}`);
@@ -348,11 +359,11 @@ export function graphNodeRead(
   };
 }
 
-export function graphCommunitiesList(
-  store: CodeWikiStore,
+export async function graphCommunitiesList(
+  store: CodeWikiStoreApi,
   repoId: string,
-): JsonObject[] {
-  return store.listGraphCommunities(repoId).map((community) => ({
+): Promise<JsonObject[]> {
+  return (await store.listGraphCommunities(repoId)).map((community) => ({
     id: community.id,
     repo_id: community.repo_id,
     name: community.name,
@@ -366,14 +377,13 @@ export function graphCommunitiesList(
   }));
 }
 
-export function graphNameCommunities(
-  store: CodeWikiStore,
+export async function graphNameCommunities(
+  store: CodeWikiStoreApi,
   repoId: string,
   maxCommunities: number,
-): JsonObject {
+): Promise<JsonObject> {
   const result = nameGraphCommunities(store, repoId, { maxCommunities });
-  const communities = store
-    .listGraphCommunities(repoId)
+  const communities = (await store.listGraphCommunities(repoId))
     .filter((community) => result.named_community_ids.includes(community.id))
     .map((community) => ({
       id: community.id,

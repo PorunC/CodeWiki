@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import type { CachedLlmCompletion, LlmOperation } from "../llm/cache.js";
 import type { DocCatalog, JsonObject } from "../types.js";
 import {
@@ -29,7 +29,7 @@ export class WikiService {
   private readonly pageGenerator: WikiPageGenerator;
 
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     llm?: WikiLlm,
   ) {
     this.catalogGenerator = new WikiCatalogGenerator(store, llm);

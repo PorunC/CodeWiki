@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import {
   LlmCallError,
   type CachedLlmCompletion,
@@ -66,7 +66,7 @@ type ProviderCommunityName = {
 
 export class CommunityNamingService {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly llm?: CommunityNamingLlm,
   ) {}
 
@@ -179,7 +179,7 @@ export class CommunityNamingService {
 }
 
 function communityContexts(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   communityIds: string[],
 ): CommunityContext[] {
@@ -320,7 +320,7 @@ function normalizeProviderNames(
 }
 
 function applyProviderNames(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   baseline: CommunityNamingResult,
   providerNames: ProviderCommunityName[],
@@ -364,7 +364,7 @@ function applyProviderNames(
 }
 
 function namedCommunityPayloads(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   communityIds: string[],
 ): CommunityNamingPayload["communities"] {
@@ -385,7 +385,7 @@ function namedCommunityPayloads(
 }
 
 function preserveCommunityEdges(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   communities: GraphCommunity[],
   edges: GraphCommunityEdge[],

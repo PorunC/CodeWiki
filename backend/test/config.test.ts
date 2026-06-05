@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
 import { llmModelsPayload } from "../src/presenters/payloads.js";
 import {
   codewikiValues,
+  defaultEnvFile,
   environmentWithDotEnv,
   formatEnvValue,
   llmProfileKey,
@@ -178,5 +179,23 @@ describe("config", () => {
     expect(settings.databasePath).toBe(":memory:");
     expect(settings.storageDir).toContain("storage-from-env-file");
     expect(settings.llm.default.model).toBe("openai/env-file");
+  });
+
+  it("uses the repository root .env when running from backend", () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-root-dotenv-"));
+    const backendDir = join(root, "backend");
+    const envFile = join(root, ".env");
+    mkdirSync(backendDir);
+    writeFileSync(
+      envFile,
+      "CODEWIKI_DATABASE_URL=postgresql://user@localhost:5432/codewiki\n",
+    );
+
+    expect(defaultEnvFile(backendDir)).toBe(envFile);
+    expect(environmentWithDotEnv({}, defaultEnvFile(backendDir))).toMatchObject(
+      {
+        CODEWIKI_DATABASE_URL: "postgresql://user@localhost:5432/codewiki",
+      },
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import type { CodeChunk, RetrievalTrace } from "../types.js";
 import type { CodeChunkHit } from "./embeddingIndex.js";
 import {
@@ -18,7 +18,7 @@ export type RetrievalOptions = {
 };
 
 export function buildRetrievalTrace(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   query: string,
   options: RetrievalOptions = {},

@@ -1,4 +1,4 @@
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import type {
   CodeGraphEdge,
@@ -35,7 +35,7 @@ type CommunityProfile = {
 
 const DEFAULT_MAX_COMMUNITIES = 40;
 export function nameGraphCommunities(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   options: { maxCommunities?: number } = {},
 ): CommunityNamingResult {
@@ -216,7 +216,7 @@ function summaryFromProfile(
 }
 
 function preserveCommunityEdges(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   communities: GraphCommunity[],
   edges: GraphCommunityEdge[],

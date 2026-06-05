@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import type { JsonObject } from "../types.js";
 import { catalogPayload, llmCachePayload, pagePayload } from "./payloads.js";
 
 export function copyWikiLanguage(
-  store: CodeWikiStore,
+  store: CodeWikiStoreApi,
   repoId: string,
   sourceLanguage: string,
   targetLanguage: string,

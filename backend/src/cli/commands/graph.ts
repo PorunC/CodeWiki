@@ -40,9 +40,11 @@ export function registerGraphCommands(
     .argument("[repo]", "Repository id, id prefix, or name")
     .option("--json", "Print JSON output")
     .action((selector: string | undefined, options: { json?: boolean }) => {
-      runWithContext(runtime, ({ store }) => {
-        const repo = selector ? resolveRepo(store, selector) : firstRepo(store);
-        const payload = graphStatus(store, repo.id);
+      void runWithContext(runtime, async ({ store }) => {
+        const repo = selector
+          ? await resolveRepo(store, selector)
+          : await firstRepo(store);
+        const payload = await graphStatus(store, repo.id);
         output(options.json, payload, formatGraphStatus(payload));
       });
     });
@@ -70,11 +72,11 @@ export function registerGraphCommands(
           json?: boolean;
         },
       ) => {
-        runWithContext(runtime, ({ store }) => {
+        void runWithContext(runtime, async ({ store }) => {
           const repo = selector
-            ? resolveRepo(store, selector)
-            : firstRepo(store);
-          const payload = graphSearch(store, repo.id, query, {
+            ? await resolveRepo(store, selector)
+            : await firstRepo(store);
+          const payload = await graphSearch(store, repo.id, query, {
             ...cliSearchFilters(options),
             limit: parseLimit(options.limit),
           });
@@ -95,11 +97,11 @@ export function registerGraphCommands(
         selector: string | undefined,
         options: { limit: string; json?: boolean },
       ) => {
-        runWithContext(runtime, ({ store }) => {
+        void runWithContext(runtime, async ({ store }) => {
           const repo = selector
-            ? resolveRepo(store, selector)
-            : firstRepo(store);
-          const payload = graphRelationships(
+            ? await resolveRepo(store, selector)
+            : await firstRepo(store);
+          const payload = await graphRelationships(
             store,
             repo.id,
             symbol,
@@ -127,11 +129,11 @@ export function registerGraphCommands(
         selector: string | undefined,
         options: { limit: string; json?: boolean },
       ) => {
-        runWithContext(runtime, ({ store }) => {
+        void runWithContext(runtime, async ({ store }) => {
           const repo = selector
-            ? resolveRepo(store, selector)
-            : firstRepo(store);
-          const payload = graphRelationships(
+            ? await resolveRepo(store, selector)
+            : await firstRepo(store);
+          const payload = await graphRelationships(
             store,
             repo.id,
             symbol,
@@ -158,11 +160,11 @@ export function registerGraphCommands(
         selector: string | undefined,
         options: { json?: boolean },
       ) => {
-        runWithContext(runtime, ({ store }) => {
+        void runWithContext(runtime, async ({ store }) => {
           const repo = selector
-            ? resolveRepo(store, selector)
-            : firstRepo(store);
-          const payload = graphImpact(store, repo.id, symbol);
+            ? await resolveRepo(store, selector)
+            : await firstRepo(store);
+          const payload = await graphImpact(store, repo.id, symbol);
           output(options.json, payload, formatImpact(payload));
         });
       },
@@ -180,11 +182,11 @@ export function registerGraphCommands(
         selector: string | undefined,
         options: { maxNodes: string; json?: boolean },
       ) => {
-        runWithContext(runtime, ({ store }) => {
+        void runWithContext(runtime, async ({ store }) => {
           const repo = selector
-            ? resolveRepo(store, selector)
-            : firstRepo(store);
-          const payload = graphExplore(
+            ? await resolveRepo(store, selector)
+            : await firstRepo(store);
+          const payload = await graphExplore(
             store,
             repo.id,
             query,
@@ -207,10 +209,10 @@ export function registerGraphCommands(
         files: string[],
         options: { stdin?: boolean; json?: boolean },
       ) => {
-        runWithContext(runtime, ({ store }) => {
-          const repo = resolveRepo(store, selector);
+        void runWithContext(runtime, async ({ store }) => {
+          const repo = await resolveRepo(store, selector);
           const changedFiles = options.stdin ? readStdinLines() : files;
-          const payload = graphAffected(store, repo.id, changedFiles);
+          const payload = await graphAffected(store, repo.id, changedFiles);
           output(options.json, payload, formatAffectedFiles(payload));
         });
       },

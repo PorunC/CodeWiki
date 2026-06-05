@@ -5,7 +5,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ENV_ASSIGNMENT_PATTERN =
@@ -68,6 +68,10 @@ export type EnvAssignment = {
 };
 
 export function defaultEnvFile(cwd = process.cwd()): string {
+  const rootEnvFile = parentRootEnvFile(cwd);
+  if (rootEnvFile) {
+    return rootEnvFile;
+  }
   return resolve(cwd, ".env");
 }
 
@@ -296,6 +300,14 @@ function parseDoubleQuotedValue(value: string): string {
 function stripInlineComment(value: string): string {
   const commentIndex = value.search(/\s#/);
   return commentIndex === -1 ? value : value.slice(0, commentIndex);
+}
+
+function parentRootEnvFile(cwd: string): string | null {
+  if (basename(cwd) !== "backend") {
+    return null;
+  }
+  const envFile = resolve(cwd, "..", ".env");
+  return existsSync(envFile) ? envFile : null;
 }
 
 function isLlmProfileName(value: string): value is LlmProfileName {

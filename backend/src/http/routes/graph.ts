@@ -117,8 +117,8 @@ export function registerGraphRoutes(
 
   app.get("/api/repos/:repoId/graph/nodes/:nodeId", async (request, reply) => {
     const { repoId, nodeId } = params(request.params);
-    return withRepo(reply, store, repoId, () => {
-      const graph = store.getGraph(repoId);
+    return withRepo(reply, store, repoId, async () => {
+      const graph = await store.getGraph(repoId);
       const node = graph.nodes.find((candidate) => candidate.id === nodeId);
       if (!node) {
         throw notFoundError("Node", nodeId);
@@ -140,8 +140,8 @@ export function registerGraphRoutes(
 
   app.get("/api/repos/:repoId/communities", async (request, reply) => {
     const { repoId } = params(request.params);
-    return withRepo(reply, store, repoId, () =>
-      store.listGraphCommunities(repoId).map((community) => ({
+    return withRepo(reply, store, repoId, async () =>
+      (await store.listGraphCommunities(repoId)).map((community) => ({
         id: community.id,
         name: community.name,
         level: community.level,

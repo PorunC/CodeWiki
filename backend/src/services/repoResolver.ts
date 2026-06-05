@@ -1,6 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { conflictError, notFoundError, validationError } from "../errors.js";
 import type { RepoScanner } from "../scanner/scanner.js";
 import type { RepoDescriptor } from "../types.js";
@@ -10,55 +10,57 @@ export type RepoResolveOptions = {
   defaultSelector?: string;
 };
 
-export function resolveRegisteredRepo(
-  store: CodeWikiStore,
+export async function resolveRegisteredRepo(
+  store: CodeWikiStoreApi,
   selector: string,
-): RepoDescriptor {
+): Promise<RepoDescriptor> {
   const selected = normalizeSelector(selector);
-  const match = findRegisteredRepo(store, selected);
+  const match = await findRegisteredRepo(store, selected);
   if (match) {
     return match;
   }
   throw notFoundError("Repository", selected);
 }
 
-export function firstRepo(store: CodeWikiStore): RepoDescriptor {
-  const repo = store.listRepos()[0];
+export async function firstRepo(
+  store: CodeWikiStoreApi,
+): Promise<RepoDescriptor> {
+  const repo = (await store.listRepos())[0];
   if (!repo) {
     throw notFoundError("Repository", "first");
   }
   return repo;
 }
 
-export function selectedRepo(
-  store: CodeWikiStore,
+export async function selectedRepo(
+  store: CodeWikiStoreApi,
   selector: string | undefined,
-): RepoDescriptor {
+): Promise<RepoDescriptor> {
   return selector ? resolveRegisteredRepo(store, selector) : firstRepo(store);
 }
 
-export function ensureRepo(
-  store: CodeWikiStore,
+export async function ensureRepo(
+  store: CodeWikiStoreApi,
   scanner: RepoScanner,
   selector: string,
-): RepoDescriptor {
+): Promise<RepoDescriptor> {
   try {
-    return resolveRegisteredRepo(store, selector);
+    return await resolveRegisteredRepo(store, selector);
   } catch {
     return store.upsertRepo(scanner.describe(selector));
   }
 }
 
-export function resolveRepo(
-  store: CodeWikiStore,
+export async function resolveRepo(
+  store: CodeWikiStoreApi,
   scanner: RepoScanner,
   selector: string | null | undefined,
   options: RepoResolveOptions = {},
-): RepoDescriptor {
+): Promise<RepoDescriptor> {
   const selected = normalizeSelector(
     selector ?? options.defaultSelector ?? ".",
   );
-  const match = findRegisteredRepo(store, selected);
+  const match = await findRegisteredRepo(store, selected);
   if (match) {
     return match;
   }
@@ -77,16 +79,16 @@ export function looksLikeExistingDirectory(value: string): boolean {
   }
 }
 
-function findRegisteredRepo(
-  store: CodeWikiStore,
+async function findRegisteredRepo(
+  store: CodeWikiStoreApi,
   selector: string,
-): RepoDescriptor | null {
-  const exact = store.getRepo(selector);
+): Promise<RepoDescriptor | null> {
+  const exact = await store.getRepo(selector);
   if (exact) {
     return exact;
   }
 
-  const repos = store.listRepos();
+  const repos = await store.listRepos();
   const resolvedSelectorPath = resolvedExistingDirectory(selector);
   const pathMatches = repos.filter(
     (repo) =>

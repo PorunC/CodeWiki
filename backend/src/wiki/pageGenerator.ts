@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CodeWikiStore } from "../db/store.js";
+import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import {
   LlmCallError,
@@ -42,7 +42,7 @@ type WikiPageContext = {
 
 export class WikiPageGenerator {
   constructor(
-    private readonly store: CodeWikiStore,
+    private readonly store: CodeWikiStoreApi,
     private readonly llm?: WikiPageLlm,
   ) {}
 
