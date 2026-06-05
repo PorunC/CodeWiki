@@ -15,7 +15,7 @@ describe("RepositoryService", () => {
     store = null;
   });
 
-  it("registers, scans, resolves, lists, reads files, and deletes repositories", () => {
+  it("registers, scans, resolves, lists, reads files, and deletes repositories", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-repository-service-"));
     const repoPath = join(root, "repo");
     mkdirSync(join(repoPath, "src"), { recursive: true });
@@ -28,14 +28,20 @@ describe("RepositoryService", () => {
     store = new CodeWikiStore(":memory:");
     const service = new RepositoryService(store, new RepoScanner());
 
-    const registered = service.register(repoPath, { name: "service-repo" });
+    const registered = await service.register(repoPath, {
+      name: "service-repo",
+    });
     expect(registered).toMatchObject({
       name: "service-repo",
       path: repoPath,
       source_type: "local",
     });
-    expect(service.list().map((repo) => repo.id)).toEqual([registered.id]);
-    expect(service.resolveRegistered("service-repo").id).toBe(registered.id);
+    expect((await service.list()).map((repo) => repo.id)).toEqual([
+      registered.id,
+    ]);
+    expect((await service.resolveRegistered("service-repo")).id).toBe(
+      registered.id,
+    );
 
     const scan = service.scan(repoPath, { name: "scan-repo" });
     expect(scan.repo.name).toBe("scan-repo");
@@ -44,19 +50,19 @@ describe("RepositoryService", () => {
       "src/main.ts",
     ]);
 
-    const files = service.filesForId(registered.id);
+    const files = await service.filesForId(registered.id);
     expect(files.repo.id).toBe(registered.id);
     expect(files.scan.files.map((file) => file.path)).toEqual([
       "README.md",
       "src/main.ts",
     ]);
 
-    const deleted = service.deleteBySelector("service-repo");
+    const deleted = await service.deleteBySelector("service-repo");
     expect(deleted).toMatchObject({
       repo: { id: registered.id },
       deleted: true,
     });
-    expect(service.list()).toEqual([]);
-    expect(() => service.get(registered.id)).toThrow(CodeWikiError);
+    expect(await service.list()).toEqual([]);
+    await expect(service.get(registered.id)).rejects.toThrow(CodeWikiError);
   });
 });

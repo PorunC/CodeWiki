@@ -25,8 +25,12 @@ export function buildGraphRagTools({
         repo: repoSelectorSchema(),
         embeddings: { type: "boolean", default: false },
       }),
-      (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         return services.graphRag.buildIndex(repo.id, {
           includeEmbeddings: boolArg(args, "embeddings", false),
         });
@@ -49,7 +53,11 @@ export function buildGraphRagTools({
         ["query"],
       ),
       async (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         const query = requiredString(args, "query");
         const trace = await services.graphRag.retrieve(repo.id, query, {
           limit: intArg(args, "limit", 10),
@@ -69,16 +77,19 @@ export function buildGraphRagTools({
         },
         ["question"],
       ),
-      (args) =>
-        services.questionAnswerer.answerWithLlmFallback(
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-          {
-            question: requiredString(args, "question"),
-            max_hops: intArg(args, "max_hops", 2),
-            include_sources: true,
-            include_graph: true,
-          },
-        ),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.questionAnswerer.answerWithLlmFallback(repo.id, {
+          question: requiredString(args, "question"),
+          max_hops: intArg(args, "max_hops", 2),
+          include_sources: true,
+          include_graph: true,
+        });
+      },
     ),
   ];
 }

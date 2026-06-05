@@ -21,10 +21,14 @@ export function buildAnalysisTools({
       "codewiki_analyze",
       "Run TypeScript graph analysis for a registered repo, path, name, or id.",
       objectSchema({ repo: repoSelectorSchema() }),
-      (args) =>
-        services.analysis.analyze(
-          resolveRepo(store, scanner, optionalString(args, "repo")).id,
-        ),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.analysis.analyze(repo.id);
+      },
     ),
     tool(
       "codewiki_update",
@@ -34,7 +38,11 @@ export function buildAnalysisTools({
         regenerate_wiki: { type: "boolean", default: true },
       }),
       async (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
         const result = services.analysis.update(repo.id);
         const wikiRegeneration = boolArg(args, "regenerate_wiki", true)
           ? await services.wiki.updatePagesWithLlmFallback(repo.id)
@@ -46,11 +54,15 @@ export function buildAnalysisTools({
       "codewiki_runs_list",
       "List analysis runs for a repository.",
       objectSchema({ repo: repoSelectorSchema() }),
-      (args) => {
-        const repo = resolveRepo(store, scanner, optionalString(args, "repo"));
-        return store
-          .listAnalysisRuns(repo.id)
-          .map((run) => analysisRunResponse(store, run.id));
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return (await store.listAnalysisRuns(repo.id)).map((run) =>
+          analysisRunResponse(store, run.id),
+        );
       },
     ),
   ];

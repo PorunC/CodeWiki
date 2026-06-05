@@ -1,12 +1,7 @@
 import type { Command } from "commander";
 import { updatePayloadFromAnalysis } from "../../presenters/payloads.js";
 import { resolveRepo } from "../../services/repoResolver.js";
-import {
-  output,
-  runWithContext,
-  runWithContextAsync,
-  type CliRuntime,
-} from "../runtime.js";
+import { output, runWithContextAsync, type CliRuntime } from "../runtime.js";
 
 export function registerAnalysisCommands(
   program: Command,
@@ -34,15 +29,18 @@ export function registerAnalysisCommands(
     .option("--no-community-summaries", "Accepted for compatibility")
     .option("--json", "Print JSON output")
     .action((selector: string | undefined, options: { json?: boolean }) => {
-      runWithContext(runtime, ({ store, scanner, services }) => {
-        const repo = resolveRepo(store, scanner, selector);
-        const result = services.analysis.analyze(repo.id);
-        output(
-          options.json,
-          result,
-          `Analysis ${result.status}: ${result.node_count} nodes, ${result.edge_count} edges`,
-        );
-      });
+      return runWithContextAsync(
+        runtime,
+        async ({ store, scanner, services }) => {
+          const repo = await resolveRepo(store, scanner, selector);
+          const result = services.analysis.analyze(repo.id);
+          output(
+            options.json,
+            result,
+            `Analysis ${result.status}: ${result.node_count} nodes, ${result.edge_count} edges`,
+          );
+        },
+      );
     });
 
   program
@@ -74,7 +72,7 @@ export function registerAnalysisCommands(
         },
       ) =>
         runWithContextAsync(runtime, async ({ store, scanner, services }) => {
-          const repo = resolveRepo(store, scanner, selector);
+          const repo = await resolveRepo(store, scanner, selector);
           const result = services.analysis.update(repo.id);
           const wikiRegeneration = options.regenerateWiki
             ? await services.wiki.updatePagesWithLlmFallback(repo.id)

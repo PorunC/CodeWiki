@@ -21,7 +21,7 @@ describe("repoResolver", () => {
     store = null;
   });
 
-  it("resolves registered repositories by id, name, prefix, path, and git URL", () => {
+  it("resolves registered repositories by id, name, prefix, path, and git URL", async () => {
     store = new CodeWikiStore(":memory:");
     const root = mkdtempSync(join(tmpdir(), "codewiki-repo-resolver-"));
     const repoPath = join(root, "alpha");
@@ -36,18 +36,18 @@ describe("repoResolver", () => {
       }),
     );
 
-    expect(resolveRegisteredRepo(store, repo.id).id).toBe(repo.id);
-    expect(resolveRegisteredRepo(store, "alpha").id).toBe(repo.id);
-    expect(resolveRegisteredRepo(store, "alpha123").id).toBe(repo.id);
-    expect(resolveRegisteredRepo(store, repoPath).id).toBe(repo.id);
+    expect((await resolveRegisteredRepo(store, repo.id)).id).toBe(repo.id);
+    expect((await resolveRegisteredRepo(store, "alpha")).id).toBe(repo.id);
+    expect((await resolveRegisteredRepo(store, "alpha123")).id).toBe(repo.id);
+    expect((await resolveRegisteredRepo(store, repoPath)).id).toBe(repo.id);
     expect(
-      resolveRegisteredRepo(store, "https://example.com/alpha.git").id,
+      (await resolveRegisteredRepo(store, "https://example.com/alpha.git")).id,
     ).toBe(repo.id);
-    expect(selectedRepo(store, undefined).id).toBe(repo.id);
-    expect(firstRepo(store).id).toBe(repo.id);
+    expect((await selectedRepo(store, undefined)).id).toBe(repo.id);
+    expect((await firstRepo(store)).id).toBe(repo.id);
   });
 
-  it("reports ambiguous names and prefixes", () => {
+  it("reports ambiguous names and prefixes", async () => {
     store = new CodeWikiStore(":memory:");
     store.upsertRepo(
       repoDescriptor({
@@ -64,35 +64,35 @@ describe("repoResolver", () => {
       }),
     );
 
-    expect(() => resolveRegisteredRepo(store!, "same")).toThrow(
+    await expect(resolveRegisteredRepo(store!, "same")).rejects.toThrow(
       "Repository name is ambiguous",
     );
-    expect(() => resolveRegisteredRepo(store!, "shared-prefix")).toThrow(
-      "Repository id prefix is ambiguous",
-    );
+    await expect(
+      resolveRegisteredRepo(store!, "shared-prefix"),
+    ).rejects.toThrow("Repository id prefix is ambiguous");
   });
 
-  it("creates repositories from paths only when requested", () => {
+  it("creates repositories from paths only when requested", async () => {
     store = new CodeWikiStore(":memory:");
     const root = mkdtempSync(join(tmpdir(), "codewiki-repo-resolver-create-"));
     const repoPath = join(root, "created");
     mkdirSync(repoPath);
     const scanner = new RepoScanner();
 
-    expect(() =>
+    await expect(
       resolveRepo(store!, scanner, repoPath, { createIfMissing: false }),
-    ).toThrow("Repository not found");
+    ).rejects.toThrow("Repository not found");
     expect(store.listRepos()).toEqual([]);
 
-    const created = resolveRepo(store, scanner, repoPath);
+    const created = await resolveRepo(store, scanner, repoPath);
     expect(created.path).toBe(repoPath);
     expect(store.getRepo(created.id)?.path).toBe(repoPath);
 
-    const ensured = ensureRepo(store, scanner, repoPath);
+    const ensured = await ensureRepo(store, scanner, repoPath);
     expect(ensured.id).toBe(created.id);
   });
 
-  it("matches registered repositories by real path", () => {
+  it("matches registered repositories by real path", async () => {
     store = new CodeWikiStore(":memory:");
     const root = mkdtempSync(
       join(tmpdir(), "codewiki-repo-resolver-realpath-"),
@@ -109,7 +109,7 @@ describe("repoResolver", () => {
       }),
     );
 
-    expect(resolveRegisteredRepo(store, realRepoPath).id).toBe(repo.id);
+    expect((await resolveRegisteredRepo(store, realRepoPath)).id).toBe(repo.id);
   });
 });
 

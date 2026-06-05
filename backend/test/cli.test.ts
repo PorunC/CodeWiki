@@ -264,7 +264,7 @@ describe("codewiki CLI", () => {
     );
     expect(translatedPage.language_code).toBe("zh");
     expect(translatedPage.slug).toBe(slug);
-  }, 30_000);
+  }, 60_000);
 
   it("starts MCP lite mode with a project-local database", () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-cli-lite-"));

@@ -32,7 +32,7 @@ export function registerGraphRagCommands(
     .action(
       (selector: string, options: { embeddings?: boolean; json?: boolean }) => {
         return runWithContextAsync(runtime, async ({ store, services }) => {
-          const repo = resolveRepo(store, selector);
+          const repo = await resolveRepo(store, selector);
           const payload = await services.graphRag.buildIndex(repo.id, {
             includeEmbeddings: Boolean(options.embeddings),
           });
@@ -59,8 +59,8 @@ export function registerGraphRagCommands(
       ) => {
         return runWithContextAsync(runtime, async ({ store, services }) => {
           const repo = selector
-            ? resolveRepo(store, selector)
-            : firstRepo(store);
+            ? await resolveRepo(store, selector)
+            : await firstRepo(store);
           const trace = await services.graphRag.retrieve(repo.id, query, {
             limit: parseLimit(options.limit),
           });

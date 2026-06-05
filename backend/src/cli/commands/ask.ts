@@ -22,8 +22,8 @@ export function registerAskCommand(
       ) =>
         runWithContextAsync(runtime, async ({ store, services }) => {
           const repo = selector
-            ? resolveRepo(store, selector)
-            : firstRepo(store);
+            ? await resolveRepo(store, selector)
+            : await firstRepo(store);
           const payload = await services.questionAnswerer.answerWithLlmFallback(
             repo.id,
             {
