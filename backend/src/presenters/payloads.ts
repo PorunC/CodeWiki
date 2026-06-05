@@ -41,6 +41,10 @@ export type ConfigPayload = {
   storage_dir: string;
   host: string;
   port: number;
+  log: {
+    level: string;
+    format: string;
+  };
   llm: {
     mode: string;
     default: LlmProfilePayload;
@@ -164,6 +168,10 @@ export function configPayload(settings: CodeWikiSettings): ConfigPayload {
     storage_dir: settings.storageDir,
     host: settings.host,
     port: settings.port,
+    log: {
+      level: settings.log.level,
+      format: settings.log.format,
+    },
     llm: {
       mode: settings.llm.mode,
       default: llmProfilePayload(settings.llm.default),

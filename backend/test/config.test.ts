@@ -7,7 +7,7 @@ import {
   profileForTask,
   testLlmConfiguration,
 } from "../src/llm/modelRouter.js";
-import { llmModelsPayload } from "../src/presenters/payloads.js";
+import { configPayload, llmModelsPayload } from "../src/presenters/payloads.js";
 import {
   codewikiValues,
   defaultEnvFile,
@@ -26,11 +26,13 @@ describe("config", () => {
     ).toContain("data/codewiki.sqlite3");
   });
 
-  it("reads host, port, and LLM profile env", () => {
+  it("reads host, port, logging, and LLM profile env", () => {
     const settings = getSettings({
       CODEWIKI_DATABASE_URL: "sqlite:///:memory:",
       CODEWIKI_HOST: "0.0.0.0",
       CODEWIKI_PORT: "9000",
+      CODEWIKI_LOG_LEVEL: "debug",
+      CODEWIKI_LOG_FORMAT: "json",
       CODEWIKI_LLM__DEFAULT__MODEL: "openai/example",
       CODEWIKI_LLM__DEFAULT__API_KEY: "secret",
     });
@@ -38,8 +40,22 @@ describe("config", () => {
     expect(settings.databasePath).toBe(":memory:");
     expect(settings.host).toBe("0.0.0.0");
     expect(settings.port).toBe(9000);
+    expect(settings.log).toEqual({ level: "debug", format: "json" });
+    expect(configPayload(settings).log).toEqual({
+      level: "debug",
+      format: "json",
+    });
     expect(settings.llm.default.model).toBe("openai/example");
     expect(settings.llm.default.api_key).toBe("secret");
+  });
+
+  it("rejects unsupported log formats", () => {
+    expect(() =>
+      getSettings({
+        CODEWIKI_DATABASE_URL: "sqlite:///:memory:",
+        CODEWIKI_LOG_FORMAT: "compact",
+      }),
+    ).toThrow('CODEWIKI_LOG_FORMAT must be "pretty" or "json"');
   });
 
   it("resolves task LLM profiles and offline configuration checks", () => {

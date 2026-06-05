@@ -69,6 +69,17 @@ The TypeScript backend also accepts the old Python SQLite URL spelling:
 CODEWIKI_DATABASE_URL=sqlite+aiosqlite:///./data/codewiki.sqlite3
 ```
 
+## Logging
+
+HTTP server logs default to a compact readable format for local development:
+
+```bash
+CODEWIKI_LOG_LEVEL=info
+CODEWIKI_LOG_FORMAT=pretty
+```
+
+Set `CODEWIKI_LOG_FORMAT=json` when forwarding logs to a structured collector.
+
 ## LLM Configuration
 
 The TypeScript backend always supports deterministic local retrieval and wiki

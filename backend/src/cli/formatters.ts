@@ -14,6 +14,8 @@ export function formatConfig(payload: ConfigPayload): string {
     `CODEWIKI_STORAGE_DIR=${payload.storage_dir}`,
     `CODEWIKI_HOST=${payload.host}`,
     `CODEWIKI_PORT=${payload.port}`,
+    `CODEWIKI_LOG_LEVEL=${payload.log.level}`,
+    `CODEWIKI_LOG_FORMAT=${payload.log.format}`,
     `CODEWIKI_LLM__MODE=${payload.llm.mode}`,
     `CODEWIKI_LLM__DEFAULT__MODEL=${payload.llm.default.model}`,
   ].join("\n");

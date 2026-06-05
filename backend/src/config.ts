@@ -10,6 +10,8 @@ export type LlmProfileSettings = {
   max_tokens: number | null;
 };
 
+export type CodeWikiLogFormat = "pretty" | "json";
+
 export type CodeWikiSettings = {
   appName: string;
   databaseUrl: string;
@@ -19,6 +21,10 @@ export type CodeWikiSettings = {
   host: string;
   port: number;
   staticDir: string | null;
+  log: {
+    level: string;
+    format: CodeWikiLogFormat;
+  };
   llm: {
     mode: string;
     default: LlmProfileSettings;
@@ -48,6 +54,10 @@ export function getSettings(env?: NodeJS.ProcessEnv): CodeWikiSettings {
     staticDir: sourceEnv.CODEWIKI_STATIC_DIR
       ? resolve(sourceEnv.CODEWIKI_STATIC_DIR)
       : null,
+    log: {
+      level: sourceEnv.CODEWIKI_LOG_LEVEL ?? "info",
+      format: parseLogFormat(sourceEnv.CODEWIKI_LOG_FORMAT),
+    },
     llm: {
       mode: sourceEnv.CODEWIKI_LLM__MODE ?? "sdk",
       default: readProfile(sourceEnv, "CODEWIKI_LLM__DEFAULT__"),
@@ -99,6 +109,19 @@ function parsePort(value: string | undefined, fallback: number): number {
     throw new Error(`Port must be between 1 and 65535, got ${value}`);
   }
   return parsed;
+}
+
+function parseLogFormat(value: string | undefined): CodeWikiLogFormat {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === "pretty") {
+    return "pretty";
+  }
+  if (normalized === "json") {
+    return "json";
+  }
+  throw new Error(
+    `CODEWIKI_LOG_FORMAT must be "pretty" or "json", got ${value}`,
+  );
 }
 
 function readProfile(

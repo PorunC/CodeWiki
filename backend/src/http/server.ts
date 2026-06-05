@@ -11,6 +11,10 @@ import {
   createBackendRuntime,
   type BackendServices,
 } from "../services/backendServices.js";
+import {
+  fastifyLoggingOptions,
+  registerHttpRequestLogging,
+} from "./logging.js";
 import { registerApiRoutes } from "./routes/index.js";
 
 type ServerOptions = {
@@ -33,7 +37,11 @@ export async function createServer(
     { settings, store, scanner },
     options.services,
   );
-  const app = Fastify({ logger: options.logger ?? false });
+  const loggerEnabled = options.logger ?? false;
+  const app = Fastify(fastifyLoggingOptions(settings, loggerEnabled));
+  if (loggerEnabled) {
+    registerHttpRequestLogging(app);
+  }
 
   await app.register(cors, {
     origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
