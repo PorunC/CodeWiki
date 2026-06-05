@@ -382,7 +382,7 @@ export async function graphNameCommunities(
   repoId: string,
   maxCommunities: number,
 ): Promise<JsonObject> {
-  const result = nameGraphCommunities(store, repoId, { maxCommunities });
+  const result = await nameGraphCommunities(store, repoId, { maxCommunities });
   const communities = (await store.listGraphCommunities(repoId))
     .filter((community) => result.named_community_ids.includes(community.id))
     .map((community) => ({

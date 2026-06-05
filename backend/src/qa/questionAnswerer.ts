@@ -49,11 +49,11 @@ export class QuestionAnswerer {
     private readonly llm?: QuestionAnswerLlm,
   ) {}
 
-  answer(
+  async answer(
     repoId: string,
     payload: QuestionAnswerRequest,
-  ): Record<string, unknown> {
-    const context = this.questionContext(repoId, payload);
+  ): Promise<Record<string, unknown>> {
+    const context = await this.questionContext(repoId, payload);
     return this.localAnswer(payload, context);
   }
 
@@ -61,7 +61,7 @@ export class QuestionAnswerer {
     repoId: string,
     payload: QuestionAnswerRequest,
   ): Promise<Record<string, unknown>> {
-    const context = this.questionContext(repoId, payload);
+    const context = await this.questionContext(repoId, payload);
     const fallback = this.localAnswer(payload, context);
     if (!this.llm?.isConfigured("qa") || context.sourceSnippets.length === 0) {
       return fallback;
@@ -94,11 +94,11 @@ export class QuestionAnswerer {
     }
   }
 
-  private questionContext(
+  private async questionContext(
     repoId: string,
     payload: QuestionAnswerRequest,
-  ): QuestionContext {
-    const repo = this.store.getRepo(repoId);
+  ): Promise<QuestionContext> {
+    const repo = await this.store.getRepo(repoId);
     if (!repo) {
       throw notFoundError("Repository", repoId);
     }
@@ -107,8 +107,8 @@ export class QuestionAnswerer {
       throw validationError("Question must be a non-empty string.");
     }
 
-    const hits = this.store.searchCodeChunks(repoId, question, 8);
-    const graphHits = this.store.searchCodeNodes(repoId, question, {
+    const hits = await this.store.searchCodeChunks(repoId, question, 8);
+    const graphHits = await this.store.searchCodeNodes(repoId, question, {
       limit: 10,
     });
     const promptSources = hits.map((hit, index) => ({

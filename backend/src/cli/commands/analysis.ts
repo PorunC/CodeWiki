@@ -33,7 +33,7 @@ export function registerAnalysisCommands(
         runtime,
         async ({ store, scanner, services }) => {
           const repo = await resolveRepo(store, scanner, selector);
-          const result = services.analysis.analyze(repo.id);
+          const result = await services.analysis.analyze(repo.id);
           output(
             options.json,
             result,
@@ -73,7 +73,7 @@ export function registerAnalysisCommands(
       ) =>
         runWithContextAsync(runtime, async ({ store, scanner, services }) => {
           const repo = await resolveRepo(store, scanner, selector);
-          const result = services.analysis.update(repo.id);
+          const result = await services.analysis.update(repo.id);
           const wikiRegeneration = options.regenerateWiki
             ? await services.wiki.updatePagesWithLlmFallback(repo.id)
             : { requested: false, status: "not_run" };

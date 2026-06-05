@@ -14,8 +14,8 @@ export function registerRunRoutes(
 ): void {
   app.post("/api/repos/:repoId/analyze", async (request, reply) => {
     const { repoId } = params(request.params);
-    return withRepo(reply, store, repoId, () => {
-      const result = services.analysis.analyze(repoId);
+    return withRepo(reply, store, repoId, async () => {
+      const result = await services.analysis.analyze(repoId);
       return analysisRunPayload(result);
     });
   });
@@ -24,7 +24,7 @@ export function registerRunRoutes(
     const { repoId } = params(request.params);
     return withRepo(reply, store, repoId, async () => {
       const body = objectBody(request.body);
-      const result = services.analysis.update(repoId);
+      const result = await services.analysis.update(repoId);
       const wikiRegeneration = boolBody(body.regenerate_wiki, true)
         ? await services.wiki.updatePagesWithLlmFallback(repoId)
         : { requested: false, status: "not_run" };
@@ -34,17 +34,19 @@ export function registerRunRoutes(
 
   app.get("/api/repos/:repoId/runs", async (request, reply) => {
     const { repoId } = params(request.params);
-    return withRepo(reply, store, repoId, () =>
-      store
-        .listAnalysisRuns(repoId)
-        .map((run) => analysisRunResponse(store, run.id)),
+    return withRepo(reply, store, repoId, async () =>
+      Promise.all(
+        (await store.listAnalysisRuns(repoId)).map((run) =>
+          analysisRunResponse(store, run.id),
+        ),
+      ),
     );
   });
 
   app.get("/api/repos/:repoId/runs/:runId", async (request, reply) => {
     const { repoId, runId } = params(request.params);
-    return withRepo(reply, store, repoId, () => {
-      const run = store.getAnalysisRun(runId);
+    return withRepo(reply, store, repoId, async () => {
+      const run = await store.getAnalysisRun(runId);
       if (!run || run.repo_id !== repoId) {
         throw notFoundError("Analysis run", runId);
       }

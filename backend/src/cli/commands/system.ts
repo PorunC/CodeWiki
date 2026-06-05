@@ -40,7 +40,10 @@ export function registerSystemCommands(
         runtime.withDatabaseOverride();
         if (options.lite) {
           await runStdio(
-            createLiteMcpServer({ path: options.path, sync: !options.noSync }),
+            await createLiteMcpServer({
+              path: options.path,
+              sync: !options.noSync,
+            }),
           );
           return;
         }

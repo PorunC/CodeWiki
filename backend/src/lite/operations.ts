@@ -37,8 +37,8 @@ export function liteIndex(
   path: string,
   options: { name?: string; force?: boolean } = {},
 ) {
-  return withLiteRepo(path, options.name, (context) => {
-    const result = context.services.analysis.analyze(context.repo.id, {
+  return withLiteRepoAsync(path, options.name, async (context) => {
+    const result = await context.services.analysis.analyze(context.repo.id, {
       force: Boolean(options.force),
     });
     return {
@@ -61,8 +61,8 @@ export function liteIndex(
 }
 
 export function liteSync(path: string) {
-  return withLiteRepo(path, undefined, (context) => {
-    const result = syncLiteRepo(context);
+  return withLiteRepoAsync(path, undefined, async (context) => {
+    const result = await syncLiteRepo(context);
     return {
       database_path: context.databasePath,
       run_id: result.run_id,
@@ -187,6 +187,19 @@ function withLiteRepo<T>(
   const context = initLiteRepo(name ? { path, name } : { path });
   try {
     return fn(context);
+  } finally {
+    context.store.close();
+  }
+}
+
+async function withLiteRepoAsync<T>(
+  path: string,
+  name: string | undefined,
+  fn: (context: LiteRepoContext) => Promise<T>,
+): Promise<T> {
+  const context = initLiteRepo(name ? { path, name } : { path });
+  try {
+    return await fn(context);
   } finally {
     context.store.close();
   }

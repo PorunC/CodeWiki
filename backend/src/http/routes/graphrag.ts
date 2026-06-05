@@ -46,8 +46,8 @@ export function registerGraphRagRoutes(
     "/api/repos/:repoId/graphrag/traces/:traceId",
     async (request, reply) => {
       const { repoId, traceId } = params(request.params);
-      return withRepo(reply, store, repoId, () => {
-        const trace = store.getRetrievalTrace(repoId, traceId);
+      return withRepo(reply, store, repoId, async () => {
+        const trace = await store.getRetrievalTrace(repoId, traceId);
         if (!trace) {
           throw notFoundError("GraphRAG trace", traceId);
         }

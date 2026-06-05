@@ -78,7 +78,11 @@ export class CommunityNamingService {
       options.maxCommunities === undefined
         ? {}
         : { maxCommunities: options.maxCommunities };
-    const baseline = nameGraphCommunities(this.store, repoId, baselineOptions);
+    const baseline = await nameGraphCommunities(
+      this.store,
+      repoId,
+      baselineOptions,
+    );
     if (
       !this.llm?.isConfigured("community_summary") ||
       baseline.status === "no_communities" ||
@@ -86,7 +90,7 @@ export class CommunityNamingService {
     ) {
       return {
         ...baseline,
-        communities: namedCommunityPayloads(
+        communities: await namedCommunityPayloads(
           this.store,
           repoId,
           baseline.named_community_ids,
@@ -94,7 +98,7 @@ export class CommunityNamingService {
       };
     }
 
-    const contexts = communityContexts(
+    const contexts = await communityContexts(
       this.store,
       repoId,
       baseline.named_community_ids,
@@ -102,7 +106,7 @@ export class CommunityNamingService {
     if (!contexts.length) {
       return {
         ...baseline,
-        communities: namedCommunityPayloads(
+        communities: await namedCommunityPayloads(
           this.store,
           repoId,
           baseline.named_community_ids,
@@ -132,7 +136,7 @@ export class CommunityNamingService {
       if (!parsed.names.length) {
         return {
           ...baseline,
-          communities: namedCommunityPayloads(
+          communities: await namedCommunityPayloads(
             this.store,
             repoId,
             baseline.named_community_ids,
@@ -144,7 +148,7 @@ export class CommunityNamingService {
           },
         };
       }
-      const providerResult = applyProviderNames(
+      const providerResult = await applyProviderNames(
         this.store,
         repoId,
         baseline,
@@ -152,7 +156,7 @@ export class CommunityNamingService {
       );
       return {
         ...providerResult,
-        communities: namedCommunityPayloads(
+        communities: await namedCommunityPayloads(
           this.store,
           repoId,
           providerResult.named_community_ids,
@@ -163,7 +167,7 @@ export class CommunityNamingService {
     } catch (error) {
       return {
         ...baseline,
-        communities: namedCommunityPayloads(
+        communities: await namedCommunityPayloads(
           this.store,
           repoId,
           baseline.named_community_ids,
@@ -178,15 +182,15 @@ export class CommunityNamingService {
   }
 }
 
-function communityContexts(
+async function communityContexts(
   store: CodeWikiStoreApi,
   repoId: string,
   communityIds: string[],
-): CommunityContext[] {
-  const graph = store.getGraph(repoId);
-  const communities = store
-    .listGraphCommunities(repoId)
-    .filter((community) => communityIds.includes(community.id));
+): Promise<CommunityContext[]> {
+  const graph = await store.getGraph(repoId);
+  const communities = (await store.listGraphCommunities(repoId)).filter(
+    (community) => communityIds.includes(community.id),
+  );
   return communities.map((community) =>
     communityContext(community, graph.nodes, graph.edges),
   );
@@ -319,13 +323,13 @@ function normalizeProviderNames(
   return { names, errors };
 }
 
-function applyProviderNames(
+async function applyProviderNames(
   store: CodeWikiStoreApi,
   repoId: string,
   baseline: CommunityNamingResult,
   providerNames: ProviderCommunityName[],
-): CommunityNamingResult {
-  const before = store.listGraphCommunities(repoId);
+): Promise<CommunityNamingResult> {
+  const before = await store.listGraphCommunities(repoId);
   const providerById = new Map(providerNames.map((item) => [item.id, item]));
   const targetIds = new Set(baseline.named_community_ids);
   const seenNames = new Set(
@@ -352,9 +356,9 @@ function applyProviderNames(
       summary_hash: digest(provider.summary),
     };
   });
-  const edges = store.listGraphCommunityEdges(repoId);
-  store.replaceGraphCommunities(repoId, after);
-  preserveCommunityEdges(store, repoId, after, edges);
+  const edges = await store.listGraphCommunityEdges(repoId);
+  await store.replaceGraphCommunities(repoId, after);
+  await preserveCommunityEdges(store, repoId, after, edges);
   const renamedCount = renamedCountBetween(before, after);
   return {
     ...baseline,
@@ -363,13 +367,12 @@ function applyProviderNames(
   };
 }
 
-function namedCommunityPayloads(
+async function namedCommunityPayloads(
   store: CodeWikiStoreApi,
   repoId: string,
   communityIds: string[],
-): CommunityNamingPayload["communities"] {
-  return store
-    .listGraphCommunities(repoId)
+): Promise<CommunityNamingPayload["communities"]> {
+  return (await store.listGraphCommunities(repoId))
     .filter((community) => communityIds.includes(community.id))
     .sort((left, right) => {
       const leftIndex = communityIds.indexOf(left.id);
@@ -384,17 +387,17 @@ function namedCommunityPayloads(
     }));
 }
 
-function preserveCommunityEdges(
+async function preserveCommunityEdges(
   store: CodeWikiStoreApi,
   repoId: string,
   communities: GraphCommunity[],
   edges: GraphCommunityEdge[],
-): void {
+): Promise<void> {
   if (!edges.length) {
     return;
   }
   const communityIds = new Set(communities.map((community) => community.id));
-  store.replaceGraphCommunityEdges(
+  await store.replaceGraphCommunityEdges(
     repoId,
     edges.filter(
       (edge) =>

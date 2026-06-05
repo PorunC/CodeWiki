@@ -17,18 +17,18 @@ export type RetrievalOptions = {
   chunkHits?: CodeChunkHit[];
 };
 
-export function buildRetrievalTrace(
+export async function buildRetrievalTrace(
   store: CodeWikiStoreApi,
   repoId: string,
   query: string,
   options: RetrievalOptions = {},
-): RetrievalTrace {
+): Promise<RetrievalTrace> {
   const limit = positiveInt(options.limit, 10);
   const maxHops = positiveInt(options.maxHops, 2);
   const chunkHits =
-    options.chunkHits ?? store.searchCodeChunks(repoId, query, limit);
-  const nodeHits = store.searchCodeNodes(repoId, query, { limit: 10 });
-  const graph = store.getGraph(repoId);
+    options.chunkHits ?? (await store.searchCodeChunks(repoId, query, limit));
+  const nodeHits = await store.searchCodeNodes(repoId, query, { limit: 10 });
+  const graph = await store.getGraph(repoId);
 
   const selectedNodeIds = new Set(nodeHits.map((hit) => hit.node.id));
   for (const hit of chunkHits) {
@@ -50,21 +50,18 @@ export function buildRetrievalTrace(
   const selectedNodes = graph.nodes.filter((node) =>
     selectedNodeIds.has(node.id),
   );
-  const selectedCommunities = store
-    .listGraphCommunities(repoId)
-    .filter((community) =>
+  const selectedCommunities = (await store.listGraphCommunities(repoId)).filter(
+    (community) =>
       community.node_ids.some((nodeId) => selectedNodeIds.has(nodeId)),
-    );
+  );
   const selectedCommunityIds = new Set(
     selectedCommunities.map((community) => community.id),
   );
-  const communityEdges = store
-    .listGraphCommunityEdges(repoId)
-    .filter(
-      (edge) =>
-        selectedCommunityIds.has(edge.source_community_id) ||
-        selectedCommunityIds.has(edge.target_community_id),
-    );
+  const communityEdges = (await store.listGraphCommunityEdges(repoId)).filter(
+    (edge) =>
+      selectedCommunityIds.has(edge.source_community_id) ||
+      selectedCommunityIds.has(edge.target_community_id),
+  );
 
   const sourceChunks = chunkHits.map((hit, index) =>
     sourceChunkPayload(hit.chunk, hit.score, hit.match_type, index),

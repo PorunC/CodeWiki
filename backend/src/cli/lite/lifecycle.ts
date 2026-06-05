@@ -6,7 +6,7 @@ import {
   liteStatus,
   liteSync,
 } from "../../lite/operations.js";
-import { output, runCli, type JsonOption } from "../runtime.js";
+import { output, runCli, runCliAsync, type JsonOption } from "../runtime.js";
 
 export function registerLiteLifecycleCommands(lite: Command): void {
   lite
@@ -59,7 +59,7 @@ export function registerLiteLifecycleCommands(lite: Command): void {
         path: string,
         options: { name?: string; force?: boolean } & JsonOption,
       ) => {
-        runCli(() => {
+        return runCliAsync(async () => {
           const indexOptions: { name?: string; force?: boolean } = {};
           if (options.name) {
             indexOptions.name = options.name;
@@ -67,7 +67,7 @@ export function registerLiteLifecycleCommands(lite: Command): void {
           if (options.force !== undefined) {
             indexOptions.force = options.force;
           }
-          const payload = liteIndex(path, indexOptions);
+          const payload = await liteIndex(path, indexOptions);
           output(
             options.json,
             payload,
@@ -82,8 +82,8 @@ export function registerLiteLifecycleCommands(lite: Command): void {
     .argument("[path]", "Repository path", ".")
     .option("--json", "Print JSON output")
     .action((path: string, options: JsonOption) => {
-      runCli(() => {
-        const payload = liteSync(path);
+      return runCliAsync(async () => {
+        const payload = await liteSync(path);
         output(
           options.json,
           payload,

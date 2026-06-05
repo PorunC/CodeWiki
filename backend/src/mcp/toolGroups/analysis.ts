@@ -43,7 +43,7 @@ export function buildAnalysisTools({
           scanner,
           optionalString(args, "repo"),
         );
-        const result = services.analysis.update(repo.id);
+        const result = await services.analysis.update(repo.id);
         const wikiRegeneration = boolArg(args, "regenerate_wiki", true)
           ? await services.wiki.updatePagesWithLlmFallback(repo.id)
           : { requested: false, status: "not_run" };
@@ -60,8 +60,10 @@ export function buildAnalysisTools({
           scanner,
           optionalString(args, "repo"),
         );
-        return (await store.listAnalysisRuns(repo.id)).map((run) =>
-          analysisRunResponse(store, run.id),
+        return Promise.all(
+          (await store.listAnalysisRuns(repo.id)).map((run) =>
+            analysisRunResponse(store, run.id),
+          ),
         );
       },
     ),

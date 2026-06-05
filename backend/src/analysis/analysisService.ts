@@ -18,8 +18,11 @@ export class AnalysisService {
     private readonly scanner: RepoScanner,
   ) {}
 
-  analyze(repoId: string, options: { force?: boolean; runId?: string } = {}) {
-    const repo = this.repo(repoId);
+  async analyze(
+    repoId: string,
+    options: { force?: boolean; runId?: string } = {},
+  ): Promise<AnalysisResult> {
+    const repo = await this.repo(repoId);
     const scan = this.scanRepo(repo);
     return this.persistAnalysis(repoId, scan, {
       mode: "typescript",
@@ -29,20 +32,20 @@ export class AnalysisService {
     });
   }
 
-  planUpdate(repoId: string): IncrementalUpdatePlan {
-    const repo = this.repo(repoId);
+  async planUpdate(repoId: string): Promise<IncrementalUpdatePlan> {
+    const repo = await this.repo(repoId);
     return this.planFromScan(repoId, this.scanRepo(repo), repo);
   }
 
-  update(repoId: string): RepositoryUpdateResult {
-    const repo = this.repo(repoId);
+  async update(repoId: string): Promise<RepositoryUpdateResult> {
+    const repo = await this.repo(repoId);
     const scan = this.scanRepo(repo);
-    const plan = this.planFromScan(repoId, scan, repo);
-    const existingGraph = this.store.getGraph(repoId);
+    const plan = await this.planFromScan(repoId, scan, repo);
+    const existingGraph = await this.store.getGraph(repoId);
     if (!plan.affected_files.length && existingGraph.nodes.length) {
-      const chunks = this.store.listCodeChunks(repoId);
-      const communities = this.store.listGraphCommunities(repoId);
-      const run = this.store.createAnalysisRun(repoId);
+      const chunks = await this.store.listCodeChunks(repoId);
+      const communities = await this.store.listGraphCommunities(repoId);
+      const run = await this.store.createAnalysisRun(repoId);
       const stats = {
         mode: "typescript_update",
         plan,
@@ -62,7 +65,7 @@ export class AnalysisService {
           message: "Repository update complete: no file changes detected.",
         },
       } satisfies JsonObject;
-      const finished = this.store.finishAnalysisRun(run.id, {
+      const finished = await this.store.finishAnalysisRun(run.id, {
         status: "done",
         stats,
       });
@@ -85,26 +88,27 @@ export class AnalysisService {
       };
     }
 
+    const stalePages = await stalePagesForFiles(
+      this.store,
+      repoId,
+      plan.affected_files,
+    );
     return {
-      ...this.persistAnalysis(repoId, scan, {
+      ...(await this.persistAnalysis(repoId, scan, {
         mode: "typescript_update",
         reusedFileCount: 0,
         statsExtra: {
           plan,
-          stale_pages: stalePagesForFiles(
-            this.store,
-            repoId,
-            plan.affected_files,
-          ),
+          stale_pages: stalePages,
         },
-      }),
+      })),
       plan,
-      stale_pages: stalePagesForFiles(this.store, repoId, plan.affected_files),
+      stale_pages: stalePages,
     };
   }
 
-  private repo(repoId: string): RepoDescriptor {
-    const repo = this.store.getRepo(repoId);
+  private async repo(repoId: string): Promise<RepoDescriptor> {
+    const repo = await this.store.getRepo(repoId);
     if (!repo) {
       throw notFoundError("Repository", repoId);
     }
@@ -118,7 +122,7 @@ export class AnalysisService {
     });
   }
 
-  private persistAnalysis(
+  private async persistAnalysis(
     repoId: string,
     scan: RepoScanResult,
     options: {
@@ -127,10 +131,10 @@ export class AnalysisService {
       reusedFileCount: number;
       statsExtra: JsonObject;
     },
-  ): AnalysisResult {
+  ): Promise<AnalysisResult> {
     const run = options.runId
-      ? this.store.getAnalysisRun(options.runId)
-      : this.store.createAnalysisRun(repoId);
+      ? await this.store.getAnalysisRun(options.runId)
+      : await this.store.createAnalysisRun(repoId);
     if (!run || run.repo_id !== repoId) {
       throw notFoundError("Analysis run", options.runId ?? "new run");
     }
@@ -140,10 +144,10 @@ export class AnalysisService {
         repoId,
         scan.files,
       );
-      this.store.replaceGraph(repoId, { nodes, edges, chunks });
-      this.store.replaceGraphCommunities(repoId, communities);
-      this.store.replaceGraphCommunityEdges(repoId, []);
-      this.store.upsertRepo(scan.repo);
+      await this.store.replaceGraph(repoId, { nodes, edges, chunks });
+      await this.store.replaceGraphCommunities(repoId, communities);
+      await this.store.replaceGraphCommunityEdges(repoId, []);
+      await this.store.upsertRepo(scan.repo);
 
       const parsedFileCount = scan.files.filter(
         (file) => file.is_source,
@@ -166,7 +170,7 @@ export class AnalysisService {
         },
         ...options.statsExtra,
       } satisfies JsonObject;
-      const finished = this.store.finishAnalysisRun(run.id, {
+      const finished = await this.store.finishAnalysisRun(run.id, {
         status: "done",
         stats,
       });
@@ -187,7 +191,7 @@ export class AnalysisService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.store.finishAnalysisRun(run.id, {
+      await this.store.finishAnalysisRun(run.id, {
         status: "failed",
         stats: {
           mode: options.mode,
@@ -201,13 +205,13 @@ export class AnalysisService {
     }
   }
 
-  private planFromScan(
+  private async planFromScan(
     repoId: string,
     scan: RepoScanResult,
     previousRepo: RepoDescriptor,
-  ): IncrementalUpdatePlan {
+  ): Promise<IncrementalUpdatePlan> {
     const currentFileHashes = currentFileHashesByPath(
-      this.store.getGraph(repoId).nodes,
+      (await this.store.getGraph(repoId)).nodes,
     );
     const scannedFileHashes = new Map(
       scan.files.map((file) => [file.path, file.sha256]),
@@ -250,8 +254,11 @@ export class AnalysisService {
 
 export { buildRepositoryGraph } from "./repositoryGraphBuilder.js";
 
-export function analysisRunResponse(store: CodeWikiStoreApi, runId: string) {
-  const run = store.getAnalysisRun(runId);
+export async function analysisRunResponse(
+  store: CodeWikiStoreApi,
+  runId: string,
+): Promise<JsonObject> {
+  const run = await store.getAnalysisRun(runId);
   if (!run) {
     throw notFoundError("Analysis run", runId);
   }
@@ -307,17 +314,16 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-function stalePagesForFiles(
+async function stalePagesForFiles(
   store: CodeWikiStoreApi,
   repoId: string,
   filePaths: string[],
-): string[] {
+): Promise<string[]> {
   const affected = new Set(filePaths);
   if (!affected.size) {
     return [];
   }
-  return store
-    .listDocPages(repoId)
+  return (await store.listDocPages(repoId))
     .filter((page) =>
       page.source_refs.some(
         (ref) =>

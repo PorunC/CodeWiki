@@ -53,7 +53,7 @@ export class EmbeddingIndex {
       const vector = vectorsByHash.get(chunk.content_hash);
       return vector ? [embeddingRecord(repoId, model, chunk, vector)] : [];
     });
-    this.store.replaceCodeChunkEmbeddings(repoId, { model, embeddings });
+    await this.store.replaceCodeChunkEmbeddings(repoId, { model, embeddings });
     return { count: embeddings.length, model };
   }
 
@@ -62,10 +62,14 @@ export class EmbeddingIndex {
     chunks: CodeChunk[],
   ): Promise<EmbeddingIndexBuildResult | null> {
     const model = this.embeddingModel();
+    const existingEmbeddings = await this.store.listCodeChunkEmbeddings(
+      repoId,
+      {
+        model,
+      },
+    );
     const existingChunkIds = new Set(
-      this.store
-        .listCodeChunkEmbeddings(repoId, { model })
-        .map((embedding) => embedding.chunk_id),
+      existingEmbeddings.map((embedding) => embedding.chunk_id),
     );
     if (
       chunks.length > 0 &&
@@ -111,9 +115,11 @@ export class EmbeddingIndex {
     repoId: string,
     model: string,
   ): Promise<Map<string, number[]>> {
+    const embeddings = await this.store.listCodeChunkEmbeddings(repoId, {
+      model,
+    });
     return new Map(
-      this.store
-        .listCodeChunkEmbeddings(repoId, { model })
+      embeddings
         .filter((embedding) => embedding.embedding.length > 0)
         .map((embedding) => [embedding.content_hash, embedding.embedding]),
     );

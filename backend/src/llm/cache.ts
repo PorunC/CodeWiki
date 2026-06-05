@@ -51,7 +51,7 @@ export class CachedLlmService {
   ): Promise<CachedLlmCompletion> {
     const profile = this.gateway.profile(operation.taskType);
     const inputHash = payloadHash(operation.inputPayload);
-    const cachedRun = this.store.getCachedLlmRun(repoId, {
+    const cachedRun = await this.store.getCachedLlmRun(repoId, {
       taskType: operation.taskType,
       cacheKey: operation.cacheKey,
       inputHash,
@@ -68,7 +68,7 @@ export class CachedLlmService {
       return {
         result,
         cacheHit: true,
-        run: this.store.recordLlmRun(repoId, {
+        run: await this.store.recordLlmRun(repoId, {
           taskType: operation.taskType,
           provider: cachedRun.provider,
           model: cachedRun.model,
@@ -103,7 +103,7 @@ export class CachedLlmService {
       return {
         result: { ...result, usage },
         cacheHit: false,
-        run: this.store.recordLlmRun(repoId, {
+        run: await this.store.recordLlmRun(repoId, {
           taskType: operation.taskType,
           provider: result.provider,
           model: result.model,
@@ -121,7 +121,7 @@ export class CachedLlmService {
       };
     } catch (error) {
       const message = sanitizedErrorMessage(error);
-      const run = this.store.recordLlmRun(repoId, {
+      const run = await this.store.recordLlmRun(repoId, {
         taskType: operation.taskType,
         provider: profile.provider_type ?? modelProvider(profile.model),
         model: profile.model,

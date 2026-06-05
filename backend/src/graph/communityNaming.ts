@@ -34,16 +34,16 @@ type CommunityProfile = {
 };
 
 const DEFAULT_MAX_COMMUNITIES = 40;
-export function nameGraphCommunities(
+export async function nameGraphCommunities(
   store: CodeWikiStoreApi,
   repoId: string,
   options: { maxCommunities?: number } = {},
-): CommunityNamingResult {
-  if (!store.getRepo(repoId)) {
+): Promise<CommunityNamingResult> {
+  if (!(await store.getRepo(repoId))) {
     throw notFoundError("Repository", repoId);
   }
 
-  const communities = store.listGraphCommunities(repoId);
+  const communities = await store.listGraphCommunities(repoId);
   const maxCommunities = normalizeMaxCommunities(options.maxCommunities);
   if (!communities.length) {
     return {
@@ -57,8 +57,8 @@ export function nameGraphCommunities(
     };
   }
 
-  const graph = store.getGraph(repoId);
-  const communityEdges = store.listGraphCommunityEdges(repoId);
+  const graph = await store.getGraph(repoId);
+  const communityEdges = await store.listGraphCommunityEdges(repoId);
   const targets = selectNamingTargets(communities, maxCommunities);
   const targetIds = new Set(targets.map((community) => community.id));
   const seenNames = new Set(
@@ -84,8 +84,8 @@ export function nameGraphCommunities(
     };
   });
 
-  store.replaceGraphCommunities(repoId, renamed);
-  preserveCommunityEdges(store, repoId, renamed, communityEdges);
+  await store.replaceGraphCommunities(repoId, renamed);
+  await preserveCommunityEdges(store, repoId, renamed, communityEdges);
 
   const renamedCount = renamedCountBetween(communities, renamed);
   return {
@@ -215,17 +215,17 @@ function summaryFromProfile(
   return `${name} covers ${fileText} for graph community ${community.rank + 1}.${symbolText}${edgeText}`;
 }
 
-function preserveCommunityEdges(
+async function preserveCommunityEdges(
   store: CodeWikiStoreApi,
   repoId: string,
   communities: GraphCommunity[],
   edges: GraphCommunityEdge[],
-): void {
+): Promise<void> {
   if (!edges.length) {
     return;
   }
   const communityIds = new Set(communities.map((community) => community.id));
-  store.replaceGraphCommunityEdges(
+  await store.replaceGraphCommunityEdges(
     repoId,
     edges.filter(
       (edge) =>

@@ -15,10 +15,10 @@ export class GraphRAGService {
     repoId: string,
     options: { includeEmbeddings?: boolean } = {},
   ): Promise<GraphRAGBuildResult> {
-    if (!this.store.getRepo(repoId)) {
+    if (!(await this.store.getRepo(repoId))) {
       throw notFoundError("Repository", repoId);
     }
-    const chunks = this.store.listCodeChunks(repoId);
+    const chunks = await this.store.listCodeChunks(repoId);
     const embeddingResult =
       options.includeEmbeddings && this.embeddings
         ? await this.embeddingIndex().build(repoId, chunks)
@@ -38,7 +38,7 @@ export class GraphRAGService {
     query: string,
     options: RetrievalOptions = {},
   ): Promise<RetrievalTrace> {
-    if (!this.store.getRepo(repoId)) {
+    if (!(await this.store.getRepo(repoId))) {
       throw notFoundError("Repository", repoId);
     }
     const normalizedQuery = query.trim();
@@ -47,23 +47,24 @@ export class GraphRAGService {
     }
 
     const limit = positiveInt(options.limit, 10);
-    const lexicalHits = this.store.searchCodeChunks(
+    const lexicalHits = await this.store.searchCodeChunks(
       repoId,
       normalizedQuery,
       limit,
     );
+    const chunks = await this.store.listCodeChunks(repoId);
     const vectorHits =
       options.includeEmbeddings && this.embeddings
         ? await this.embeddingIndex().search(
             repoId,
             normalizedQuery,
-            this.store.listCodeChunks(repoId),
+            chunks,
             limit,
           )
         : [];
     const chunkHits = mergeChunkHits(lexicalHits, vectorHits, limit);
     return this.store.saveRetrievalTrace(
-      buildRetrievalTrace(this.store, repoId, normalizedQuery, {
+      await buildRetrievalTrace(this.store, repoId, normalizedQuery, {
         ...options,
         chunkHits,
       }),

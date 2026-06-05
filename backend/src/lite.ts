@@ -83,13 +83,13 @@ export function initLiteRepo(options: LiteRepoOptions = {}): LiteRepoContext {
   };
 }
 
-export function createLiteMcpServer(
+export async function createLiteMcpServer(
   options: LiteRepoOptions & { sync?: boolean } = {},
-): CodeWikiMCPServer {
+): Promise<CodeWikiMCPServer> {
   const context = initLiteRepo(options);
   try {
     if (options.sync ?? true) {
-      syncLiteRepo(context);
+      await syncLiteRepo(context);
     }
   } finally {
     context.store.close();
