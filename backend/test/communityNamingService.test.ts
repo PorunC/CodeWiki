@@ -99,7 +99,7 @@ describe("CommunityNamingService", () => {
     ]);
   });
 
-  it("falls back to deterministic local names when provider JSON is invalid", async () => {
+  it("reports partial results when provider JSON is invalid", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-community-fallback-"));
     store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
     const repo = store.upsertRepo(repoDescriptor(root));
@@ -113,18 +113,20 @@ describe("CommunityNamingService", () => {
       maxCommunities: 5,
     });
 
-    expect(result.status).toBe("renamed");
+    expect(result.status).toBe("partial");
     expect(result.llm).toMatchObject({
-      status: "fallback",
-      error: "Provider community response was not valid JSON.",
+      status: "partial",
     });
+    expect(result.errors).toEqual([
+      "batch 1: LLM did not return a JSON object.",
+    ]);
     expect(namesById(result.communities)).toEqual({
-      "community-root": "Documentation",
-      "community-src": "Util",
+      "community-root": "root",
+      "community-src": "src",
     });
     expect(namesById(store.listGraphCommunities(repo.id))).toEqual({
-      "community-root": "Documentation",
-      "community-src": "Util",
+      "community-root": "root",
+      "community-src": "src",
     });
   });
 

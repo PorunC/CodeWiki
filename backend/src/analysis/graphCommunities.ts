@@ -93,9 +93,8 @@ type CommunityLouvainRunner = (
 ) => Record<string, number>;
 
 const require = createRequire(import.meta.url);
-const runLouvain = require(
-  "graphology-communities-louvain",
-) as CommunityLouvainRunner;
+const runLouvain =
+  require("graphology-communities-louvain") as CommunityLouvainRunner;
 
 export function buildCommunities(
   repoId: string,

@@ -1,4 +1,6 @@
+import { digest } from "../analysis/graphUtils.js";
 import type { CodeWikiStoreApi } from "../db/types.js";
+import { notFoundError } from "../errors.js";
 import {
   LlmCallError,
   type CachedLlmCompletion,
@@ -10,17 +12,18 @@ import type {
   GraphCommunity,
   GraphCommunityEdge,
   JsonObject,
+  JsonValue,
+  RepoDescriptor,
 } from "../types.js";
-import { digest } from "../analysis/graphUtils.js";
 import {
   nameGraphCommunities,
   type CommunityNamingResult,
 } from "./communityNaming.js";
 import {
   dedupeName,
+  fileLabel,
+  humanizeName,
   isGenericName,
-  nonGenericFallbackName,
-  normalizeCommunityName,
 } from "./communityNamingRules.js";
 
 type CommunityNamingLlm = {
@@ -35,7 +38,16 @@ type CommunityNamingOptions = {
   maxCommunities?: number | undefined;
 };
 
-type CommunityNamingPayload = CommunityNamingResult & {
+type CommunityNamingPayload = {
+  repo_id: string;
+  status: "renamed" | "unchanged" | "no_communities" | "partial";
+  renamed_count: number;
+  community_count: number;
+  max_communities: number;
+  named_community_ids: string[];
+  llm_run_id?: string | null | undefined;
+  llm_run_ids?: string[] | undefined;
+  errors: string[];
   communities: Array<{
     id: string;
     name: string;
@@ -45,24 +57,12 @@ type CommunityNamingPayload = CommunityNamingResult & {
   llm?: JsonObject | undefined;
 };
 
-type CommunityContext = {
-  id: string;
-  currentName: string;
-  currentSummary: string;
-  files: string[];
-  symbols: Array<{
-    name: string;
-    type: string;
-    file_path: string;
-  }>;
-  edgeTypes: string[];
-};
-
-type ProviderCommunityName = {
-  id: string;
-  name: string;
-  summary: string;
-};
+const MAX_COMMUNITIES_PER_LLM_CALL = 40;
+const COMMUNITIES_PER_BATCH = 8;
+const MAX_COMMUNITY_FILES = 12;
+const MAX_COMMUNITY_SYMBOLS = 16;
+const MAX_COMMUNITY_EDGES = 10;
+const MAX_NAME_LENGTH = 64;
 
 export class CommunityNamingService {
   constructor(
@@ -74,317 +74,604 @@ export class CommunityNamingService {
     repoId: string,
     options: CommunityNamingOptions = {},
   ): Promise<CommunityNamingPayload> {
-    const baselineOptions =
-      options.maxCommunities === undefined
-        ? {}
-        : { maxCommunities: options.maxCommunities };
-    const baseline = await nameGraphCommunities(
-      this.store,
-      repoId,
-      baselineOptions,
-    );
-    if (
-      !this.llm?.isConfigured("community_summary") ||
-      baseline.status === "no_communities" ||
-      baseline.named_community_ids.length === 0
-    ) {
-      return {
-        ...baseline,
-        communities: await namedCommunityPayloads(
+    const repo = await this.store.getRepo(repoId);
+    if (!repo) {
+      throw notFoundError("Repository", repoId);
+    }
+    if (!this.llm?.isConfigured("community_summary")) {
+      return deterministicPayload(
+        await nameGraphCommunities(
           this.store,
           repoId,
-          baseline.named_community_ids,
+          options.maxCommunities === undefined
+            ? {}
+            : { maxCommunities: options.maxCommunities },
         ),
-      };
-    }
-
-    const contexts = await communityContexts(
-      this.store,
-      repoId,
-      baseline.named_community_ids,
-    );
-    if (!contexts.length) {
-      return {
-        ...baseline,
-        communities: await namedCommunityPayloads(
-          this.store,
-          repoId,
-          baseline.named_community_ids,
-        ),
-        llm: { status: "fallback", error: "No community contexts available." },
-      };
-    }
-
-    try {
-      const completion = await this.llm.complete(repoId, {
-        taskType: "community_summary",
-        cacheKey: `graph-communities:${baseline.max_communities}`,
-        modelAlias: "community_summary",
-        promptVersion: "ts-community-summary-v1",
-        inputPayload: {
-          repo_id: repoId,
-          max_communities: baseline.max_communities,
-          communities: contexts,
-        },
-        messages: communityNamingMessages(repoId, contexts),
-        completion: { responseFormat: "json_object" },
-      });
-      const parsed = normalizeProviderNames(
-        completion.result.content,
-        baseline.named_community_ids,
+        await this.store.listGraphCommunities(repoId),
       );
-      if (!parsed.names.length) {
-        return {
-          ...baseline,
-          communities: await namedCommunityPayloads(
-            this.store,
-            repoId,
-            baseline.named_community_ids,
-          ),
-          llm: {
-            status: "fallback",
-            error: parsed.errors.join("; ") || "No provider community names.",
-            run_id: completion.run.id,
-          },
-        };
+    }
+
+    const communities = await this.store.listGraphCommunities(repoId);
+    const maxCommunities = normalizeMaxCommunities(options.maxCommunities);
+    if (!communities.length) {
+      return {
+        repo_id: repoId,
+        status: "no_communities",
+        renamed_count: 0,
+        community_count: 0,
+        max_communities: maxCommunities,
+        named_community_ids: [],
+        errors: [],
+        communities: [],
+      };
+    }
+
+    const graph = await this.store.getGraph(repoId);
+    const communityEdges = await this.store.listGraphCommunityEdges(repoId);
+    const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+    const targets = selectNamingTargets(communities, maxCommunities, nodeById);
+    if (!targets.length) {
+      return {
+        repo_id: repoId,
+        status: "unchanged",
+        renamed_count: 0,
+        community_count: communities.length,
+        max_communities: maxCommunities,
+        named_community_ids: [],
+        errors: [],
+        communities: await namedCommunityPayloads(this.store, repoId, []),
+      };
+    }
+
+    let renamed = communities;
+    const errors: string[] = [];
+    const llmRunIds: string[] = [];
+    let firstCompletion: CachedLlmCompletion | null = null;
+    for (const [batchIndex, batch] of batches(
+      targets,
+      COMMUNITIES_PER_BATCH,
+    ).entries()) {
+      const payload = namingPayload(
+        repo,
+        batch,
+        nodeById,
+        graph.edges,
+        renamed,
+      );
+      const fallbackNames = fallbackNamesForPayload(payload);
+      try {
+        const completion = await this.llm.complete(repoId, {
+          taskType: "community_summary",
+          cacheKey: `community_naming:batch:${batchIndex + 1}`,
+          modelAlias: "community_namer",
+          promptVersion: "community_naming:v2",
+          inputPayload: payload,
+          messages: communityNamingMessages(payload),
+          completion: { responseFormat: "json_object" },
+        });
+        firstCompletion ??= completion;
+        const applied = applyProviderNames(
+          renamed,
+          batch,
+          completion.result.content,
+          fallbackNames,
+        );
+        renamed = applied.communities;
+        errors.push(
+          ...applied.errors.map((error) => `batch ${batchIndex + 1}: ${error}`),
+        );
+        let runId = completion.run.id;
+        if (applied.errors.length) {
+          const updated = await this.store.updateLlmRunStatus(
+            completion.run.id,
+            {
+              status: "partial",
+              error: applied.errors.join("; "),
+            },
+          );
+          runId = updated?.id ?? runId;
+        }
+        llmRunIds.push(runId);
+      } catch (error) {
+        errors.push(
+          `batch ${batchIndex + 1}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        if (error instanceof LlmCallError && error.runId) {
+          llmRunIds.push(error.runId);
+        }
       }
-      const providerResult = await applyProviderNames(
-        this.store,
-        repoId,
-        baseline,
-        parsed.names,
-      );
-      return {
-        ...providerResult,
-        communities: await namedCommunityPayloads(
-          this.store,
-          repoId,
-          providerResult.named_community_ids,
-        ),
-        llm: llmMetadata("success", completion),
-        errors: parsed.errors,
-      };
-    } catch (error) {
-      return {
-        ...baseline,
-        communities: await namedCommunityPayloads(
-          this.store,
-          repoId,
-          baseline.named_community_ids,
-        ),
-        llm: {
-          status: "fallback",
-          error: error instanceof Error ? error.message : String(error),
-          run_id: error instanceof LlmCallError ? error.runId : null,
-        },
-      };
     }
+
+    await this.store.replaceGraphCommunities(repoId, renamed);
+    await preserveCommunityEdges(this.store, repoId, renamed, communityEdges);
+    const targetIds = targets.map((community) => community.id);
+    const renamedCount = renamedCountBetween(communities, renamed);
+    return {
+      repo_id: repoId,
+      status: errors.length
+        ? "partial"
+        : renamedCount > 0
+          ? "renamed"
+          : "unchanged",
+      renamed_count: renamedCount,
+      community_count: renamed.length,
+      max_communities: maxCommunities,
+      named_community_ids: targetIds,
+      llm_run_id: llmRunIds[0] ?? null,
+      llm_run_ids: llmRunIds,
+      errors,
+      communities: communitySummaries(renamed, targetIds),
+      llm: {
+        status: errors.length ? "partial" : "success",
+        cache_hit: firstCompletion?.cacheHit ?? false,
+        run_id: llmRunIds[0] ?? null,
+        run_ids: llmRunIds,
+        model: firstCompletion?.result.model ?? null,
+        provider: firstCompletion?.result.provider ?? null,
+      },
+    };
   }
 }
 
-async function communityContexts(
-  store: CodeWikiStoreApi,
-  repoId: string,
-  communityIds: string[],
-): Promise<CommunityContext[]> {
-  const graph = await store.getGraph(repoId);
-  const communities = (await store.listGraphCommunities(repoId)).filter(
-    (community) => communityIds.includes(community.id),
-  );
-  return communities.map((community) =>
-    communityContext(community, graph.nodes, graph.edges),
-  );
+function deterministicPayload(
+  result: CommunityNamingResult,
+  communities: GraphCommunity[],
+): CommunityNamingPayload {
+  return {
+    ...result,
+    communities: communitySummaries(communities, result.named_community_ids),
+  };
 }
 
-function communityContext(
-  community: GraphCommunity,
-  nodes: CodeGraphNode[],
-  edges: CodeGraphEdge[],
-): CommunityContext {
-  const directNodeIds = new Set(community.node_ids);
-  const directNodes = community.node_ids
-    .map((nodeId) => nodes.find((node) => node.id === nodeId))
-    .filter((node): node is CodeGraphNode => Boolean(node));
-  const files = uniqueSorted(
-    directNodes
-      .map((node) => node.file_path)
-      .filter((filePath) => filePath.length > 0),
-  );
-  const fileSet = new Set(files);
-  const symbols = nodes
-    .filter(
-      (node) =>
-        node.type !== "file" &&
-        node.type !== "config" &&
-        (directNodeIds.has(node.id) || fileSet.has(node.file_path)),
-    )
-    .sort(
+function normalizeMaxCommunities(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return MAX_COMMUNITIES_PER_LLM_CALL;
+  }
+  return Math.max(1, Math.min(value, MAX_COMMUNITIES_PER_LLM_CALL));
+}
+
+function selectNamingTargets(
+  communities: GraphCommunity[],
+  maxCommunities: number,
+  nodeById: Map<string, CodeGraphNode>,
+): GraphCommunity[] {
+  const limit = normalizeMaxCommunities(maxCommunities);
+  const byLevel = new Map<number, GraphCommunity[]>();
+  for (const community of communities) {
+    const level = Number.isInteger(community.level) ? community.level : 0;
+    byLevel.set(level, [...(byLevel.get(level) ?? []), community]);
+  }
+  const selected: GraphCommunity[] = [];
+  const seen = new Set<string>();
+  const add = (items: GraphCommunity[]) => {
+    for (const community of items) {
+      if (selected.length >= limit) {
+        return;
+      }
+      if (!seen.has(community.id)) {
+        selected.push(community);
+        seen.add(community.id);
+      }
+    }
+  };
+
+  add(
+    [...(byLevel.get(0) ?? [])].sort(
       (left, right) =>
-        left.file_path.localeCompare(right.file_path) ||
-        (left.start_line ?? 0) - (right.start_line ?? 0) ||
+        left.rank - right.rank ||
+        right.node_ids.length - left.node_ids.length ||
         left.name.localeCompare(right.name),
-    )
-    .slice(0, 12)
-    .map((node) => ({
-      name: node.name,
-      type: node.type,
-      file_path: node.file_path,
-    }));
-  const edgeTypes = uniqueSorted(
-    edges
-      .filter(
-        (edge) =>
-          directNodeIds.has(edge.source_id) ||
-          directNodeIds.has(edge.target_id),
-      )
-      .map((edge) => edge.type),
+    ),
+  );
+  for (const level of [...byLevel.keys()].filter((item) => item > 0).sort()) {
+    add(
+      [...(byLevel.get(level) ?? [])].sort(
+        (left, right) =>
+          right.node_ids.length - left.node_ids.length ||
+          fileCount(right, nodeById) - fileCount(left, nodeById) ||
+          left.rank - right.rank ||
+          left.name.localeCompare(right.name),
+      ),
+    );
+  }
+  add(communities);
+  return selected;
+}
+
+function namingPayload(
+  repo: RepoDescriptor,
+  communities: GraphCommunity[],
+  nodeById: Map<string, CodeGraphNode>,
+  edges: CodeGraphEdge[],
+  allCommunities: GraphCommunity[],
+): JsonObject {
+  const communityById = new Map(
+    allCommunities.map((community) => [community.id, community]),
   );
   return {
+    repo: {
+      id: repo.id,
+      name: repo.name,
+      path: repo.path,
+    },
+    task: "Name and summarize graph communities using only the provided files, symbols, deterministic summaries, and graph relationships. Keep node membership unchanged.",
+    communities: communities.map((community) =>
+      communityPayload(community, nodeById, edges, communityById),
+    ),
+    naming_rules: [
+      "Use concise developer-facing subsystem names, 2-6 words.",
+      "Prefer capability/workflow names over generic layer names.",
+      "Avoid names like Backend Subsystem, Frontend Subsystem, Community 1, Cluster 23, Misc, Core.",
+      "Do not invent modules, products, files, or dependencies.",
+      "Return one object per input community id.",
+    ],
+    summary_rules: [
+      "Write a fresh source-grounded summary, not a copy of the deterministic summary.",
+      "Describe responsibility, important files or symbols, and boundary dependencies.",
+      "Keep each summary to one or two concise sentences.",
+      "Call out unclear boundaries only when the graph evidence supports that uncertainty.",
+    ],
+    required_json_shape: {
+      communities: [
+        {
+          id: "community-id",
+          name: "GraphRAG Retrieval",
+          summary:
+            "One source-grounded sentence describing responsibility and boundaries.",
+        },
+      ],
+    },
+  };
+}
+
+function communityPayload(
+  community: GraphCommunity,
+  nodeById: Map<string, CodeGraphNode>,
+  edges: CodeGraphEdge[],
+  communityById: Map<string, GraphCommunity>,
+): JsonObject {
+  const nodeIds = new Set(community.node_ids);
+  const files = uniqueSorted(
+    community.node_ids.flatMap((nodeId) => {
+      const filePath = nodeById.get(nodeId)?.file_path;
+      return filePath ? [filePath] : [];
+    }),
+  );
+  const symbols = community.node_ids.flatMap((nodeId) => {
+    const node = nodeById.get(nodeId);
+    return node && node.type !== "file"
+      ? [
+          {
+            name: node.name,
+            type: node.type,
+            file_path: node.file_path,
+          },
+        ]
+      : [];
+  });
+  const internalEdges = edges
+    .filter(
+      (edge) => nodeIds.has(edge.source_id) && nodeIds.has(edge.target_id),
+    )
+    .slice(0, MAX_COMMUNITY_EDGES)
+    .map((edge) => edgePayload(edge, nodeById));
+  const boundaryEdges = edges
+    .filter(
+      (edge) => nodeIds.has(edge.source_id) !== nodeIds.has(edge.target_id),
+    )
+    .slice(0, MAX_COMMUNITY_EDGES)
+    .map((edge) => edgePayload(edge, nodeById));
+  const parent = community.parent_id
+    ? communityById.get(community.parent_id)
+    : null;
+  return compactJsonObject({
     id: community.id,
-    currentName: community.name,
-    currentSummary: community.summary ?? "",
-    files,
-    symbols,
-    edgeTypes,
+    current_name: community.name,
+    level: community.level,
+    parent_id: community.parent_id,
+    parent_name: parent?.name,
+    ancestor_names: ancestorNames(community, communityById),
+    rank: community.rank,
+    node_count: community.node_ids.length,
+    files: files.slice(0, MAX_COMMUNITY_FILES),
+    symbols: symbols.slice(0, MAX_COMMUNITY_SYMBOLS),
+    deterministic_summary: community.summary,
+    internal_edges: internalEdges,
+    boundary_edges: boundaryEdges,
+  });
+}
+
+function edgePayload(
+  edge: CodeGraphEdge,
+  nodeById: Map<string, CodeGraphNode>,
+): JsonObject {
+  const source = nodeById.get(edge.source_id);
+  const target = nodeById.get(edge.target_id);
+  return {
+    type: edge.type,
+    source: source?.name ?? edge.source_id,
+    source_type: source?.type ?? "",
+    target: target?.name ?? edge.target_id,
+    target_type: target?.type ?? "",
+    confidence: edge.confidence,
   };
 }
 
 function communityNamingMessages(
-  repoId: string,
-  contexts: CommunityContext[],
+  payload: JsonObject,
 ): LlmOperation["messages"] {
   return [
     {
       role: "system",
       content: [
-        "You name and summarize code graph communities.",
-        'Return only JSON with shape {"communities":[{"id":string,"name":string,"summary":string}]}',
-        "Use concise product-facing names, avoid generic words like community or cluster, and keep summaries source-grounded.",
-      ].join(" "),
+        "Name and summarize graph communities for GraphRAG retrieval and Wiki catalog generation.",
+        "",
+        "Focus on:",
+        "- A concise developer-facing subsystem name",
+        "- A source-grounded semantic summary of main responsibility",
+        "- Key files and symbols",
+        "- Important incoming and outgoing dependencies",
+        "- Risks or unclear boundaries",
+        "",
+        "Rules:",
+        "- Use only the provided graph evidence.",
+        "- Keep names short and specific, preferably 2-6 words.",
+        "- Write a fresh summary instead of copying the deterministic summary verbatim.",
+        "- Keep summaries concise, normally one or two sentences.",
+        "- Prefer capability or workflow names over generic layer names.",
+        "- Avoid generic names such as Backend Subsystem, Frontend Subsystem, Core, Misc, Cluster N, or Community N.",
+        "- Do not alter node membership or invent modules.",
+        "- Return only JSON in the requested shape.",
+      ].join("\n"),
     },
     {
       role: "user",
-      content: `Repository ${repoId} community contexts:\n${JSON.stringify({
-        communities: contexts,
-      })}`,
+      content: stableJsonMessage("Stable community naming contract", {
+        instructions: "Return community names and summaries as JSON.",
+      }),
+    },
+    {
+      role: "user",
+      content: dynamicJsonMessage("Community naming payload", payload),
     },
   ];
 }
 
-function normalizeProviderNames(
+function applyProviderNames(
+  allCommunities: GraphCommunity[],
+  targetCommunities: GraphCommunity[],
   content: string,
-  allowedIds: string[],
-): { names: ProviderCommunityName[]; errors: string[] } {
+  fallbackNames: Map<string, string>,
+): { communities: GraphCommunity[]; errors: string[] } {
   const errors: string[] = [];
   const payload = parseJsonObject(content, errors);
   if (!payload) {
-    return { names: [], errors };
+    return { communities: allCommunities, errors };
   }
-  const communities = payload.communities;
-  if (!Array.isArray(communities)) {
+  const rawItems = payload.communities;
+  if (!Array.isArray(rawItems)) {
     return {
-      names: [],
-      errors: [
-        ...errors,
-        "Provider response must include a communities array.",
-      ],
+      communities: allCommunities,
+      errors: ["LLM response must contain a communities array."],
     };
   }
-  const allowed = new Set(allowedIds);
-  const seen = new Set<string>();
-  const names: ProviderCommunityName[] = [];
-  for (const item of communities) {
-    if (!isRecord(item)) {
-      errors.push("Provider community item was not an object.");
-      continue;
-    }
-    const id = nonEmptyString(item.id);
-    const name = nonEmptyString(item.name);
-    const summary = nonEmptyString(item.summary);
-    if (!id || !allowed.has(id)) {
-      errors.push(`Provider returned an unknown community id: ${id ?? ""}`);
-      continue;
-    }
-    if (seen.has(id)) {
-      errors.push(`Provider returned a duplicate community id: ${id}`);
-      continue;
-    }
-    if (!name || !summary) {
-      errors.push(`Provider community ${id} needs a name and summary.`);
-      continue;
-    }
-    seen.add(id);
-    names.push({
-      id,
-      name: name.slice(0, 80),
-      summary: summary.slice(0, 700),
-    });
-  }
-  return { names, errors };
-}
-
-async function applyProviderNames(
-  store: CodeWikiStoreApi,
-  repoId: string,
-  baseline: CommunityNamingResult,
-  providerNames: ProviderCommunityName[],
-): Promise<CommunityNamingResult> {
-  const before = await store.listGraphCommunities(repoId);
-  const providerById = new Map(providerNames.map((item) => [item.id, item]));
-  const targetIds = new Set(baseline.named_community_ids);
-  const seenNames = new Set(
-    before
-      .filter((community) => !targetIds.has(community.id))
-      .map((community) => community.name.toLowerCase()),
+  const byId = new Map(
+    allCommunities.map((community) => [community.id, community]),
   );
-  const after = before.map((community, index) => {
-    const provider = providerById.get(community.id);
-    if (!provider) {
-      return community;
+  const targetIds = new Set(targetCommunities.map((community) => community.id));
+  const updates = new Map<string, GraphCommunity>();
+  const seenNames = new Set<string>();
+  rawItems.forEach((rawItem, index) => {
+    if (!isRecord(rawItem)) {
+      errors.push(`communities[${index}] must be an object.`);
+      return;
     }
-    const providerName = normalizeCommunityName(provider.name, community.name);
-    const fallbackName = nonGenericFallbackName(community.name, index);
-    const preferredName = isGenericName(providerName)
-      ? fallbackName
-      : providerName;
-    const name = dedupeName(preferredName, seenNames);
+    const communityId = stringValue(rawItem.id) ?? "";
+    if (!targetIds.has(communityId)) {
+      errors.push(`communities[${index}] uses unknown community id.`);
+      return;
+    }
+    const community = byId.get(communityId);
+    if (!community) {
+      return;
+    }
+    let name = normalizeName(rawItem.name, community.name);
+    if (isGenericName(name)) {
+      name = nonGenericFallbackName(
+        fallbackNames.get(communityId) ?? community.name,
+        index,
+      );
+    }
+    if (isGenericName(name)) {
+      name = `Code Area ${index + 1}`;
+    }
+    name = dedupeName(name, seenNames);
     seenNames.add(name.toLowerCase());
-    return {
+    const summary = normalizeSummary(rawItem.summary, community.summary ?? "");
+    updates.set(communityId, {
       ...community,
       name,
-      summary: provider.summary,
-      summary_hash: digest(provider.summary),
-    };
+      summary,
+      summary_hash: digest(summary),
+    });
   });
-  const edges = await store.listGraphCommunityEdges(repoId);
-  await store.replaceGraphCommunities(repoId, after);
-  await preserveCommunityEdges(store, repoId, after, edges);
-  const renamedCount = renamedCountBetween(before, after);
   return {
-    ...baseline,
-    status: renamedCount > 0 ? "renamed" : "unchanged",
-    renamed_count: renamedCount,
+    communities: allCommunities.map(
+      (community) => updates.get(community.id) ?? community,
+    ),
+    errors,
   };
 }
 
-async function namedCommunityPayloads(
+function parseJsonObject(content: string, errors: string[]): JsonObject | null {
+  const trimmed = stripMarkdownFence(content.trim());
+  const candidates = [trimmed, extractObject(trimmed)].filter(
+    (candidate): candidate is string => Boolean(candidate),
+  );
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (isRecord(parsed)) {
+        return parsed as JsonObject;
+      }
+    } catch {
+      // Try the next candidate below.
+    }
+  }
+  errors.push("LLM did not return a JSON object.");
+  return null;
+}
+
+function namedCommunityPayloads(
   store: CodeWikiStoreApi,
   repoId: string,
   communityIds: string[],
 ): Promise<CommunityNamingPayload["communities"]> {
-  return (await store.listGraphCommunities(repoId))
-    .filter((community) => communityIds.includes(community.id))
-    .sort((left, right) => {
-      const leftIndex = communityIds.indexOf(left.id);
-      const rightIndex = communityIds.indexOf(right.id);
-      return leftIndex - rightIndex;
-    })
-    .map((community) => ({
-      id: community.id,
-      name: community.name,
-      summary: community.summary ?? "",
-      node_count: community.node_ids.length,
-    }));
+  return Promise.resolve(store.listGraphCommunities(repoId)).then(
+    (communities) => communitySummaries(communities, communityIds),
+  );
+}
+
+function communitySummaries(
+  communities: GraphCommunity[],
+  communityIds: string[],
+): CommunityNamingPayload["communities"] {
+  const ordered =
+    communityIds.length > 0
+      ? communities
+          .filter((community) => communityIds.includes(community.id))
+          .sort(
+            (left, right) =>
+              communityIds.indexOf(left.id) - communityIds.indexOf(right.id),
+          )
+      : communities;
+  return ordered.map((community) => ({
+    id: community.id,
+    name: community.name,
+    summary: community.summary ?? "",
+    node_count: community.node_ids.length,
+  }));
+}
+
+function fallbackNamesForPayload(payload: JsonObject): Map<string, string> {
+  const names = new Map<string, string>();
+  const communities = payload.communities;
+  if (!Array.isArray(communities)) {
+    return names;
+  }
+  for (const item of communities) {
+    if (isRecord(item)) {
+      const id = stringValue(item.id);
+      if (id) {
+        names.set(id, fallbackNameFromPayload(item));
+      }
+    }
+  }
+  return names;
+}
+
+function fallbackNameFromPayload(item: Record<string, unknown>): string {
+  const files = Array.isArray(item.files)
+    ? item.files.filter(
+        (filePath): filePath is string => typeof filePath === "string",
+      )
+    : [];
+  const labels = files
+    .map(fileLabel)
+    .filter(
+      (label) => label && !["index", "main"].includes(label.toLowerCase()),
+    );
+  const uniqueLabels = uniquePreserveOrder(labels);
+  if (uniqueLabels.length === 1 && uniqueLabels[0]) {
+    return uniqueLabels[0];
+  }
+  if (uniqueLabels.length > 1 && uniqueLabels[0] && uniqueLabels[1]) {
+    return `${uniqueLabels[0]} and ${uniqueLabels[1]}`;
+  }
+
+  const symbols = Array.isArray(item.symbols) ? item.symbols : [];
+  for (const symbol of symbols) {
+    if (!isRecord(symbol)) {
+      continue;
+    }
+    const name = stringValue(symbol.name);
+    if (name && !name.startsWith("_")) {
+      return humanizeName(name);
+    }
+  }
+  return stringValue(item.current_name) ?? "Subsystem";
+}
+
+function normalizeName(value: unknown, fallback: string): string {
+  const name = scalarString(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:community|cluster)\s+\d+\s*[:-]\s*/i, "")
+    .slice(0, MAX_NAME_LENGTH)
+    .replace(/^[\s:-]+|[\s:-]+$/g, "");
+  return name || fallback;
+}
+
+function normalizeSummary(value: unknown, fallback: string): string {
+  const summary = scalarString(value).replace(/\s+/g, " ").trim();
+  return (summary || fallback).slice(0, 800).trim();
+}
+
+function scalarString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function nonGenericFallbackName(name: string, index: number): string {
+  const fallback = `Code Area ${index + 1}`;
+  const candidate = normalizeName(name, fallback);
+  return isGenericName(candidate) ? fallback : candidate;
+}
+
+function ancestorNames(
+  community: GraphCommunity,
+  communityById: Map<string, GraphCommunity>,
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let parentId = community.parent_id;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = communityById.get(parentId);
+    if (!parent) {
+      break;
+    }
+    names.push(parent.name);
+    parentId = parent.parent_id;
+  }
+  return names.reverse();
+}
+
+function fileCount(
+  community: GraphCommunity,
+  nodeById: Map<string, CodeGraphNode>,
+): number {
+  return new Set(
+    community.node_ids.flatMap((nodeId) => {
+      const filePath = nodeById.get(nodeId)?.file_path;
+      return filePath ? [filePath] : [];
+    }),
+  ).size;
+}
+
+function batches<T>(items: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size));
+  }
+  return result;
 }
 
 async function preserveCommunityEdges(
@@ -424,23 +711,60 @@ function renamedCountBetween(
   }).length;
 }
 
-function parseJsonObject(content: string, errors: string[]): JsonObject | null {
-  const trimmed = stripMarkdownFence(content.trim());
-  const candidates = [trimmed, extractObject(trimmed)].filter(
-    (candidate): candidate is string => Boolean(candidate),
-  );
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (isRecord(parsed)) {
-        return parsed as JsonObject;
-      }
-    } catch {
-      // Try the next candidate below.
+function stableJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${stableJson(payload)}`;
+}
+
+function dynamicJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${JSON.stringify(payload)}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function compactJsonObject(values: Record<string, unknown>): JsonObject {
+  const payload: JsonObject = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    if (Array.isArray(value) && !value.length) {
+      continue;
+    }
+    if (isJsonValue(value)) {
+      payload[key] = value;
     }
   }
-  errors.push("Provider community response was not valid JSON.");
-  return null;
+  return payload;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.values(value).every(isJsonValue)
+  );
 }
 
 function stripMarkdownFence(value: string): string {
@@ -454,7 +778,7 @@ function extractObject(value: string): string | null {
   return start >= 0 && end > start ? value.slice(start, end + 1) : null;
 }
 
-function nonEmptyString(value: unknown): string | null {
+function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
@@ -462,19 +786,19 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function uniquePreserveOrder(values: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    const key = value.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(value);
+    }
+  }
+  return unique;
 }
 
-function llmMetadata(
-  status: "success",
-  completion: CachedLlmCompletion,
-): JsonObject {
-  return {
-    status,
-    cache_hit: completion.cacheHit,
-    run_id: completion.run.id,
-    model: completion.result.model,
-    provider: completion.result.provider,
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
