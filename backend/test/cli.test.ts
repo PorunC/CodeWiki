@@ -169,10 +169,15 @@ describe("codewiki CLI", () => {
       status: string;
       repo_id: string;
       node_count: number;
+      community_naming?: { status: string; renamed_count: number };
     }>(["analyze", "--json"], env, { cwd: repo });
     expect(analyzedCurrentDir.status).toBe("done");
     expect(analyzedCurrentDir.repo_id).toBe(added.id);
     expect(analyzedCurrentDir.node_count).toBeGreaterThanOrEqual(4);
+    expect(analyzedCurrentDir.community_naming).toMatchObject({
+      status: "skipped",
+      renamed_count: 0,
+    });
 
     const reposAfterCurrentDirAnalyze = runJson<
       Array<{ id: string; name: string }>
@@ -181,7 +186,11 @@ describe("codewiki CLI", () => {
       reposAfterCurrentDirAnalyze.filter((repo) => repo.id === added.id),
     ).toEqual([expect.objectContaining({ name: "cli-repo" })]);
 
-    const analyzed = runJson<{ status: string; node_count: number }>(
+    const analyzed = runJson<{
+      status: string;
+      node_count: number;
+      community_naming?: unknown;
+    }>(
       [
         "analyze",
         added.id,
@@ -194,6 +203,7 @@ describe("codewiki CLI", () => {
     );
     expect(analyzed.status).toBe("done");
     expect(analyzed.node_count).toBeGreaterThanOrEqual(4);
+    expect(analyzed.community_naming).toBeUndefined();
 
     const catalog = runJson<{
       title: string;
@@ -231,6 +241,7 @@ describe("codewiki CLI", () => {
       mode: string;
       plan: { changed_files: string[]; affected_files: string[] };
       wiki_regeneration: { status?: string; generated_pages?: string[] };
+      community_naming?: { status: string; renamed_count: number };
     }>(["update", added.id, "--json"], env);
     expect(repositoryUpdate.status).toBe("done");
     expect(repositoryUpdate.mode).toBe("typescript_update");
@@ -240,6 +251,10 @@ describe("codewiki CLI", () => {
     expect(
       repositoryUpdate.wiki_regeneration.generated_pages?.length,
     ).toBeGreaterThanOrEqual(1);
+    expect(repositoryUpdate.community_naming).toMatchObject({
+      status: "skipped",
+      renamed_count: 0,
+    });
 
     const regenerated = runJson<{ slug: string; status: string }>(
       ["wiki", "page", slug!, added.id, "--json"],

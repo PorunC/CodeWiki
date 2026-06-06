@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { analysisRunResponse } from "../../analysis/analysisService.js";
+import { communityNamingPayloadJson } from "../../graph/communityNamingService.js";
 import {
   analysisRunPayload,
   updatePayloadFromAnalysis,
@@ -15,8 +16,15 @@ export function registerRunRoutes(
   app.post("/api/repos/:repoId/analyze", async (request, reply) => {
     const { repoId } = params(request.params);
     return withRepo(reply, store, repoId, async () => {
+      const body = objectBody(request.body);
       const result = await services.analysis.analyze(repoId);
-      return analysisRunPayload(result);
+      const payload = analysisRunPayload(result);
+      if (boolBody(body.name_communities ?? body.community_summaries, true)) {
+        payload.community_naming = communityNamingPayloadJson(
+          await services.communityNaming.nameCommunitiesForAnalysis(repoId),
+        );
+      }
+      return payload;
     });
   });
 
@@ -30,7 +38,13 @@ export function registerRunRoutes(
             staleSlugs: result.stale_pages,
           })
         : { requested: false, status: "not_run" };
-      return updatePayloadFromAnalysis(result, wikiRegeneration);
+      const payload = updatePayloadFromAnalysis(result, wikiRegeneration);
+      if (boolBody(body.name_communities ?? body.community_summaries, true)) {
+        payload.community_naming = communityNamingPayloadJson(
+          await services.communityNaming.nameCommunitiesForAnalysis(repoId),
+        );
+      }
+      return payload;
     });
   });
 

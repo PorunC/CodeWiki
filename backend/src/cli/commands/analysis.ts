@@ -1,5 +1,9 @@
 import type { Command } from "commander";
-import { updatePayloadFromAnalysis } from "../../presenters/payloads.js";
+import { communityNamingPayloadJson } from "../../graph/communityNamingService.js";
+import {
+  analysisRunPayload,
+  updatePayloadFromAnalysis,
+} from "../../presenters/payloads.js";
 import { resolveRepo } from "../../services/repoResolver.js";
 import { output, runWithContextAsync, type CliRuntime } from "../runtime.js";
 
@@ -23,25 +27,49 @@ export function registerAnalysisCommands(
     )
     .option(
       "--community-summaries",
-      "Accepted for compatibility; summaries are deterministic",
+      "Generate LLM community names and summaries when configured",
       true,
     )
     .option("--no-community-summaries", "Accepted for compatibility")
     .option("--json", "Print JSON output")
-    .action((selector: string | undefined, options: { json?: boolean }) => {
-      return runWithContextAsync(
-        runtime,
-        async ({ store, scanner, services }) => {
-          const repo = await resolveRepo(store, scanner, selector);
-          const result = await services.analysis.analyze(repo.id);
-          output(
-            options.json,
-            result,
-            `Analysis ${result.status}: ${result.node_count} nodes, ${result.edge_count} edges`,
-          );
-        },
-      );
-    });
+    .action(
+      (
+        selector: string | undefined,
+        options: { communitySummaries?: boolean; json?: boolean },
+      ) => {
+        return runWithContextAsync(
+          runtime,
+          async ({ store, scanner, services }) => {
+            const repo = await resolveRepo(store, scanner, selector);
+            const result = await services.analysis.analyze(repo.id);
+            const payload = analysisRunPayload(result);
+            const communityNaming =
+              options.communitySummaries === false
+                ? null
+                : communityNamingPayloadJson(
+                    await services.communityNaming.nameCommunitiesForAnalysis(
+                      repo.id,
+                    ),
+                  );
+            if (communityNaming) {
+              payload.community_naming = communityNaming;
+            }
+            output(
+              options.json,
+              payload,
+              [
+                `Analysis ${result.status}: ${result.node_count} nodes, ${result.edge_count} edges`,
+                communityNaming
+                  ? `Community summaries: ${communityNamingStatus(communityNaming)}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            );
+          },
+        );
+      },
+    );
 
   program
     .command("update")
@@ -56,7 +84,7 @@ export function registerAnalysisCommands(
     .option("--no-regenerate-wiki", "Skip wiki page regeneration")
     .option(
       "--community-summaries",
-      "Accepted for compatibility; summaries are deterministic",
+      "Generate LLM community names and summaries when configured",
       true,
     )
     .option("--no-community-summaries", "Accepted for compatibility")
@@ -80,11 +108,33 @@ export function registerAnalysisCommands(
               })
             : { requested: false, status: "not_run" };
           const payload = updatePayloadFromAnalysis(result, wikiRegeneration);
+          const communityNaming =
+            options.communitySummaries === false
+              ? null
+              : communityNamingPayloadJson(
+                  await services.communityNaming.nameCommunitiesForAnalysis(
+                    repo.id,
+                  ),
+                );
+          if (communityNaming) {
+            payload.community_naming = communityNaming;
+          }
           output(
             options.json,
             payload,
-            `Update ${result.status}: ${result.node_count} nodes, ${result.edge_count} edges`,
+            [
+              `Update ${result.status}: ${result.node_count} nodes, ${result.edge_count} edges`,
+              communityNaming
+                ? `Community summaries: ${communityNamingStatus(communityNaming)}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n"),
           );
         }),
     );
+}
+
+function communityNamingStatus(payload: Record<string, unknown>): string {
+  return typeof payload.status === "string" ? payload.status : "unknown";
 }

@@ -56,9 +56,12 @@ export function buildWikiTools({
           repo.id,
           languageArg(args),
         );
+        const hasValidationErrors = pages.some(
+          (page) => page.validation_errors.length > 0,
+        );
         return {
           repo_id: repo.id,
-          status: "generated",
+          status: hasValidationErrors ? "partial" : "generated",
           page_count: pages.length,
           pages: pages.map(pageResultPayload),
           llm_cache: await services.wiki.llmCachePayload(repo.id, [

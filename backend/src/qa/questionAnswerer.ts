@@ -1,5 +1,7 @@
+import { createHash, randomUUID } from "node:crypto";
 import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError, validationError } from "../errors.js";
+import { buildRetrievalTrace } from "../graphrag/retrieval.js";
 import {
   LlmCallError,
   type CachedLlmCompletion,
@@ -9,8 +11,7 @@ import {
   sourceUrlBaseForRepo,
   sourceUrlForRange,
 } from "../services/sourceUrls.js";
-import type { CodeChunk } from "../types.js";
-import type { JsonObject } from "../types.js";
+import type { JsonObject, RepoDescriptor, RetrievalTrace } from "../types.js";
 
 export type QuestionAnswerRequest = {
   question: string;
@@ -40,12 +41,14 @@ type SourceSnippet = SourceCitation & {
 };
 
 type QuestionContext = {
-  repoName: string;
+  repo: RepoDescriptor;
   question: string;
+  trace: RetrievalTrace;
   sources: SourceCitation[];
-  promptSources: SourceCitation[];
   sourceSnippets: SourceSnippet[];
   relatedNodes: JsonObject[];
+  relatedEdges: JsonObject[];
+  relatedCommunities: JsonObject[];
 };
 
 export class QuestionAnswerer {
@@ -75,9 +78,9 @@ export class QuestionAnswerer {
     try {
       const completion = await this.llm.complete(repoId, {
         taskType: "qa",
-        cacheKey: `qa:${context.question}`,
+        cacheKey: `qa:${context.trace.trace_id}:${questionHash(context.question)}`,
         modelAlias: "qa",
-        promptVersion: "ts-qa-v1",
+        promptVersion: "qa:v1",
         inputPayload: llmInputPayload(context),
         messages: qaMessages(context),
       });
@@ -112,27 +115,29 @@ export class QuestionAnswerer {
       throw validationError("Question must be a non-empty string.");
     }
 
-    const hits = await this.store.searchCodeChunks(repoId, question, 8);
-    const graphHits = await this.store.searchCodeNodes(repoId, question, {
-      limit: 10,
-    });
-    const sourceUrlBase = sourceUrlBaseForRepo(repo);
-    const promptSources = hits.map((hit, index) =>
-      sourceCitation(hit.chunk, index, sourceUrlBase),
+    const trace = await this.store.saveRetrievalTrace(
+      await buildRetrievalTrace(
+        this.store,
+        repoId,
+        question,
+        payload.max_hops === undefined ? {} : { maxHops: payload.max_hops },
+      ),
     );
+    const sourceUrlBase = sourceUrlBaseForRepo(repo);
+    const sourceSnippets = sourceSnippetsFromTrace(trace, sourceUrlBase);
     return {
-      repoName: repo.name,
+      repo,
       question,
-      promptSources,
-      sources: payload.include_sources === false ? [] : promptSources,
-      sourceSnippets: hits.slice(0, 8).map((hit, index) => ({
-        ...sourceCitation(hit.chunk, index, sourceUrlBase),
-        content: hit.chunk.content,
-      })),
+      trace,
+      sources: payload.include_sources === false ? [] : sourceSnippets,
+      sourceSnippets: payload.include_sources === false ? [] : sourceSnippets,
       relatedNodes:
         payload.include_graph === false
           ? []
-          : graphHits.map((hit) => graphNodePayload(hit.node)),
+          : [...trace.seed_nodes, ...trace.expanded_nodes],
+      relatedEdges: payload.include_graph === false ? [] : trace.related_edges,
+      relatedCommunities:
+        payload.include_graph === false ? [] : trace.community_summaries,
     };
   }
 
@@ -142,7 +147,7 @@ export class QuestionAnswerer {
   ): Record<string, unknown> {
     const answer = context.sourceSnippets.length
       ? [
-          `I found ${context.promptSources.length} relevant source section${context.promptSources.length === 1 ? "" : "s"} in ${context.repoName}.`,
+          `I found ${context.sourceSnippets.length} relevant source section${context.sourceSnippets.length === 1 ? "" : "s"} in ${context.repo.name}.`,
           "",
           ...context.sourceSnippets.slice(0, 4).map((source) => {
             const preview = String(source.content)
@@ -152,62 +157,70 @@ export class QuestionAnswerer {
             return `[${source.citation_id}] ${source.file_path}:${source.start_line} - ${preview}`;
           }),
         ].join("\n")
-      : `I could not find indexed source context for that question in ${context.repoName}. Run analysis first, then ask again.`;
+      : `I could not find indexed source context for that question in ${context.repo.name}. Run analysis first, then ask again.`;
 
     return {
       answer,
       sources: context.sources,
       related_nodes:
         payload.include_graph === false ? [] : context.relatedNodes,
-      related_edges: [],
-      related_communities: [],
-      trace_id: crypto.randomUUID(),
+      related_edges:
+        payload.include_graph === false ? [] : context.relatedEdges,
+      related_communities:
+        payload.include_graph === false ? [] : context.relatedCommunities,
+      trace_id: context.trace.trace_id || randomUUID(),
     };
   }
 }
 
+function sourceSnippetsFromTrace(
+  trace: RetrievalTrace,
+  sourceUrlBase: string | null,
+): SourceSnippet[] {
+  const snippets: SourceSnippet[] = [];
+  const seen = new Set<string>();
+  trace.source_chunks.forEach((chunk, index) => {
+    const filePath = stringValue(chunk.file_path);
+    const startLine = numberValue(chunk.start_line);
+    const endLine = numberValue(chunk.end_line);
+    const content = stringValue(chunk.content);
+    if (!filePath || !startLine || !endLine || !content) {
+      return;
+    }
+    const key = `${filePath}:${startLine}:${endLine}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    snippets.push({
+      ...sourceCitation(
+        stringValue(chunk.citation_id) ?? `S${index + 1}`,
+        filePath,
+        startLine,
+        endLine,
+        sourceUrlBase,
+      ),
+      content,
+    });
+  });
+  return snippets;
+}
+
 function sourceCitation(
-  chunk: CodeChunk,
-  index: number,
+  citationId: string,
+  filePath: string,
+  startLine: number,
+  endLine: number,
   sourceUrlBase: string | null,
 ): SourceCitation {
   return {
-    citation_id: `S${index + 1}`,
-    file_path: chunk.file_path,
-    start_line: chunk.start_line,
-    end_line: chunk.end_line,
+    citation_id: citationId,
+    file_path: filePath,
+    start_line: startLine,
+    end_line: endLine,
     source_url: sourceUrlBase
-      ? sourceUrlForRange(
-          sourceUrlBase,
-          chunk.file_path,
-          chunk.start_line,
-          chunk.end_line,
-        )
+      ? sourceUrlForRange(sourceUrlBase, filePath, startLine, endLine)
       : null,
-  };
-}
-
-function graphNodePayload(node: {
-  id: string;
-  type: string;
-  name: string;
-  file_path: string;
-  start_line: number | null;
-  end_line: number | null;
-  language: string | null;
-  symbol_id: string | null;
-  metadata: JsonObject;
-}): JsonObject {
-  return {
-    id: node.id,
-    type: node.type,
-    name: node.name,
-    file_path: node.file_path,
-    start_line: node.start_line,
-    end_line: node.end_line,
-    language: node.language,
-    symbol_id: node.symbol_id,
-    metadata: node.metadata,
   };
 }
 
@@ -216,25 +229,81 @@ function qaMessages(context: QuestionContext): LlmOperation["messages"] {
     {
       role: "system",
       content: [
-        "You answer questions about a source repository using only the provided CodeWiki context.",
-        "Cite source snippets with bracketed citation ids such as [S1].",
-        "If the context is insufficient, say what is missing instead of guessing.",
-      ].join(" "),
+        "Answer the user's code question using only the provided GraphRAG context.",
+        "",
+        "Rules:",
+        "- Cite source references.",
+        "- Do not speculate beyond the retrieved code.",
+        "- If evidence is missing, say what is missing.",
+        "- Keep the answer actionable for a developer reading the repository.",
+      ].join("\n"),
     },
     {
       role: "user",
-      content: `Question and source context:\n${JSON.stringify(llmInputPayload(context))}`,
+      content: stableJsonMessage("Stable QA contract", {
+        instructions:
+          "Use only this GraphRAG context. Cite files and lines from sources when making code claims.",
+      }),
+    },
+    {
+      role: "user",
+      content: dynamicJsonMessage(
+        "GraphRAG QA payload",
+        llmInputPayload(context),
+      ),
     },
   ];
 }
 
 function llmInputPayload(context: QuestionContext): JsonObject {
   return {
-    repo_name: context.repoName,
     question: context.question,
-    sources: context.sourceSnippets,
+    context_pack: context.trace.context_pack,
+    source_chunks: context.sourceSnippets.map((source) => ({
+      citation_id: source.citation_id,
+      file_path: source.file_path,
+      start_line: source.start_line,
+      end_line: source.end_line,
+      source_url: source.source_url,
+      content: source.content,
+    })),
     related_nodes: context.relatedNodes,
+    related_edges: context.relatedEdges,
+    community_summaries: context.relatedCommunities,
   };
+}
+
+function stableJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${stableJson(payload)}`;
+}
+
+function dynamicJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${JSON.stringify(payload)}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function questionHash(question: string): string {
+  return createHash("sha256").update(question).digest("hex").slice(0, 16);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
 function llmMetadata(

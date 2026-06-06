@@ -5,6 +5,7 @@ import type {
   GraphCommunity,
   GraphCommunityEdge,
   JsonObject,
+  JsonValue,
   RetrievalTrace,
 } from "../types.js";
 
@@ -46,9 +47,11 @@ export function nodeRetrievalPayload(
     language: node.language,
     symbol_id: node.symbol_id,
     summary: node.summary,
-    score,
+    score: roundScore(score),
     reasons,
     hop,
+    confidence: numberValue(node.metadata.confidence, 1),
+    provenance: recordValue(node.metadata.provenance),
     metadata: node.metadata,
   };
 }
@@ -58,10 +61,15 @@ export function edgeRetrievalPayload(edge: CodeGraphEdge): JsonObject {
     id: edge.id,
     source: edge.source_id,
     target: edge.target_id,
+    source_id: edge.source_id,
+    target_id: edge.target_id,
     type: edge.type,
     confidence: edge.confidence,
+    confidence_level: stringValue(edge.metadata.confidence_level),
+    reason: stringValue(edge.metadata.reason),
     weight: edge.weight,
     is_inferred: edge.is_inferred,
+    provenance: recordValue(edge.metadata.provenance),
     metadata: edge.metadata,
   };
 }
@@ -71,6 +79,10 @@ export function sourceChunkPayload(
   score: number,
   matchType: string,
   index: number,
+  options: {
+    reasons?: string[];
+    scoreComponents?: Record<string, number>;
+  } = {},
 ): JsonObject {
   return {
     id: chunk.id,
@@ -82,7 +94,9 @@ export function sourceChunkPayload(
     content: chunk.content,
     content_hash: chunk.content_hash,
     token_count: chunk.token_count,
-    score,
+    score: roundScore(score),
+    score_components: scoreComponentsPayload(options.scoreComponents ?? {}),
+    reasons: [...(options.reasons ?? [matchType])].sort(),
     match_type: matchType,
     citation_id: `S${index + 1}`,
   };
@@ -90,6 +104,7 @@ export function sourceChunkPayload(
 
 export function communityRetrievalPayload(
   community: GraphCommunity,
+  matchedNodeIds: string[] = [],
 ): JsonObject {
   return {
     id: community.id,
@@ -99,6 +114,8 @@ export function communityRetrievalPayload(
     rank: community.rank,
     node_ids: community.node_ids,
     summary: community.summary ?? "",
+    node_count: community.node_ids.length,
+    matched_node_ids: matchedNodeIds,
   };
 }
 
@@ -115,4 +132,56 @@ export function communityEdgeRetrievalPayload(
     reason: edge.reason,
     evidence_edge_ids: edge.evidence_edge_ids,
   };
+}
+
+function scoreComponentsPayload(
+  components: Record<string, number>,
+): JsonObject {
+  return Object.fromEntries(
+    Object.entries(components).map(([key, value]) => [key, roundScore(value)]),
+  );
+}
+
+function roundScore(value: number): number {
+  return Math.round(value * 10_000) / 10_000;
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function recordValue(value: unknown): JsonObject {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const result: JsonObject = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (isJsonValue(nested)) {
+      result[key] = nested;
+    }
+  }
+  return result;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.values(value).every(isJsonValue)
+  );
 }

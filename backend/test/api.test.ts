@@ -75,12 +75,17 @@ describe("HTTP API", () => {
       payload: {},
     });
     expect(analyzeResponse.statusCode).toBe(200);
-    expect(
-      analyzeResponse.json<{ status: string; node_count: number }>().status,
-    ).toBe("done");
-    expect(
-      analyzeResponse.json<{ node_count: number }>().node_count,
-    ).toBeGreaterThanOrEqual(4);
+    const analysisPayload = analyzeResponse.json<{
+      status: string;
+      node_count: number;
+      community_naming?: { status: string; renamed_count: number };
+    }>();
+    expect(analysisPayload.status).toBe("done");
+    expect(analysisPayload.node_count).toBeGreaterThanOrEqual(4);
+    expect(analysisPayload.community_naming).toMatchObject({
+      status: "skipped",
+      renamed_count: 0,
+    });
 
     const graphResponse = await app.inject(`/api/repos/${created.id}/graph`);
     expect(graphResponse.statusCode).toBe(200);
@@ -99,22 +104,10 @@ describe("HTTP API", () => {
       url: `/api/repos/${created.id}/communities/name`,
       payload: { max_communities: 5 },
     });
-    expect(namedCommunitiesResponse.statusCode).toBe(200);
-    const namedCommunities = namedCommunitiesResponse.json<{
-      status: string;
-      renamed_count: number;
-      communities: Array<{ name: string; summary: string }>;
-    }>();
-    expect(namedCommunities.status).toBe("renamed");
-    expect(namedCommunities.renamed_count).toBeGreaterThanOrEqual(1);
+    expect(namedCommunitiesResponse.statusCode).toBe(400);
     expect(
-      namedCommunities.communities.map((community) => community.name),
-    ).toEqual(expect.arrayContaining(["Documentation", "Util"]));
-    expect(
-      namedCommunities.communities.some((community) =>
-        community.summary.includes("helper"),
-      ),
-    ).toBe(true);
+      namedCommunitiesResponse.json<{ detail: string }>().detail,
+    ).toContain("community_summary");
 
     const catalogResponse = await app.inject({
       method: "POST",
@@ -173,6 +166,7 @@ describe("HTTP API", () => {
         generated_pages?: string[];
         incremental_update?: { run_id: string };
       };
+      community_naming?: { status: string; renamed_count: number };
     }>();
     expect(updated.status).toBe("done");
     expect(updated.mode).toBe("typescript_update");
@@ -185,6 +179,10 @@ describe("HTTP API", () => {
     expect(
       updated.wiki_regeneration.generated_pages?.length,
     ).toBeGreaterThanOrEqual(1);
+    expect(updated.community_naming).toMatchObject({
+      status: "skipped",
+      renamed_count: 0,
+    });
 
     const updatedGraphResponse = await app.inject(
       `/api/repos/${created.id}/graph/search?q=double`,
@@ -214,7 +212,7 @@ describe("HTTP API", () => {
       trace_id: string;
       query: string;
       source_chunks: Array<{ file_path: string }>;
-      context_pack: { query?: string };
+      context_pack: { text?: string; chunk_count?: number };
     }>();
     expect(retrieved.trace_id).toBeTruthy();
     expect(retrieved.query).toBe("helper");
@@ -223,7 +221,8 @@ describe("HTTP API", () => {
         (chunk) => chunk.file_path === "src/util.ts",
       ),
     ).toBe(true);
-    expect(retrieved.context_pack.query).toBe("helper");
+    expect(retrieved.context_pack.text).toContain("Query: helper");
+    expect(retrieved.context_pack.chunk_count).toBeGreaterThanOrEqual(1);
 
     const traceResponse = await app.inject(
       `/api/repos/${created.id}/graphrag/traces/${retrieved.trace_id}`,

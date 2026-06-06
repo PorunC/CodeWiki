@@ -29,6 +29,12 @@ import {
   catalogSlug,
   type CatalogItem,
 } from "./catalog.js";
+import {
+  diagramSlotsPayload,
+  graphRefsFromTrace,
+  mermaidDiagramsFromTrace,
+  type MermaidDiagram,
+} from "./diagrams.js";
 import type { WikiPageResult } from "./payloads.js";
 
 export type WikiPageRequest = {
@@ -36,6 +42,7 @@ export type WikiPageRequest = {
   slug: string;
   languageCode: string;
   title: string;
+  kind: "page" | "category";
   path: string | null;
   topic: string;
   sourceHints: string[];
@@ -68,6 +75,7 @@ type NormalizedPage = {
   sourceRefs: SourceRef[];
   diagrams: MermaidDiagram[];
   validationErrors: string[];
+  responsePayload: JsonObject | null;
 };
 
 type SourceRef = JsonObject & {
@@ -80,14 +88,6 @@ type SourceRef = JsonObject & {
   read_via?: string;
 };
 
-type MermaidDiagram = {
-  slot: string;
-  kind: "component" | "symbol_flow" | "sequence";
-  title: string;
-  headingHint: string;
-  lines: string[];
-};
-
 const PAGE_GENERATION_ATTEMPTS = 2;
 const PAGE_RETRIEVAL_MAX_HOPS = 3;
 const PAGE_SOURCE_LIMIT = 14;
@@ -95,7 +95,10 @@ const PAGE_SYMBOL_LIMIT = 40;
 const PAGE_READFILE_LIMIT = 14;
 const PAGE_READFILE_MAX_CHARS = 32_000;
 const PAGE_READFILE_SINGLE_MAX_CHARS = 8_000;
-const PAGE_PROMPT_VERSION = "ts-wiki-page-deepwiki-v2";
+const MAX_SOURCE_HINT_CHUNKS = 10;
+const MAX_SOURCE_HINT_CHUNKS_PER_FILE = 3;
+const PAGE_CACHE_VERSION = "page:v5";
+const PAGE_PROMPT_VERSION = "page:deepwiki:v5";
 const CITATION_MARKER_RE = /\[\[(S\d+)]]/g;
 const CITATION_LIKE_MARKER_RE = /\[\[(S[^[\]]*)]]/g;
 const MERMAID_FENCE_RE = /```mermaid[\s\S]*?```/gi;
@@ -104,6 +107,12 @@ const FENCED_DIAGRAM_SLOT_RE =
   /^[ \t]*`{3,}[ \t]*\n[ \t]*\[\[DIAGRAM:([a-zA-Z0-9_-]+)]][ \t]*\n[ \t]*`{3,}[ \t]*$/gm;
 const INLINE_SOURCES_LINE_RE = /^(?:>\s*)?(?:\*\*)?sources?(?:\*\*)?:\s+\S/i;
 const BOLD_INLINE_SOURCES_LINE_RE = /^(?:>\s*)?\*\*sources?:\*\*\s+\S/i;
+const IGNORED_READFILE_NAMES = new Set([
+  "uv.lock",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+]);
 
 export class WikiPageGenerator {
   constructor(
@@ -149,14 +158,15 @@ export class WikiPageGenerator {
     }
 
     try {
-      let attemptPayload = llmInputPayload(context);
+      const userPayload = llmInputPayload(context);
+      let attemptPayload = userPayload;
       let validationErrors: string[] = [];
       let completion: CachedLlmCompletion | null = null;
       let lastNormalized: NormalizedPage | null = null;
       for (let attempt = 0; attempt < PAGE_GENERATION_ATTEMPTS; attempt += 1) {
         completion = await this.llm.complete(request.repoId, {
           taskType: "page",
-          cacheKey: `wiki-page:${request.languageCode}:${request.slug}:${context.retrievalTrace.trace_id}:attempt:${attempt + 1}`,
+          cacheKey: `${PAGE_CACHE_VERSION}:${request.slug}:${context.retrievalTrace.trace_id}:attempt:${attempt + 1}`,
           modelAlias: "page",
           promptVersion: PAGE_PROMPT_VERSION,
           inputPayload: attemptPayload,
@@ -184,11 +194,17 @@ export class WikiPageGenerator {
           status: "error",
           error: validationErrors.join("; "),
         });
-        attemptPayload = pageRepairPayload(
-          llmInputPayload(context),
-          completion.result.content,
-          validationErrors,
-        );
+        attemptPayload = normalized.responsePayload
+          ? pageValidationRepairPayload(
+              userPayload,
+              normalized.responsePayload,
+              validationErrors,
+            )
+          : pageJsonRepairPayload(
+              userPayload,
+              completion.result.content,
+              validationErrors,
+            );
       }
 
       return {
@@ -241,12 +257,11 @@ export class WikiPageGenerator {
       throw notFoundError("Repository", request.repoId);
     }
     const graph = await this.store.getGraph(request.repoId);
-    const chunks = await this.store.listCodeChunks(request.repoId);
     const catalog = await this.store.getLatestDocCatalog(
       request.repoId,
       request.languageCode,
     );
-    const retrievalTrace = await this.store.saveRetrievalTrace(
+    const baseTrace = await this.store.saveRetrievalTrace(
       await buildRetrievalTrace(
         this.store,
         request.repoId,
@@ -257,15 +272,20 @@ export class WikiPageGenerator {
         },
       ),
     );
+    const chunks = await this.store.listCodeChunks(request.repoId);
+    const retrievalTrace = withSourceHintChunks(
+      baseTrace,
+      chunks,
+      request.sourceHints,
+    );
     const pathNodes = nodesForPath(graph.nodes, request.path);
     const traceNodeIds = nodeIdsFromTrace(retrievalTrace);
     const traceNodes = graph.nodes.filter((node) => traceNodeIds.has(node.id));
     const matchingNodes = uniqueNodes([...traceNodes, ...pathNodes]);
-    const matchingChunks = uniqueChunks([
-      ...retrievalTrace.chunks,
-      ...chunksForSourceHints(chunks, request.sourceHints),
-      ...chunksForNodes(chunks, pathNodes),
-    ]).slice(0, PAGE_SOURCE_LIMIT);
+    const matchingChunks = uniqueChunks(retrievalTrace.chunks).slice(
+      0,
+      PAGE_SOURCE_LIMIT,
+    );
     const sourceRefs = sourceRefsForChunks(matchingChunks, repo);
     const symbols = matchingNodes
       .filter((node) => node.type !== "file" && node.type !== "config")
@@ -300,7 +320,7 @@ export class WikiPageGenerator {
       parent_slug: context.request.parentSlug,
       markdown,
       source_refs: options.sourceRefs ?? context.sourceRefs,
-      graph_refs: graphRefsForContext(context),
+      graph_refs: graphRefsFromTrace(context.retrievalTrace),
       status: options.status ?? "generated",
       updated_at: new Date().toISOString(),
     });
@@ -317,14 +337,6 @@ function nodesForPath(
     }
     return node.file_path === path || node.file_path.startsWith(`${path}/`);
   });
-}
-
-function chunksForNodes(
-  chunks: CodeChunk[],
-  nodes: CodeGraphNode[],
-): CodeChunk[] {
-  const nodeFilePaths = new Set(nodes.map((node) => node.file_path));
-  return chunks.filter((chunk) => nodeFilePaths.has(chunk.file_path));
 }
 
 function sourceRefsForChunks(
@@ -389,17 +401,88 @@ function uniqueChunks(chunks: CodeChunk[]): CodeChunk[] {
   return [...byId.values()];
 }
 
-function chunksForSourceHints(
-  chunks: CodeChunk[],
+function withSourceHintChunks(
+  trace: RetrievalTrace,
+  allChunks: CodeChunk[],
   sourceHints: string[],
-): CodeChunk[] {
+): RetrievalTrace {
   const hints = sourceHints.map(normalizedPath).filter(Boolean);
   if (!hints.length) {
-    return [];
+    return trace;
   }
-  return chunks.filter((chunk) =>
-    hints.some((hint) => pathMatchesHint(chunk.file_path, hint)),
-  );
+  const hintedChunks: CodeChunk[] = [];
+  const perFileCounts = new Map<string, number>();
+  for (const chunk of allChunks) {
+    if (!hints.some((hint) => pathMatchesHint(chunk.file_path, hint))) {
+      continue;
+    }
+    const currentCount = perFileCounts.get(chunk.file_path) ?? 0;
+    if (currentCount >= MAX_SOURCE_HINT_CHUNKS_PER_FILE) {
+      continue;
+    }
+    perFileCounts.set(chunk.file_path, currentCount + 1);
+    hintedChunks.push(chunk);
+    if (hintedChunks.length >= MAX_SOURCE_HINT_CHUNKS) {
+      break;
+    }
+  }
+  if (!hintedChunks.length) {
+    return trace;
+  }
+  const chunks = dedupeSourceChunks([...trace.chunks, ...hintedChunks]);
+  return {
+    ...trace,
+    chunks,
+    source_chunks: dedupeSourceChunkPayloads([
+      ...trace.source_chunks,
+      ...hintedChunks.map((chunk) => ({
+        id: chunk.id,
+        node_id: chunk.node_id,
+        file_path: chunk.file_path,
+        start_line: chunk.start_line,
+        end_line: chunk.end_line,
+        content: chunk.content,
+        content_hash: chunk.content_hash,
+        token_count: chunk.token_count,
+        score: 0.45,
+        reasons: ["source_hint"],
+      })),
+    ]),
+  };
+}
+
+function dedupeSourceChunks(chunks: CodeChunk[]): CodeChunk[] {
+  const seen = new Set<string>();
+  const deduped: CodeChunk[] = [];
+  for (const chunk of chunks) {
+    const key = chunk.id || chunkRangeKey(chunk);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(chunk);
+  }
+  return deduped;
+}
+
+function dedupeSourceChunkPayloads(chunks: JsonObject[]): JsonObject[] {
+  const seen = new Set<string>();
+  const deduped: JsonObject[] = [];
+  for (const chunk of chunks) {
+    const key =
+      stringValue(chunk.id) ??
+      `${stringValue(chunk.file_path) ?? ""}:${numberValue(chunk.start_line) ?? ""}:${numberValue(chunk.end_line) ?? ""}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(chunk);
+  }
+  return deduped;
+}
+
+function chunkRangeKey(chunk: CodeChunk): string {
+  return [chunk.file_path, chunk.start_line, chunk.end_line].join(":");
 }
 
 function pathMatchesHint(filePath: string, hint: string): boolean {
@@ -416,13 +499,6 @@ function normalizedPath(value: string): string {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
-function graphRefsForContext(context: WikiPageContext): string[] {
-  return uniqueStrings([
-    ...context.symbols.map((node) => node.id),
-    ...nodeIdsFromTrace(context.retrievalTrace),
-  ]);
 }
 
 function localPageMarkdown(
@@ -605,6 +681,14 @@ function wikiPageMessages(
   pagePayload: JsonObject,
   validationErrors: string[] = [],
 ): LlmOperation["messages"] {
+  const instruction = [
+    "Return only a JSON object.",
+    "Do not include Mermaid blocks; the server will generate abstract diagrams from validated graph facts.",
+    "source_refs must be selected from allowed_source_refs.",
+    "Use [[S#]] citation markers only for source refs you return.",
+    "Use catalog_context.related_pages only for real related-page mentions; do not invent wiki pages or links.",
+    "Follow the mandatory GATHER, THINK, WRITE workflow, and ground GATHER in readfile_evidence.reads.",
+  ].join(" ");
   return [
     {
       role: "system",
@@ -612,15 +696,14 @@ function wikiPageMessages(
     },
     {
       role: "user",
-      content: jsonMessage("Stable page generation contract", {
-        instructions:
-          "Return only one JSON object. Use [[S#]] markers only for refs you return in source_refs. Do not emit Mermaid; the server owns diagram and source rendering.",
+      content: stableJsonMessage("Stable page generation contract", {
+        instructions: instruction,
         prompt_contract: promptContract(),
       }),
     },
     {
       role: "user",
-      content: jsonMessage("Stable repository wiki context", {
+      content: stableJsonMessage("Stable repository wiki context", {
         repository: {
           id: context.repo.id,
           name: context.repo.name,
@@ -635,14 +718,14 @@ function wikiPageMessages(
     },
     {
       role: "user",
-      content: jsonMessage(
+      content: dynamicJsonMessage(
         "Page payload",
         validationErrors.length
           ? {
               ...pagePayload,
               validation_errors: validationErrors,
               repair_instructions:
-                "Repair the previous response. Keep the title, include Purpose and Scope, choose source_refs only from allowed_source_refs, and cite only returned source refs.",
+                "Repair the previous response. Return only a valid JSON object.",
             }
           : pagePayload,
       ),
@@ -655,8 +738,12 @@ function llmInputPayload(context: WikiPageContext): JsonObject {
   const evidenceCounts = recordValue(evidenceInventory.counts);
   const availableEdgeTypes = stringArrayValue(evidenceInventory.edge_types);
   const availableNodeTypes = stringArrayValue(evidenceInventory.node_types);
+  const childPageSummaries = childPageSummariesPayload(
+    context.request.childPages,
+  );
+  const isParent =
+    childPageSummaries.length > 0 || context.request.kind === "category";
   return {
-    repo_name: context.repo.name,
     title: context.request.title,
     slug: context.request.slug,
     path: context.request.path,
@@ -666,48 +753,38 @@ function llmInputPayload(context: WikiPageContext): JsonObject {
     catalog_context: catalogContextForPage(context),
     parent_slug: context.request.parentSlug,
     parent_synthesis: {
-      has_child_pages: context.request.childPages.length > 0,
+      has_child_pages: childPageSummaries.length > 0,
       instructions:
-        "When child_page_summaries is non-empty, synthesize this parent page primarily from child overviews. Use source_chunks and graph_facts to ground citations, fill gaps, and avoid unsupported claims.",
+        "When child_page_summaries is non-empty, synthesize this parent page primarily from the generated child page overviews. Use source_chunks and graph_facts to ground citations, fill gaps, and avoid unsupported claims rather than re-deriving the whole parent topic from scratch.",
     },
-    child_page_summaries: childPageSummaries(context.request.childPages),
+    child_page_summaries: childPageSummaries,
     page_depth_profile: {
-      kind: context.request.childPages.length
-        ? "parent_synthesis"
-        : "implementation_deep_dive",
-      expected_detail_level: context.request.childPages.length
-        ? "medium_high"
-        : "high",
+      kind: isParent ? "parent_synthesis" : "implementation_deep_dive",
+      expected_detail_level: isParent ? "medium_high" : "high",
       evidence_counts: evidenceCounts,
       available_edge_types: availableEdgeTypes,
       available_node_types: availableNodeTypes,
+      emphasis: isParent
+        ? [
+            "synthesize child page responsibilities without duplicating every child detail",
+            "explain the section mental model and cross-child relationships",
+            "point out integration boundaries and shared data or control flow",
+          ]
+        : [
+            "drill into concrete files, symbols, call paths, and data contracts",
+            "include implementation tables for components, workflows, APIs, and failure modes",
+            "describe lifecycle steps from entry point through downstream collaborators",
+          ],
     },
-    diagram_slots: diagramSlotsPayload(mermaidDiagramsFromContext(context)),
+    diagram_slots: diagramSlotsPayload(
+      mermaidDiagramsFromTrace(context.retrievalTrace, context.request.title),
+    ),
     evidence_inventory: evidenceInventory,
     context_pack: context.retrievalTrace.context_pack,
-    source_chunks: sourceChunkMetadata(context.matchingChunks),
+    source_chunks: sourceChunkMetadata(context.retrievalTrace.source_chunks),
     allowed_source_refs: context.sourceRefs,
     readfile_evidence: readFileEvidence(context),
     graph_facts: graphFactsPayload(context.retrievalTrace),
-    files: [...new Set(context.matchingNodes.map((node) => node.file_path))]
-      .slice(0, PAGE_SYMBOL_LIMIT)
-      .map((filePath) => ({ file_path: filePath })),
-    symbols: context.symbols.map((node) => ({
-      id: node.id,
-      name: node.name,
-      type: node.type,
-      file_path: node.file_path,
-      start_line: node.start_line,
-      end_line: node.end_line,
-      language: node.language,
-    })),
-    sources: context.matchingChunks.map((chunk, index) => ({
-      citation_id: `S${index + 1}`,
-      file_path: chunk.file_path,
-      start_line: chunk.start_line,
-      end_line: chunk.end_line,
-      content: chunk.content,
-    })),
   };
 }
 
@@ -725,6 +802,7 @@ function normalizePageCompletion(
       sourceRefs: [],
       diagrams: [],
       validationErrors,
+      responsePayload: null,
     };
   }
 
@@ -753,7 +831,10 @@ function normalizePageCompletion(
     );
     markdown = stripUnknownCitationMarkers(markdown, sourceRefs);
   }
-  const diagrams = mermaidDiagramsFromContext(context);
+  const diagrams = mermaidDiagramsFromTrace(
+    context.retrievalTrace,
+    context.request.title,
+  );
   validationErrors.push(...validatePageMarkdown(markdown, fallbackTitle));
   validationErrors.push(...validateCitationMarkers(markdown, sourceRefs));
   validationErrors.push(...validateDiagramPlaceholders(markdown, diagrams));
@@ -770,6 +851,7 @@ function normalizePageCompletion(
     sourceRefs,
     diagrams,
     validationErrors,
+    responsePayload: parsed,
   };
 }
 
@@ -1100,6 +1182,7 @@ function readFileEvidenceData(context: WikiPageContext): {
   const recordedSourceRefs: SourceRef[] = [];
   const repoRoot = resolve(context.repo.path);
   let totalChars = 0;
+  const seen = new Set<string>();
   for (const ref of prioritizeSourceRefs(
     context.sourceRefs,
     context.request.sourceHints,
@@ -1112,6 +1195,11 @@ function readFileEvidenceData(context: WikiPageContext): {
       start_line: startLine,
       end_line: endLine,
     } = ref;
+    const key = `${filePath}:${startLine}:${endLine}`;
+    if (seen.has(key) || IGNORED_READFILE_NAMES.has(pathBasename(filePath))) {
+      continue;
+    }
+    seen.add(key);
     const absolutePath = resolve(repoRoot, filePath);
     if (!isPathInside(repoRoot, absolutePath) || !existsSync(absolutePath)) {
       continue;
@@ -1122,11 +1210,11 @@ function readFileEvidenceData(context: WikiPageContext): {
         continue;
       }
       const content = numberedLines(lines, startLine, endLine);
-      if (
-        content.length > PAGE_READFILE_SINGLE_MAX_CHARS ||
-        totalChars + content.length > PAGE_READFILE_MAX_CHARS
-      ) {
+      if (content.length > PAGE_READFILE_SINGLE_MAX_CHARS) {
         continue;
+      }
+      if (totalChars + content.length > PAGE_READFILE_MAX_CHARS) {
+        break;
       }
       totalChars += content.length;
       reads.push({
@@ -1244,104 +1332,6 @@ function stripInlineSourcesLines(markdown: string): string {
     .trim();
 }
 
-function diagramSlotsPayload(diagrams: MermaidDiagram[]): JsonObject[] {
-  return diagrams.map((diagram) => ({
-    slot: diagram.slot,
-    kind: diagram.kind,
-    title: diagram.title,
-    heading_hint: diagram.headingHint,
-  }));
-}
-
-function mermaidDiagramsFromContext(
-  context: WikiPageContext,
-): MermaidDiagram[] {
-  const diagrams = [
-    componentDiagram(context),
-    symbolFlowDiagram(context),
-  ].filter((diagram): diagram is MermaidDiagram => Boolean(diagram));
-  return diagrams.slice(0, 2);
-}
-
-function componentDiagram(context: WikiPageContext): MermaidDiagram | null {
-  const files = uniqueStrings(
-    context.matchingNodes.map((node) => node.file_path),
-  ).slice(0, 8);
-  if (!files.length) {
-    return null;
-  }
-  const fileId = new Map(
-    files.map((filePath, index) => [filePath, `C${index}`]),
-  );
-  const lines = ["flowchart TD"];
-  for (const filePath of files) {
-    lines.push(`  ${fileId.get(filePath)}["${escapeMermaidLabel(filePath)}"]`);
-  }
-  const nodeById = new Map(
-    context.matchingNodes.map((node) => [node.id, node]),
-  );
-  const edges = context.retrievalTrace.related_edges.slice(0, 12);
-  for (const edge of edges) {
-    const sourceNode = nodeById.get(stringValue(edge.source) ?? "");
-    const targetNode = nodeById.get(stringValue(edge.target) ?? "");
-    const sourceFile = sourceNode?.file_path;
-    const targetFile = targetNode?.file_path;
-    if (!sourceFile || !targetFile || sourceFile === targetFile) {
-      continue;
-    }
-    const sourceId = fileId.get(sourceFile);
-    const targetId = fileId.get(targetFile);
-    if (sourceId && targetId) {
-      lines.push(
-        `  ${sourceId} -->|${escapeMermaidLabel(stringValue(edge.type) ?? "relates")}| ${targetId}`,
-      );
-    }
-  }
-  return {
-    slot: "component",
-    kind: "component",
-    title: `${context.request.title} component relationships`,
-    headingHint: "System Context",
-    lines,
-  };
-}
-
-function symbolFlowDiagram(context: WikiPageContext): MermaidDiagram | null {
-  const nodes = context.matchingNodes
-    .filter((node) => node.type !== "file" && node.type !== "config")
-    .slice(0, 10);
-  if (!nodes.length) {
-    return null;
-  }
-  const nodeId = new Map(nodes.map((node, index) => [node.id, `S${index}`]));
-  const lines = ["flowchart TD"];
-  for (const node of nodes) {
-    lines.push(
-      `  ${nodeId.get(node.id)}["${escapeMermaidLabel(`${node.name} (${node.type})`)}"]`,
-    );
-  }
-  for (const edge of context.retrievalTrace.related_edges.slice(0, 16)) {
-    const sourceId = nodeId.get(stringValue(edge.source) ?? "");
-    const targetId = nodeId.get(stringValue(edge.target) ?? "");
-    if (sourceId && targetId) {
-      lines.push(
-        `  ${sourceId} -->|${escapeMermaidLabel(stringValue(edge.type) ?? "uses")}| ${targetId}`,
-      );
-    }
-  }
-  return {
-    slot: "symbol-flow",
-    kind: "symbol_flow",
-    title: `${context.request.title} implementation flow`,
-    headingHint: "Control Flow",
-    lines,
-  };
-}
-
-function escapeMermaidLabel(value: string): string {
-  return value.replace(/["\\]/g, "'").replace(/\|/g, "/");
-}
-
 function validateDiagramPlaceholders(
   markdown: string,
   diagrams: MermaidDiagram[],
@@ -1392,17 +1382,11 @@ function insertDiagramNearHeading(
   markdown: string,
   diagram: MermaidDiagram,
 ): string {
-  const headings = [
+  const headings = uniqueStrings([
     `## ${diagram.headingHint}`,
-    ...(diagram.kind === "component"
-      ? ["## Architecture", "## Core Components", "## Purpose and Scope"]
-      : [
-          "## Control Flow",
-          "## Core Workflows",
-          "## API Surface",
-          "## Purpose and Scope",
-        ]),
-  ];
+    ...diagramHeadingCandidates(diagram.kind),
+    "## Purpose and Scope",
+  ]);
   for (const heading of headings) {
     const inserted = insertAfterHeading(
       markdown,
@@ -1416,6 +1400,28 @@ function insertDiagramNearHeading(
   return [markdown.trim(), diagramMarkdown(diagram)]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function diagramHeadingCandidates(kind: MermaidDiagram["kind"]): string[] {
+  const candidates: Record<MermaidDiagram["kind"], string[]> = {
+    component: [
+      "## System Context",
+      "## Architecture",
+      "## Core Components",
+      "## Overview",
+    ],
+    data_flow: ["## Control Flow", "## Core Workflows", "## System Context"],
+    symbol_flow: [
+      "## Control Flow",
+      "## Core Workflows",
+      "## API Surface",
+      "## System Context",
+    ],
+    sequence: ["## Control Flow", "## Core Workflows", "## API Surface"],
+    data_model: ["## Data Model", "## Core Components", "## System Context"],
+    surface: ["## API Surface", "## Frontend Flow", "## Core Components"],
+  };
+  return candidates[kind];
 }
 
 function insertAfterHeading(
@@ -1489,7 +1495,7 @@ function draftMarkdown(title: string, errors: string[]): string {
   ].join("\n");
 }
 
-function pageRepairPayload(
+function pageJsonRepairPayload(
   basePayload: JsonObject,
   previousResponse: string,
   validationErrors: string[],
@@ -1499,11 +1505,25 @@ function pageRepairPayload(
     previous_response: previousResponse.slice(0, 6000),
     validation_errors: validationErrors,
     repair_instructions:
-      "Repair the page response. Return one valid JSON object only, with title, markdown, and source_refs. Use source_refs from allowed_source_refs only.",
+      "Repair the page response. Return one valid JSON object only, with title, markdown, and source_refs. Use only diagram placeholders listed in diagram_slots. Do not include prose, comments, Markdown fences around the JSON, or trailing commas.",
   };
 }
 
-function childPageSummaries(pages: DocPage[]): JsonObject[] {
+function pageValidationRepairPayload(
+  basePayload: JsonObject,
+  previousResponse: JsonObject,
+  validationErrors: string[],
+): JsonObject {
+  return {
+    ...basePayload,
+    previous_response: previousResponse,
+    validation_errors: validationErrors,
+    repair_instructions:
+      "Repair the page so it validates. Keep the same title, include the required Purpose and Scope section, choose source_refs from allowed_source_refs, and only use [[S#]] markers for source_refs you return. Remove any unknown diagram placeholder, or use exact placeholders from diagram_slots.",
+  };
+}
+
+function childPageSummariesPayload(pages: DocPage[]): JsonObject[] {
   return pages.slice(0, 8).map((page) => ({
     title: page.title,
     slug: page.slug,
@@ -1542,17 +1562,29 @@ function evidenceInventoryPayload(context: WikiPageContext): JsonObject {
   };
 }
 
-function sourceChunkMetadata(chunks: CodeChunk[]): JsonObject[] {
-  return chunks.map((chunk, index) => ({
-    id: chunk.id,
-    node_id: chunk.node_id,
-    file_path: chunk.file_path,
-    start_line: chunk.start_line,
-    end_line: chunk.end_line,
-    content_hash: chunk.content_hash,
-    token_count: chunk.token_count,
-    citation_id: `S${index + 1}`,
-  }));
+function sourceChunkMetadata(chunks: JsonObject[]): JsonObject[] {
+  const keptKeys = [
+    "id",
+    "node_id",
+    "file_path",
+    "start_line",
+    "end_line",
+    "content_hash",
+    "token_count",
+    "score",
+    "score_components",
+    "reasons",
+  ];
+  return chunks.map((chunk) => {
+    const metadata: JsonObject = {};
+    for (const key of keptKeys) {
+      const value = chunk[key];
+      if (value !== undefined) {
+        metadata[key] = value;
+      }
+    }
+    return metadata;
+  });
 }
 
 function readFileEvidence(context: WikiPageContext): JsonObject {
@@ -1560,6 +1592,7 @@ function readFileEvidence(context: WikiPageContext): JsonObject {
   const recordedSourceRefs: JsonObject[] = [];
   const repoRoot = resolve(context.repo.path);
   let totalChars = 0;
+  const seen = new Set<string>();
   for (const ref of prioritizeSourceRefs(
     context.sourceRefs,
     context.request.sourceHints,
@@ -1573,6 +1606,11 @@ function readFileEvidence(context: WikiPageContext): JsonObject {
     if (!filePath || !startLine || !endLine) {
       continue;
     }
+    const key = `${filePath}:${startLine}:${endLine}`;
+    if (seen.has(key) || IGNORED_READFILE_NAMES.has(pathBasename(filePath))) {
+      continue;
+    }
+    seen.add(key);
     const absolutePath = resolve(repoRoot, filePath);
     if (!isPathInside(repoRoot, absolutePath) || !existsSync(absolutePath)) {
       continue;
@@ -1583,11 +1621,11 @@ function readFileEvidence(context: WikiPageContext): JsonObject {
         continue;
       }
       const content = numberedLines(lines, startLine, endLine);
-      if (
-        content.length > PAGE_READFILE_SINGLE_MAX_CHARS ||
-        totalChars + content.length > PAGE_READFILE_MAX_CHARS
-      ) {
+      if (content.length > PAGE_READFILE_SINGLE_MAX_CHARS) {
         continue;
+      }
+      if (totalChars + content.length > PAGE_READFILE_MAX_CHARS) {
+        break;
       }
       totalChars += content.length;
       reads.push({
@@ -1609,10 +1647,14 @@ function readFileEvidence(context: WikiPageContext): JsonObject {
     tool: "ReadFile",
     required: true,
     description:
-      "Server-executed ReadFile evidence. Treat reads as mandatory source material; if reads is empty, say direct source evidence is missing instead of guessing.",
+      "Server-executed ReadFile evidence. Treat this as mandatory source material for the GATHER phase and cite it through allowed_source_refs.",
     reads,
     recorded_source_refs: recordedSourceRefs,
   };
+}
+
+function pathBasename(filePath: string): string {
+  return normalizedPath(filePath).split("/").at(-1) ?? "";
 }
 
 function prioritizeSourceRefs(
@@ -1795,15 +1837,15 @@ function promptContract(): JsonObject {
       source_refs:
         "Use only file_path/start_line/end_line values from allowed_source_refs.",
       source_urls:
-        "The server converts validated source refs into clickable source URLs when repository git metadata is available.",
+        "The server will convert validated source refs into clickable source URLs when repository git metadata is available.",
       inline_citations:
-        "Use compact [[S#]] markers after source-grounded claims. Return every used marker in source_refs.",
+        "Use [[S1]] style markers from allowed_source_refs after source-grounded sentences. The server validates and converts markers to source links.",
     },
     citation_style: {
       inline_markers:
-        "Use compact [[S#]] markers near concrete claims. The server renders grouped source ranges separately.",
+        "Use compact [[S#]] markers near concrete claims. The server renders them as short citations and groups full source ranges separately.",
       avoid_noise:
-        "Do not repeat long source file labels in prose. Do not add section-level Sources lines.",
+        "Do not repeat long source file labels in prose. Avoid section-level Sources lines; the server renders grouped source ranges once at the end.",
     },
     documentation_style: {
       name: "DeepWiki",
@@ -1815,15 +1857,21 @@ function promptContract(): JsonObject {
       required_sections: [
         "Purpose and Scope",
         "Architecture or System Context when relationships are evidenced",
-        "Control Flow or Lifecycle when evidenced",
+        "Control Flow or Lifecycle when runtime behavior is evidenced",
         "Data Model, API Surface, Configuration, or Failure Handling when evidenced",
         "Extension Points or Operational Notes when change boundaries are evidenced",
       ],
       server_injected_sections: [
         "Relevant source files",
-        "validated Mermaid diagrams",
+        "validated Mermaid diagrams at requested diagram placeholders or near matching headings",
         "grouped Sources",
       ],
+    },
+    detail_expectations: {
+      minimum_depth:
+        "For non-trivial pages, go beyond a summary. Cover responsibility, lifecycle/control flow, dependencies, inputs and outputs, data surfaces, APIs or UI routes, configuration, validation, extension points, failure handling, operational implications, state transitions, and internal tradeoffs when those details are present.",
+      section_depth:
+        "When evidence is sufficient, implementation pages should have 5-8 substantive sections and at least four evidence-backed detail blocks. Parent pages should synthesize child boundaries, shared contracts, and cross-child data/control flow rather than listing children.",
       preferred_tables: [
         "component/file/responsibility/evidence",
         "symbol/function/caller/callee/evidence",
@@ -1835,21 +1883,28 @@ function promptContract(): JsonObject {
         "state transition/current state/trigger/next state/evidence",
         "extension point/current owner/change path/contract/evidence",
       ],
-    },
-    detail_expectations: {
-      minimum_depth:
-        "For non-trivial pages, cover responsibility, lifecycle/control flow, dependencies, inputs and outputs, data surfaces, APIs or UI routes, configuration, validation, extension points, failure handling, state transitions, and internal tradeoffs when evidence supports them.",
-      section_depth:
-        "Implementation pages should have 5-8 substantive sections and at least four evidence-backed detail blocks when evidence is sufficient. Parent pages should synthesize child boundaries and cross-child flow rather than listing children.",
+      code_examples:
+        "Use exact source snippets only when source_chunks provide them; otherwise prefer prose over invented examples.",
       related_pages:
-        "Mention related pages only from catalog_context.related_pages and only when evidence supports the relationship.",
+        "Mention related pages only from catalog_context.related_pages and only when the relationship is supported by the retrieved evidence.",
       missing_information:
-        "If expected lifecycle, configuration, error handling, or recovery behavior is absent from source evidence, state the gap briefly instead of guessing.",
+        "If a detail is expected but absent from source evidence, state the gap briefly instead of filling it with assumptions.",
+      depth_targets: [
+        "explain how the subsystem is entered and what it returns or mutates",
+        "name important collaborators and why each boundary exists",
+        "describe data contracts, persistence records, schemas, DTOs, or component props",
+        "trace at least two end-to-end workflows when graph_facts or source_chunks support them",
+        "distinguish thin adapters from domain logic and explain handoff points",
+        "explain cache, reuse, recomputation, pruning, or persistence behavior when visible",
+        "call out validation, retry, fallback, draft/error state, or cleanup behavior",
+        "identify extension points and contracts that constrain future changes",
+        "include representative tests only when they clarify observable behavior",
+      ],
     },
     diagram_placement: {
       placeholder_format: "[[DIAGRAM:<slot>]]",
       instructions:
-        "Use only slots listed in diagram_slots. Do not emit Mermaid; the server generates diagrams from graph facts.",
+        "The server generates Mermaid from graph facts. When a listed diagram slot would clarify a section, place the exact placeholder on its own line near the paragraph that introduces that relationship. Do not invent slots. If no slot fits naturally, omit placeholders and the server will place diagrams near matching headings.",
     },
     agent_tools: {
       available: [
@@ -1860,6 +1915,22 @@ function promptContract(): JsonObject {
       ],
       required_for_page_generation: ["ReadFile"],
     },
+    server_diagram_strategy: {
+      diagram_generation: "server_generated_from_graph_facts_only",
+      llm_must_not_emit_mermaid: true,
+      strategies: {
+        component: "graph TD for high-level component dependency maps",
+        data_flow: "flowchart LR for data moving between components",
+        control_flow: "flowchart TD for hierarchical control or route flow",
+        symbol_flow:
+          "flowchart TD for concrete endpoints, functions, methods, and calls",
+        sequence:
+          "sequenceDiagram for request/response or multi-agent interactions",
+        data_model: "classDiagram for schemas, classes, DTOs, and inheritance",
+      },
+      grouping:
+        "Prefer flexible subsystem/file labels over raw community names when the graph group name is too generic. Diagrams are inserted in context rather than as a fixed Graph section at the end.",
+    },
     required_json_shape: {
       title: "Use the exact page title from page_payload.title.",
       markdown:
@@ -1867,7 +1938,7 @@ function promptContract(): JsonObject {
       source_refs: [
         {
           citation_id: "S1",
-          file_path: "path.ts",
+          file_path: "path.py",
           start_line: 1,
           end_line: 5,
         },
@@ -1879,25 +1950,150 @@ function promptContract(): JsonObject {
 function pageSystemPrompt(): string {
   return [
     "You are generating one DeepWiki-style Code Wiki page.",
-    "You must execute GATHER, THINK, WRITE before answering. Treat readfile_evidence.reads as mandatory ReadFile output. If the mandatory ReadFile evidence does not support a detail, do not present the detail as fact.",
-    "In GATHER, inspect the topic, source_hints, source_chunks, graph_facts, catalog_context, and allowed_source_refs to identify the actual files and symbols involved.",
-    "In THINK, map subsystem responsibility, dependencies, data/control flow, boundaries, callers, downstream collaborators, and where errors or edge cases are handled. Verify every planned claim against ReadFile evidence, source_chunks, or graph_facts.",
-    "In WRITE, produce detailed, source-grounded Markdown as JSON. Favor depth over breadth, but do not add unsupported details.",
-    'The markdown must start with "# {title}" and immediately include "## Purpose and Scope" with 1-3 concise paragraphs including the subsystem primary responsibility.',
-    "Choose relevant sections from System Context, Core Components, Control Flow, Data Model, API Surface, Configuration, Frontend Flow, Extension Points, Failure Handling, Testing, and Operational Notes.",
-    "For non-trivial implementation pages, use 5-8 substantive sections when evidence supports them. Include evidence-backed detail blocks such as component responsibility, workflow, API/data contract, validation/failure-mode, extension point, or configuration tables.",
-    "For parent/category pages, synthesize how child pages relate and where shared control flow, data contracts, or dependencies cross child boundaries. Do not simply list child pages.",
-    "Every concrete factual claim about code must be supported by ReadFile evidence, source_chunks, or graph_facts, with nearby [[S#]] citation markers from allowed_source_refs.",
-    "Prefer citations whose ranges appear in readfile_evidence.recorded_source_refs. If readfile_evidence.reads is empty, say direct source evidence is missing instead of guessing.",
-    "Mention related pages only from catalog_context.related_pages. Do not invent wiki links or pages.",
-    "Do not include Sources, Relevant source files, Related Pages, On this page, Mermaid sections, or Mermaid code; the server renders those.",
-    "If diagram_slots contains a useful diagram, place the exact [[DIAGRAM:<slot>]] placeholder on its own line. Do not invent slots.",
-    "Return only JSON with title, markdown, and source_refs.",
-  ].join("\n\n");
+    "",
+    "You must execute this workflow in three ordered phases before writing. Treat these",
+    "phases as a hard contract, not as suggestions:",
+    "- GATHER: use `readfile_evidence.reads` as the mandatory ReadFile tool output. Inspect",
+    "  the topic, source_hints, source_chunks, graph_facts, and allowed_source_refs to",
+    "  identify the actual files and symbols involved. If the mandatory ReadFile evidence",
+    "  does not support a detail, do not present the detail as fact.",
+    "- THINK: map the subsystem responsibility, dependencies, data/control flow, and",
+    "  boundaries. Identify what uses this subsystem, what it uses, what data it moves,",
+    "  and where errors or edge cases are handled. Verify every planned claim against",
+    "  ReadFile evidence, source_chunks, or graph_facts.",
+    "- WRITE: only after GATHER and THINK, produce detailed, source-grounded Markdown and",
+    "  return it as JSON. Favor depth over breadth, but do not add unsupported details.",
+    "  A useful page should explain how the subsystem actually works internally, not just",
+    "  summarize what files exist.",
+    "",
+    "Page structure:",
+    '- The markdown must start with "# {title}".',
+    '- Immediately after the title, write "## Purpose and Scope" with 1-3 concise',
+    "  paragraphs describing what this page covers and what it intentionally excludes.",
+    '- In "Purpose and Scope", include one direct sentence that states the subsystem\'s',
+    "  primary responsibility.",
+    "- Write like DeepWiki: source-grounded, implementation-aware, and oriented around how",
+    "  the subsystem fits into the larger repository. Prefer short paragraphs, compact",
+    "  tables, and explicit relationships between files, APIs, data structures, workflows,",
+    "  validation paths, and failure/recovery behavior.",
+    "- Use tables as a primary presentation format for dense technical information:",
+    "  component responsibilities, routes, data shapes, configuration keys, workflows,",
+    "  failure modes, extension points, and source-backed comparisons.",
+    "- Add inline source citations with the exact `[[S#]]` markers from `allowed_source_refs`",
+    "  after concrete claims about files, functions, routes, data models, or control flow.",
+    "- Prefer citations whose ranges appear in `readfile_evidence.recorded_source_refs`.",
+    "  Those refs are automatically recorded as files read by the page-generation tool.",
+    "- Every concrete factual claim should have at least one nearby citation marker. Prefer",
+    "  the narrowest available source range from `allowed_source_refs`; avoid citing a broad",
+    "  chunk when a smaller cited chunk supports the claim.",
+    "- Use compact inline `[[S#]]` markers. Do not repeat long file/range labels in prose,",
+    "  and do not add section-level `Sources:` lines; the server renders grouped source",
+    "  ranges once at the end of the page.",
+    '- Then choose the most relevant sections from: "System Context", "Core Components",',
+    '  "Control Flow", "Data Model", "API Surface", "Configuration", "Frontend Flow",',
+    '  "Extension Points", "Failure Handling", "Testing", and "Operational Notes".',
+    "- For non-trivial implementation pages, use 5-8 substantive sections when evidence",
+    "  supports them. A page with only Purpose, Overview, and Sources is too shallow unless",
+    "  the retrieved evidence is genuinely minimal.",
+    "- Use compact tables when they make ownership, files, symbols, routes, or data shapes",
+    "  easier to scan.",
+    "- For implementation pages, include at least four evidence-backed detail blocks when",
+    "  evidence permits: a component/symbol responsibility table, an end-to-end workflow",
+    "  table, an API/data contract table, a validation/failure-mode table, or an extension",
+    "  point/configuration table.",
+    "- For parent/category pages, synthesize how child pages relate and where shared",
+    "  control flow, data contracts, or dependencies cross child boundaries. Explain what",
+    "  responsibility stays in each child, what flows across the boundary, and why the",
+    "  split matters. Do not simply list child pages.",
+    "- Name concrete files, functions, classes, endpoints, models, and relationships from",
+    "  the provided context. Avoid generic tutorial prose.",
+    "- When catalog_context contains related pages, mention only directly related pages by",
+    "  their provided titles or paths. Do not invent wiki links or pages.",
+    '- Do not include "Sources", "Relevant source files", "Related Pages", or Mermaid',
+    "  sections; the server and frontend inject those from validated source references,",
+    "  catalog context, and graph edges.",
+    "- The server chooses Mermaid diagrams from graph facts only. It may use component",
+    "  maps, concrete symbol-level implementation flows, left-to-right data flow, top-down",
+    "  control flow, sequence diagrams, public surface maps, and class diagrams. Write the",
+    "  prose so those diagrams are introduced naturally, but do not emit Mermaid code.",
+    "- If `diagram_slots` contains a diagram that clarifies a section, place the exact",
+    "  `[[DIAGRAM:<slot>]]` placeholder on its own line inside that section, near the",
+    "  paragraph or table that introduces the relationship. Use only slots listed in",
+    "  `diagram_slots`; do not invent diagram placeholders. If none fits naturally, omit",
+    "  placeholders and the server will place diagrams near matching headings.",
+    '- Do not include an "On this page" section; the frontend derives it from headings.',
+    "",
+    "Detail requirements:",
+    "- Cover the subsystem lifecycle or control flow when the evidence shows one.",
+    "- Trace at least two concrete end-to-end paths when evidence permits, such as request",
+    "  entry to service orchestration to persistence, CLI invocation to graph mutation, or",
+    "  UI action to API call to rendered state.",
+    "- Explain internal mechanics and tradeoffs: ownership boundaries, why data is shaped",
+    "  the way it is, what is cached or reused, what gets recomputed, and which operations",
+    "  are intentionally thin adapters versus domain logic.",
+    "- Describe upstream dependencies, downstream consumers, and important boundary points.",
+    "- Identify data structures, persisted records, DTOs, request/response shapes, or",
+    "  configuration keys when they are present in source_chunks or graph_facts.",
+    "- Explain important failure modes, validation behavior, retries, draft/error states,",
+    "  or fallback paths when the source evidence includes them.",
+    "- Explain important invariants and state transitions when they are visible, including",
+    "  what is read, written, cached, translated, rendered, retried, or pruned.",
+    "- Call out coupling and extension points: which modules can change independently,",
+    "  which shared contracts constrain changes, and where new behavior would naturally be",
+    "  added when source evidence supports that inference.",
+    "- When graph_facts include concrete calls, routes, imports, or inheritance, narrate",
+    "  the key path in prose before or after the matching diagram placeholder.",
+    "- For API or frontend pages, include route/component/action tables when supported by",
+    "  the retrieved context.",
+    "- For service or pipeline pages, include a component/responsibility/evidence table.",
+    "- For persistence-heavy pages, include record/repository/state-transition tables when",
+    "  the retrieved evidence exposes storage behavior.",
+    "- For orchestration-heavy pages, include step-by-step execution tables that show",
+    "  owner, input, output, side effect, and failure behavior.",
+    "- Use tests as evidence for behavior only when they are present in the retrieved",
+    "  context; do not let tests dominate a non-testing page.",
+    "- If expected information is not visible in the provided source evidence, say so",
+    "  briefly instead of guessing. Missing evidence is useful information: add a short",
+    '  "Missing evidence:" note when expected lifecycle, configuration, error handling, or',
+    "  recovery behavior is not exposed by the retrieved source.",
+    "",
+    "Rules:",
+    "- Every factual claim about code must be supported by ReadFile evidence, source chunks,",
+    "  or graph edges.",
+    "- Do not ignore the mandatory ReadFile evidence. If readfile_evidence.reads is empty,",
+    "  say that direct source evidence is missing instead of guessing.",
+    "- Code examples must come from source chunks or be explicitly marked as pseudocode.",
+    "- Prefer no code examples over fabricated examples. If including code, use exact code",
+    "  from source_chunks and cite it through source_refs.",
+    "- Every code block copied from source must have a nearby citation marker. Do not invent",
+    "  examples, signatures, request payloads, or configuration defaults.",
+    "- source_refs must include the exact file ranges used for the page and must be chosen",
+    "  from allowed_source_refs. You may provide only `citation_id` when it exactly matches",
+    "  an allowed source ref.",
+    "- Do not use citation markers that are absent from the returned source_refs array.",
+    "- Return only JSON in the requested shape.",
+  ].join("\n");
 }
 
-function jsonMessage(title: string, payload: JsonObject): string {
-  return `${title}:\n${JSON.stringify(payload, null, 2)}`;
+function stableJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${stableJson(payload)}`;
+}
+
+function dynamicJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${JSON.stringify(payload)}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function parseJsonObject(
@@ -1905,21 +2101,40 @@ function parseJsonObject(
   validationErrors: string[],
 ): JsonObject | null {
   const trimmed = stripMarkdownFence(content.trim());
-  const candidates = [trimmed, extractObject(trimmed)].filter(
-    (candidate): candidate is string => Boolean(candidate),
-  );
-  for (const candidate of candidates) {
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecord(parsed)) {
+      return parsed as JsonObject;
+    }
+    validationErrors.push("LLM response must be a JSON object.");
+    return null;
+  } catch {
+    const candidate = extractObject(trimmed);
+    if (!candidate) {
+      validationErrors.push("LLM did not return a JSON object.");
+      return null;
+    }
     try {
       const parsed = JSON.parse(candidate) as unknown;
       if (isRecord(parsed)) {
         return parsed as JsonObject;
       }
-    } catch {
-      // Try the next candidate below.
+      validationErrors.push("LLM response must be a JSON object.");
+      return null;
+    } catch (nestedError) {
+      validationErrors.push(malformedJsonError(nestedError));
+      return null;
     }
   }
-  validationErrors.push("LLM page response was not valid JSON.");
-  return null;
+}
+
+function malformedJsonError(error: unknown): string {
+  if (error instanceof SyntaxError) {
+    const message =
+      error.message.match(/JSON\.parse: (.+)$/)?.[1] ?? error.message;
+    return `LLM returned malformed JSON: ${message}.`;
+  }
+  return "LLM returned malformed JSON.";
 }
 
 function stripMarkdownFence(value: string): string {

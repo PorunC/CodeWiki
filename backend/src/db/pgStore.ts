@@ -32,7 +32,6 @@ import {
   pageFromRow,
   repoFromRow,
   retrievalTraceFromRow,
-  scoreNode,
   stringifyJson,
   type Row,
 } from "./mappers.js";
@@ -44,6 +43,7 @@ import type {
 import type { CodeWikiStoreApi } from "./types.js";
 
 const { Pool } = pg;
+const TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*|[0-9]+/g;
 
 type PgClient = pg.PoolClient;
 
@@ -351,51 +351,73 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
     query: string,
     filters: GraphSearchFilters = {},
   ): Promise<Array<{ node: CodeGraphNode; score: number; reasons: string[] }>> {
-    const allNodes = (await this.getGraph(repoId)).nodes;
-    const normalizedQuery = query.trim().toLowerCase();
-    const limit = filters.limit ?? 20;
-    return allNodes
-      .filter((node) => {
-        if (filters.types?.length && !filters.types.includes(node.type)) {
-          return false;
-        }
-        if (
-          filters.languages?.length &&
-          (!node.language || !filters.languages.includes(node.language))
-        ) {
-          return false;
-        }
-        if (
-          filters.pathFilters?.length &&
-          !filters.pathFilters.some((item) => node.file_path.includes(item))
-        ) {
-          return false;
-        }
-        if (
-          filters.nameFilters?.length &&
-          !filters.nameFilters.some((item) => node.name.includes(item))
-        ) {
-          return false;
-        }
-        if (!normalizedQuery) {
-          return true;
-        }
-        const haystack =
-          `${node.name} ${node.file_path} ${node.type} ${node.language ?? ""} ${
-            node.summary ?? ""
-          }`.toLowerCase();
-        return haystack.includes(normalizedQuery);
-      })
-      .map((node) => ({
-        node,
-        score: scoreNode(node, normalizedQuery),
-        reasons: normalizedQuery
-          ? [`matched ${normalizedQuery}`]
-          : ["filter match"],
+    await this.ready;
+    const normalizedQuery = query.trim();
+    const limit = boundedLimit(filters.limit, 20, 200);
+    const types = (filters.types ?? []).filter(Boolean);
+    const languages = (filters.languages ?? []).filter(Boolean);
+    const pathFilters = (filters.pathFilters ?? [])
+      .filter(Boolean)
+      .map((item) => item.toLowerCase());
+    const nameFilters = (filters.nameFilters ?? [])
+      .filter(Boolean)
+      .map((item) => item.toLowerCase());
+
+    let hits = normalizedQuery
+      ? await this.searchCodeNodesPostgresFts(repoId, normalizedQuery, {
+          types,
+          languages,
+          limit: Math.max(limit * 5, 50),
+        })
+      : [];
+    if (!hits.length && normalizedQuery) {
+      hits = await this.searchCodeNodesLike(repoId, normalizedQuery, {
+        types,
+        languages,
+        limit: Math.max(limit * 5, 50),
+      });
+    }
+    if (!normalizedQuery) {
+      hits = await this.searchCodeNodesByFilters(repoId, {
+        types,
+        languages,
+        limit: Math.max(limit * 5, 50),
+      });
+    }
+
+    const deduped = new Map<
+      string,
+      { node: CodeGraphNode; score: number; reasons: string[] }
+    >();
+    for (const hit of hits
+      .map((hit) => ({
+        node: hit.node,
+        score: scoreNodeHit(hit.node, normalizedQuery, hit.score),
+        reasons: hit.reasons,
       }))
+      .filter(
+        (hit) =>
+          (!pathFilters.length ||
+            pathFilters.some((item) =>
+              hit.node.file_path.toLowerCase().includes(item),
+            )) &&
+          (!nameFilters.length ||
+            nameFilters.some((item) =>
+              hit.node.name.toLowerCase().includes(item),
+            )),
+      )) {
+      const current = deduped.get(hit.node.id);
+      if (!current || hit.score > current.score) {
+        deduped.set(hit.node.id, hit);
+      }
+    }
+
+    return [...deduped.values()]
       .sort(
         (left, right) =>
           right.score - left.score ||
+          left.node.file_path.localeCompare(right.node.file_path) ||
+          (left.node.start_line ?? 0) - (right.node.start_line ?? 0) ||
           left.node.name.localeCompare(right.node.name),
       )
       .slice(0, limit);
@@ -515,28 +537,204 @@ export class PgCodeWikiStore implements CodeWikiStoreApi {
     query: string,
     limit = 10,
   ): Promise<Array<{ chunk: CodeChunk; score: number; match_type: string }>> {
-    const normalized = query.trim().toLowerCase();
-    const chunks = await this.listCodeChunks(repoId);
-    if (!normalized) {
-      return chunks
-        .slice(0, limit)
-        .map((chunk) => ({ chunk, score: 0.1, match_type: "recent" }));
+    await this.ready;
+    const normalized = query.trim();
+    const bounded = boundedLimit(limit, 10, 200);
+    const postgresQuery = postgresSearchQuery(chunkFtsQuery(normalized));
+    if (!postgresQuery) {
+      return [];
     }
-    return chunks
-      .map((chunk) => {
-        const haystack = `${chunk.file_path}\n${chunk.content}`.toLowerCase();
-        const exact = haystack.includes(normalized);
-        const terms = normalized.split(/\s+/).filter(Boolean);
-        const termHits = terms.filter((term) => haystack.includes(term)).length;
+    const result = await this.pool.query(
+      `
+      WITH search_query AS (
+        SELECT websearch_to_tsquery('simple', $2) AS query
+      )
+      SELECT c.id, c.repo_id, c.node_id, c.file_path, c.start_line, c.end_line,
+             c.content, c.content_hash, c.token_count,
+             ts_rank_cd(
+               to_tsvector(
+                 'simple',
+                 coalesce(c.content, '') || ' ' || coalesce(c.file_path, '')
+               ),
+               search_query.query
+             ) AS rank
+      FROM code_chunk c, search_query
+      WHERE c.repo_id = $1
+        AND to_tsvector(
+              'simple',
+              coalesce(c.content, '') || ' ' || coalesce(c.file_path, '')
+            ) @@ search_query.query
+      ORDER BY rank DESC, c.file_path, c.start_line
+      LIMIT $3
+      `,
+      [repoId, postgresQuery, bounded],
+    );
+    if (result.rows.length) {
+      return result.rows.map((rawRow) => {
+        const row = rawRow as Row;
         return {
-          chunk,
-          score: (exact ? 3 : 0) + termHits / Math.max(terms.length, 1),
-          match_type: exact ? "exact" : "term",
+          chunk: chunkFromRow(row),
+          score: Math.max(0.1, Number(row.rank) || 0),
+          match_type: "postgres_fts",
         };
-      })
-      .filter((hit) => hit.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, limit);
+      });
+    }
+    return this.searchCodeChunksLike(repoId, normalized, bounded);
+  }
+
+  private async searchCodeNodesPostgresFts(
+    repoId: string,
+    query: string,
+    options: { types: string[]; languages: string[]; limit: number },
+  ): Promise<Array<{ node: CodeGraphNode; score: number; reasons: string[] }>> {
+    if (!query.trim()) {
+      return [];
+    }
+    const filter = pgNodeFilterSql(repoId, options.types, options.languages);
+    const queryIndex = filter.values.length + 1;
+    const limitIndex = filter.values.length + 2;
+    const result = await this.pool.query(
+      `
+      WITH search_query AS (
+        SELECT websearch_to_tsquery('simple', $${queryIndex}) AS query
+      )
+      SELECT n.id, n.repo_id, n.type, n.name, n.file_path, n.start_line, n.end_line,
+             n.language, n.symbol_id, n.summary, n.hash, n.metadata_json,
+             ts_rank_cd(
+               to_tsvector(
+                 'simple',
+                 coalesce(n.name, '') || ' ' ||
+                 coalesce(n.symbol_id, '') || ' ' ||
+                 coalesce(n.file_path, '') || ' ' ||
+                 coalesce(n.summary, '')
+               ),
+               search_query.query
+             ) AS rank
+      FROM code_node n, search_query
+      WHERE ${filter.where}
+        AND to_tsvector(
+              'simple',
+              coalesce(n.name, '') || ' ' ||
+              coalesce(n.symbol_id, '') || ' ' ||
+              coalesce(n.file_path, '') || ' ' ||
+              coalesce(n.summary, '')
+            ) @@ search_query.query
+      ORDER BY rank DESC, length(n.name), n.file_path
+      LIMIT $${limitIndex}
+      `,
+      [...filter.values, query, options.limit],
+    );
+    return result.rows.map((rawRow) => {
+      const row = rawRow as Row;
+      return {
+        node: nodeFromRow(row),
+        score: Math.max(0.1, Number(row.rank) || 0),
+        reasons: ["postgres_fts"],
+      };
+    });
+  }
+
+  private async searchCodeNodesLike(
+    repoId: string,
+    query: string,
+    options: { types: string[]; languages: string[]; limit: number },
+  ): Promise<Array<{ node: CodeGraphNode; score: number; reasons: string[] }>> {
+    const filter = pgNodeFilterSql(repoId, options.types, options.languages);
+    const queryIndex = filter.values.length + 1;
+    const patternIndex = filter.values.length + 2;
+    const startPatternIndex = filter.values.length + 3;
+    const limitIndex = filter.values.length + 4;
+    const result = await this.pool.query(
+      `
+      SELECT n.id, n.repo_id, n.type, n.name, n.file_path, n.start_line, n.end_line,
+             n.language, n.symbol_id, n.summary, n.hash, n.metadata_json,
+             CASE
+               WHEN lower(n.name) = lower($${queryIndex}) THEN 1.0
+               WHEN lower(n.name) LIKE lower($${startPatternIndex}) THEN 0.85
+               WHEN lower(n.name) LIKE lower($${patternIndex}) THEN 0.72
+               WHEN lower(n.symbol_id) LIKE lower($${patternIndex}) THEN 0.62
+               WHEN lower(n.file_path) LIKE lower($${patternIndex}) THEN 0.55
+               ELSE 0.4
+             END AS rank
+      FROM code_node n
+      WHERE ${filter.where}
+        AND (
+          lower(n.name) LIKE lower($${patternIndex})
+          OR lower(n.symbol_id) LIKE lower($${patternIndex})
+          OR lower(n.file_path) LIKE lower($${patternIndex})
+        )
+      ORDER BY rank DESC, length(n.name), n.file_path
+      LIMIT $${limitIndex}
+      `,
+      [...filter.values, query, `%${query}%`, `${query}%`, options.limit],
+    );
+    return result.rows.map((rawRow) => {
+      const row = rawRow as Row;
+      return {
+        node: nodeFromRow(row),
+        score: Number(row.rank) || 0,
+        reasons: ["like"],
+      };
+    });
+  }
+
+  private async searchCodeNodesByFilters(
+    repoId: string,
+    options: { types: string[]; languages: string[]; limit: number },
+  ): Promise<Array<{ node: CodeGraphNode; score: number; reasons: string[] }>> {
+    const filter = pgNodeFilterSql(repoId, options.types, options.languages);
+    const limitIndex = filter.values.length + 1;
+    const result = await this.pool.query(
+      `
+      SELECT n.id, n.repo_id, n.type, n.name, n.file_path, n.start_line, n.end_line,
+             n.language, n.symbol_id, n.summary, n.hash, n.metadata_json
+      FROM code_node n
+      WHERE ${filter.where}
+      ORDER BY n.type, n.file_path, n.start_line, n.name
+      LIMIT $${limitIndex}
+      `,
+      [...filter.values, options.limit],
+    );
+    return result.rows.map((row) => ({
+      node: nodeFromRow(row as Row),
+      score: 0.5,
+      reasons: ["filter"],
+    }));
+  }
+
+  private async searchCodeChunksLike(
+    repoId: string,
+    query: string,
+    limit: number,
+  ): Promise<Array<{ chunk: CodeChunk; score: number; match_type: string }>> {
+    const pattern = `%${query.trim().replace(/^"+|"+$/g, "")}%`;
+    const result = await this.pool.query(
+      `
+      SELECT id, repo_id, node_id, file_path, start_line, end_line,
+             content, content_hash, token_count,
+             CASE
+               WHEN lower(file_path) LIKE lower($2) THEN 0.8
+               ELSE 0.5
+             END AS rank
+      FROM code_chunk
+      WHERE repo_id = $1
+        AND (
+          lower(content) LIKE lower($2)
+          OR lower(file_path) LIKE lower($2)
+        )
+      ORDER BY rank DESC, file_path, start_line
+      LIMIT $3
+      `,
+      [repoId, pattern, limit],
+    );
+    return result.rows.map((rawRow) => {
+      const row = rawRow as Row;
+      return {
+        chunk: chunkFromRow(row),
+        score: Number(row.rank) || 0,
+        match_type: "like",
+      };
+    });
   }
 
   async replaceCodeChunkEmbeddings(
@@ -1021,6 +1219,118 @@ function positiveInt(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value > 0
     ? value
     : fallback;
+}
+
+function boundedLimit(
+  value: number | undefined,
+  fallback: number,
+  max: number,
+): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? Math.min(value, max)
+    : fallback;
+}
+
+function pgNodeFilterSql(
+  repoId: string,
+  types: string[],
+  languages: string[],
+): { where: string; values: string[] } {
+  const values = [repoId];
+  const clauses = ["n.repo_id = $1"];
+  if (types.length) {
+    const placeholders = types.map((nodeType) => {
+      values.push(nodeType);
+      return `$${values.length}`;
+    });
+    clauses.push(`n.type IN (${placeholders.join(", ")})`);
+  }
+  if (languages.length) {
+    const placeholders = languages.map((language) => {
+      values.push(language);
+      return `$${values.length}`;
+    });
+    clauses.push(`n.language IN (${placeholders.join(", ")})`);
+  }
+  return { where: clauses.join(" AND "), values };
+}
+
+function chunkFtsQuery(query: string): string {
+  return terms(query)
+    .map((term) => `"${term}"`)
+    .join(" OR ");
+}
+
+function terms(value: string): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const match of value.matchAll(TOKEN_RE)) {
+    const term = match[0].toLowerCase();
+    if (seen.has(term)) {
+      continue;
+    }
+    seen.add(term);
+    result.push(term);
+    if (result.length >= 16) {
+      break;
+    }
+  }
+  return result;
+}
+
+function postgresSearchQuery(query: string): string {
+  return query
+    .replace(/"/g, " ")
+    .replace(/\*/g, " ")
+    .replace(/\s+OR\s+/gi, " ")
+    .replace(/\s+AND\s+/gi, " ")
+    .trim();
+}
+
+function scoreNodeHit(
+  node: CodeGraphNode,
+  query: string,
+  baseScore: number,
+): number {
+  if (!query) {
+    return baseScore;
+  }
+  const queryLower = query.toLowerCase();
+  const queryTerms = [...queryLower.matchAll(TOKEN_RE)].map(
+    (match) => match[0],
+  );
+  const nameLower = node.name.toLowerCase();
+  let score = baseScore;
+  if (
+    nameLower === queryLower.replace(/\s+/g, "") ||
+    nameLower === queryLower
+  ) {
+    score += 2;
+  } else if (queryTerms.some((term) => term === nameLower)) {
+    score += 1.4;
+  } else if (nameLower.startsWith(queryLower)) {
+    score += 0.9;
+  } else if (nameLower.includes(queryLower)) {
+    score += 0.6;
+  }
+  if (
+    node.file_path &&
+    queryTerms.some((term) => node.file_path.toLowerCase().includes(term))
+  ) {
+    score += 0.25;
+  }
+  score +=
+    {
+      endpoint: 0.35,
+      function: 0.3,
+      method: 0.3,
+      class: 0.28,
+      interface: 0.25,
+      schema: 0.22,
+      file: 0.1,
+      module: -0.15,
+    }[node.type] ?? 0;
+  return Math.round(score * 10_000) / 10_000;
 }
 
 const PG_SCHEMA_SQL = `

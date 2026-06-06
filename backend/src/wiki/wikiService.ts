@@ -18,7 +18,7 @@ import {
   type WikiCatalogResult,
   type WikiPageResult,
 } from "./payloads.js";
-import { copyWikiLanguage } from "./translation.js";
+import { translateWikiLanguage } from "./translation.js";
 
 type WikiLlm = {
   isConfigured(taskType: string): boolean;
@@ -31,11 +31,13 @@ type WikiLlm = {
 export class WikiService {
   private readonly catalogGenerator: WikiCatalogGenerator;
   private readonly pageGenerator: WikiPageGenerator;
+  private readonly llm: WikiLlm | undefined;
 
   constructor(
     private readonly store: CodeWikiStoreApi,
     llm?: WikiLlm,
   ) {
+    this.llm = llm;
     this.catalogGenerator = new WikiCatalogGenerator(store, llm);
     this.pageGenerator = new WikiPageGenerator(store, llm);
   }
@@ -140,6 +142,7 @@ export class WikiService {
         slug: node.slug,
         languageCode,
         title: catalogItemTitle(node.item),
+        kind: node.item.kind ?? "page",
         path: node.item.path ?? null,
         topic: wikiPageTopic(node.item),
         sourceHints: wikiPageSourceHints(node.item),
@@ -184,6 +187,7 @@ export class WikiService {
       slug: node.slug,
       languageCode,
       title: catalogItemTitle(node.item),
+      kind: node.item.kind ?? "page",
       path: node.item.path ?? null,
       topic: wikiPageTopic(node.item),
       sourceHints: wikiPageSourceHints(node.item),
@@ -237,7 +241,13 @@ export class WikiService {
     sourceLanguage = "en",
     targetLanguage: string,
   ): Promise<JsonObject> {
-    return copyWikiLanguage(this.store, repoId, sourceLanguage, targetLanguage);
+    return translateWikiLanguage(
+      this.store,
+      this.llm,
+      repoId,
+      sourceLanguage,
+      targetLanguage,
+    );
   }
 
   async llmCachePayload(
@@ -430,6 +440,7 @@ export class WikiService {
       slug: node.slug,
       languageCode,
       title: catalogItemTitle(node.item),
+      kind: node.item.kind ?? "page",
       path: node.item.path ?? null,
       topic: wikiPageTopic(node.item),
       sourceHints: wikiPageSourceHints(node.item),
@@ -566,7 +577,8 @@ function wikiPageTopic(item: CatalogItem): string {
 function wikiPageSourceHints(item: CatalogItem): string[] {
   return Array.isArray(item.source_hints)
     ? item.source_hints.filter(
-        (hint): hint is string => typeof hint === "string" && hint.trim() !== "",
+        (hint): hint is string =>
+          typeof hint === "string" && hint.trim() !== "",
       )
     : [];
 }

@@ -40,9 +40,12 @@ export function registerWikiRoutes(
         repoId,
         language,
       );
+      const hasValidationErrors = results.some(
+        (result) => result.validation_errors.length > 0,
+      );
       return {
         repo_id: repoId,
-        status: "generated",
+        status: hasValidationErrors ? "partial" : "generated",
         page_count: results.length,
         pages: results.map(pageResultPayload),
         llm_cache: await services.wiki.llmCachePayload(repoId, [

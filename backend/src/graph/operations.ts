@@ -1,6 +1,5 @@
 import type { CodeWikiStoreApi } from "../db/types.js";
 import type { CodeGraphEdge, CodeGraphNode, JsonObject } from "../types.js";
-import { nameGraphCommunities } from "./communityNaming.js";
 
 export type GraphSearchFilters = {
   types?: string[];
@@ -375,26 +374,6 @@ export async function graphCommunitiesList(
     summary_hash: community.summary_hash,
     created_at: community.created_at,
   }));
-}
-
-export async function graphNameCommunities(
-  store: CodeWikiStoreApi,
-  repoId: string,
-  maxCommunities: number,
-): Promise<JsonObject> {
-  const result = await nameGraphCommunities(store, repoId, { maxCommunities });
-  const communities = (await store.listGraphCommunities(repoId))
-    .filter((community) => result.named_community_ids.includes(community.id))
-    .map((community) => ({
-      id: community.id,
-      name: community.name,
-      summary: community.summary ?? "",
-      node_count: community.node_ids.length,
-    }));
-  return {
-    ...result,
-    communities,
-  };
 }
 
 export function graphNodePayload(node: CodeGraphNode): JsonObject {

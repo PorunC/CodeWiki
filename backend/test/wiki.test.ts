@@ -59,12 +59,12 @@ describe("WikiService", () => {
     expect(srcPage?.source_refs).toEqual([
       expect.objectContaining({
         citation_id: "S1",
-        file_path: "src/main.ts",
+        file_path: "src/util.ts",
         start_line: 1,
       }),
       expect.objectContaining({
         citation_id: "S2",
-        file_path: "src/util.ts",
+        file_path: "src/main.ts",
         start_line: 1,
       }),
     ]);
@@ -81,6 +81,80 @@ describe("WikiService", () => {
     expect(translatedPage?.language_code).toBe("zh");
     expect(translatedPage?.markdown).toBe(srcPage?.markdown);
     expect(translatedPage?.source_refs).toEqual(srcPage?.source_refs);
+  });
+
+  it("translates wiki catalogs and pages with the translation LLM contract", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-translation-llm-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+
+    const sourceService = new WikiService(store);
+    await sourceService.generateCatalog(repo.id);
+    const pages = await sourceService.generateAllPages(repo.id);
+    const sourcePage = store.getDocPage(repo.id, "src", "en");
+    const llm = new FakeWikiLlm({
+      translation: (operation) => translationCompletion(operation),
+    });
+    const service = new WikiService(store, llm);
+
+    const translated = await service.translateWiki(repo.id, "en", "zh");
+
+    expect(translated).toMatchObject({
+      repo_id: repo.id,
+      source_language: "en",
+      target_language: "zh",
+      status: "translated",
+      page_count: pages.length,
+    });
+    const translatedCatalog = store.getLatestDocCatalog(repo.id, "zh");
+    expect(translatedCatalog?.title).toBe("演示仓库 Wiki");
+    expect(translatedCatalog?.structure.items).toEqual([
+      expect.objectContaining({
+        slug: "root",
+        path: null,
+        title: "概览",
+      }),
+      expect.objectContaining({
+        slug: "src",
+        path: "src",
+        title: "源码",
+      }),
+    ]);
+    const translatedPage = store.getDocPage(repo.id, "src", "zh");
+    expect(translatedPage?.title).toBe("源码");
+    expect(translatedPage?.markdown).toContain("已翻译 Src");
+    expect(translatedPage?.markdown).toContain("`helper`");
+    expect(translatedPage?.source_refs).toEqual(sourcePage?.source_refs);
+
+    const operations = llm.operations.filter(
+      (operation) => operation.taskType === "translation",
+    );
+    expect(operations).toHaveLength(1 + pages.length);
+    expect(operations[0]).toMatchObject({
+      promptVersion: "translation:wiki:v3",
+      modelAlias: "translation",
+      completion: { responseFormat: "json_object" },
+    });
+    expect(operations[0]?.cacheKey).toContain("translation:v3:catalog");
+    expect(operations[0]?.inputPayload).toMatchObject({
+      content_type: "catalog",
+      target_language: "zh",
+      style_guide: { locale: "zh-Hans" },
+    });
+    expect(operations[0]?.messages[0]?.content).toContain(
+      "You are translating Code Wiki documentation.",
+    );
+    expect(operations[0]?.messages[1]?.content).toContain(
+      "Stable translation contract",
+    );
+    expect(operations[0]?.messages[2]?.content).toContain(
+      "Translation payload",
+    );
   });
 
   it("uses provider-backed nested catalogs when a catalog LLM is configured", async () => {
@@ -151,7 +225,35 @@ describe("WikiService", () => {
         ],
       }),
     );
-    expect(llm.operations[0]?.inputPayload.repo_name).toBe("Demo Repo");
+    expect(llm.operations[0]?.inputPayload.repo).toMatchObject({
+      name: "Demo Repo",
+    });
+    expect(llm.operations[0]?.inputPayload).not.toHaveProperty("repo_name");
+    expect(llm.operations[0]?.inputPayload).not.toHaveProperty("local_items");
+    const requiredShape = jsonObject(
+      llm.operations[0]?.inputPayload.required_json_shape,
+    );
+    const backendShape = jsonObjectArray(requiredShape.items).find(
+      (item) => item.slug === "backend-services",
+    );
+    const wikiShape = jsonObjectArray(backendShape?.children).find(
+      (item) => item.slug === "wiki-generation",
+    );
+    const catalogShape = jsonObjectArray(wikiShape?.children).find(
+      (item) => item.slug === "catalog-planning",
+    );
+    expect(backendShape).toMatchObject({
+      title: "Backend Services",
+      kind: "category",
+    });
+    expect(wikiShape).toMatchObject({
+      title: "Wiki Generation",
+      kind: "category",
+    });
+    expect(catalogShape).toMatchObject({
+      title: "Catalog Planning",
+      slug: "catalog-planning",
+    });
 
     const pages = await service.generateAllPagesWithLlmFallback(repo.id);
     const systemPage = pages.find(
@@ -176,6 +278,12 @@ describe("WikiService", () => {
     expect(runtimePage?.title).toBe("Runtime Flow");
     expect(runtimePage?.markdown).toContain(
       "`helper` (function) in `src/util.ts`",
+    );
+    expect(llm.operations[0]?.promptVersion).toBe("catalog:deepwiki:v4");
+    expect(llm.operations[0]?.cacheKey).toContain("catalog:v4:");
+    expect(llm.operations[0]?.inputPayload.community_hierarchy).toEqual([]);
+    expect(llm.operations[0]?.messages[0]?.content).toContain(
+      "Analysis workflow:",
     );
   });
 
@@ -364,6 +472,47 @@ describe("WikiService", () => {
     expect(store.getDocPage(repo.id, "old-page")).toBeNull();
   });
 
+  it("lazily builds GraphRAG chunks when wiki page generation starts from graph-only data", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-lazy-chunks-"));
+    writeDemoSourceFiles(root);
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: [],
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Lazy Wiki",
+      structure: {
+        items: [
+          {
+            title: "Runtime Flow",
+            slug: "runtime-flow",
+            kind: "page",
+            path: "src",
+            topic: "helper runtime flow",
+            source_hints: ["src/util.ts"],
+          },
+        ],
+      },
+    });
+
+    const [result] = await new WikiService(store).generateAllPages(repo.id);
+
+    expect(store.listCodeChunks(repo.id).length).toBeGreaterThanOrEqual(1);
+    expect(result?.page.slug).toBe("runtime-flow");
+    expect(result?.page.markdown).toContain("`helper` (function)");
+    expect(result?.page.source_refs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file_path: "src/util.ts",
+          start_line: 1,
+        }),
+      ]),
+    );
+  });
+
   it("renders LLM pages with server diagrams, source URLs, and grouped sources", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-page-rendering-"));
     writeDemoSourceFiles(root);
@@ -406,29 +555,27 @@ describe("WikiService", () => {
         ],
       },
     });
-    const service = new WikiService(
-      store,
-      new FakeWikiLlm({
-        page: {
-          title: "Main Runtime",
-          markdown: [
-            "# Main Runtime",
-            "",
-            "## Purpose and Scope",
-            "",
-            "The runtime calls the helper. [[S1]]",
-            "",
-            "```mermaid",
-            "flowchart TD",
-            "  invented --> graph",
-            "```",
-            "",
-            "Sources: this inline source line should be removed.",
-          ].join("\n"),
-          source_refs: [{ citation_id: "S1" }],
-        },
-      }),
-    );
+    const llm = new FakeWikiLlm({
+      page: {
+        title: "Main Runtime",
+        markdown: [
+          "# Main Runtime",
+          "",
+          "## Purpose and Scope",
+          "",
+          "The runtime calls the helper. [[S1]]",
+          "",
+          "```mermaid",
+          "flowchart TD",
+          "  invented --> graph",
+          "```",
+          "",
+          "Sources: this inline source line should be removed.",
+        ].join("\n"),
+        source_refs: [{ citation_id: "S1" }],
+      },
+    });
+    const service = new WikiService(store, llm);
 
     const [result] = await service.generateAllPagesWithLlmFallback(repo.id);
     const page = result?.page;
@@ -444,20 +591,50 @@ describe("WikiService", () => {
       "- [src/main.ts](https://github.com/acme/demo/blob/abc123/src/main.ts)",
     );
     expect(page?.markdown).toContain(
-      "[S1](https://github.com/acme/demo/blob/abc123/src/main.ts#L1-L3",
+      "[S1](https://github.com/acme/demo/blob/abc123/src/util.ts#L1-L3",
     );
     expect(page?.markdown).toContain("## Sources");
     expect(page?.markdown).toContain(
-      "  - S1 [L1-L3](https://github.com/acme/demo/blob/abc123/src/main.ts#L1-L3)",
+      "  - S1 [L1-L3](https://github.com/acme/demo/blob/abc123/src/util.ts#L1-L3)",
     );
     expect(page?.source_refs[0]).toMatchObject({
       citation_id: "S1",
-      file_path: "src/main.ts",
+      file_path: "src/util.ts",
       start_line: 1,
       end_line: 3,
       read_via: "ReadFile",
-      source_url: "https://github.com/acme/demo/blob/abc123/src/main.ts#L1-L3",
+      source_url: "https://github.com/acme/demo/blob/abc123/src/util.ts#L1-L3",
     });
+    const pageOperation = llm.operations.find(
+      (operation) => operation.taskType === "page",
+    );
+    const diagramSlots = jsonObjectArray(
+      pageOperation?.inputPayload.diagram_slots,
+    );
+    const componentSlot = diagramSlots.find(
+      (slot) => slot.slot === "component-relationships",
+    );
+    const implementationSlot = diagramSlots.find(
+      (slot) => slot.slot === "implementation-flow",
+    );
+    expect(componentSlot).toMatchObject({
+      slot: "component-relationships",
+      placeholder: "[[DIAGRAM:component-relationships]]",
+      kind: "component",
+    });
+    expect(typeof componentSlot?.reason).toBe("string");
+    expect(stringArray(componentSlot?.source_edge_ids)).toContain(
+      "edge-main-imports-util",
+    );
+    expect(implementationSlot).toMatchObject({
+      slot: "implementation-flow",
+      placeholder: "[[DIAGRAM:implementation-flow]]",
+      kind: "symbol_flow",
+    });
+    expect(typeof implementationSlot?.reason).toBe("string");
+    expect(stringArray(implementationSlot?.source_edge_ids)).toContain(
+      "edge-main-imports-util",
+    );
   });
 
   it("saves draft pages when LLM source refs fail strict validation", async () => {
@@ -511,14 +688,140 @@ describe("WikiService", () => {
       "At least one valid source_ref is required.",
     );
   });
+
+  it("uses the main-compatible JSON repair payload after malformed page JSON", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-page-json-repair-"));
+    writeDemoSourceFiles(root);
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Repair Wiki",
+      structure: {
+        items: [
+          {
+            title: "Main Runtime",
+            slug: "main-runtime",
+            kind: "page",
+            path: "src",
+            topic: "src/main.ts",
+            source_hints: ["src/util.ts"],
+          },
+        ],
+      },
+    });
+    let attempts = 0;
+    const llm = new FakeWikiLlm({
+      page: () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return "not json";
+        }
+        return {
+          title: "Main Runtime",
+          markdown:
+            "# Main Runtime\n\n## Purpose and Scope\n\nThe runtime uses helper. [[S1]]",
+          source_refs: [{ citation_id: "S1" }],
+        };
+      },
+    });
+    const service = new WikiService(store, llm);
+
+    const [result] = await service.generateAllPagesWithLlmFallback(repo.id);
+
+    expect(result?.page.status).toBe("generated");
+    expect(llm.operations.filter((op) => op.taskType === "page")).toHaveLength(
+      2,
+    );
+    const repairPayload = llm.operations[1]?.inputPayload;
+    expect(repairPayload).toMatchObject({
+      previous_response: "not json",
+      validation_errors: ["LLM did not return a JSON object."],
+      repair_instructions:
+        "Repair the page response. Return one valid JSON object only, with title, markdown, and source_refs. Use only diagram placeholders listed in diagram_slots. Do not include prose, comments, Markdown fences around the JSON, or trailing commas.",
+    });
+  });
+
+  it("uses the main-compatible validation repair payload after page validation errors", async () => {
+    const root = mkdtempSync(
+      join(tmpdir(), "codewiki-wiki-page-validation-repair-"),
+    );
+    writeDemoSourceFiles(root);
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+    store.saveDocCatalog(repo.id, {
+      title: "Repair Wiki",
+      structure: {
+        items: [
+          {
+            title: "Main Runtime",
+            slug: "main-runtime",
+            kind: "page",
+            path: "src",
+            topic: "src/main.ts",
+            source_hints: ["src/util.ts"],
+          },
+        ],
+      },
+    });
+    const invalidResponse = {
+      title: "Main Runtime",
+      markdown: "# Main Runtime\n\nMissing the required section. [[S1]]",
+      source_refs: [{ citation_id: "S1" }],
+    };
+    let attempts = 0;
+    const llm = new FakeWikiLlm({
+      page: () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return invalidResponse;
+        }
+        return {
+          title: "Main Runtime",
+          markdown:
+            "# Main Runtime\n\n## Purpose and Scope\n\nThe runtime uses helper. [[S1]]",
+          source_refs: [{ citation_id: "S1" }],
+        };
+      },
+    });
+    const service = new WikiService(store, llm);
+
+    const [result] = await service.generateAllPagesWithLlmFallback(repo.id);
+
+    expect(result?.page.status).toBe("generated");
+    expect(llm.operations.filter((op) => op.taskType === "page")).toHaveLength(
+      2,
+    );
+    const repairPayload = llm.operations[1]?.inputPayload;
+    expect(repairPayload).toMatchObject({
+      previous_response: invalidResponse,
+      validation_errors: [
+        "markdown must include required heading: ## Purpose and Scope.",
+      ],
+      repair_instructions:
+        "Repair the page so it validates. Keep the same title, include the required Purpose and Scope section, choose source_refs from allowed_source_refs, and only use [[S#]] markers for source_refs you return. Remove any unknown diagram placeholder, or use exact placeholders from diagram_slots.",
+    });
+  });
 });
+
+type FakeCompletion =
+  | JsonObject
+  | string
+  | ((operation: LlmOperation) => JsonObject | string);
 
 class FakeWikiLlm {
   readonly operations: LlmOperation[] = [];
 
-  constructor(
-    private readonly completions: Record<string, JsonObject | string>,
-  ) {}
+  constructor(private readonly completions: Record<string, FakeCompletion>) {}
 
   isConfigured(taskType: string): boolean {
     return Object.hasOwn(this.completions, taskType);
@@ -533,8 +836,10 @@ class FakeWikiLlm {
     if (completion === undefined) {
       throw new Error(`Unexpected LLM task: ${operation.taskType}`);
     }
+    const resolved =
+      typeof completion === "function" ? completion(operation) : completion;
     const content =
-      typeof completion === "string" ? completion : JSON.stringify(completion);
+      typeof resolved === "string" ? resolved : JSON.stringify(resolved);
     return {
       result: {
         content,
@@ -580,6 +885,54 @@ function fakeLlmRun(
     error: null,
     created_at: "2026-01-01T00:00:00.000Z",
   };
+}
+
+function translationCompletion(operation: LlmOperation): JsonObject {
+  const contentType = payloadString(operation.inputPayload.content_type);
+  if (contentType === "catalog") {
+    return {
+      title: "演示仓库 Wiki",
+      items: [
+        { path: "root", title: "概览" },
+        { path: "src", title: "源码" },
+      ],
+    };
+  }
+  const title = payloadString(operation.inputPayload.title);
+  const translatedTitle =
+    title === "Src" ? "源码" : title === "Overview" ? "概览" : title;
+  return {
+    title: translatedTitle,
+    markdown: [
+      `# ${translatedTitle}`,
+      "",
+      "## Purpose and Scope",
+      "",
+      `已翻译 ${title}，保留 \`helper\` 与 [[S1]].`,
+    ].join("\n"),
+  };
+}
+
+function payloadString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function jsonObjectArray(value: unknown): JsonObject[] {
+  return Array.isArray(value) ? value.filter(isJsonObject) : [];
+}
+
+function jsonObject(value: unknown): JsonObject {
+  return isJsonObject(value) ? value : {};
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function repoDescriptor(root: string): RepoDescriptor {

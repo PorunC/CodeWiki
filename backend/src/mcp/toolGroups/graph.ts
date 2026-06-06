@@ -316,7 +316,7 @@ export function buildGraphTools({
     ),
     tool(
       "codewiki_communities_name",
-      "Generate deterministic names and summaries for graph communities.",
+      "Generate LLM names and summaries for graph communities.",
       objectSchema({
         repo: repoSelectorSchema(),
         max_communities: { type: "integer", default: 40 },

@@ -1,5 +1,9 @@
 import { analysisRunResponse } from "../../analysis/analysisService.js";
-import { updatePayloadFromAnalysis } from "../../presenters/payloads.js";
+import { communityNamingPayloadJson } from "../../graph/communityNamingService.js";
+import {
+  analysisRunPayload,
+  updatePayloadFromAnalysis,
+} from "../../presenters/payloads.js";
 import { resolveRepo } from "../../services/repoResolver.js";
 import {
   objectSchema,
@@ -20,14 +24,24 @@ export function buildAnalysisTools({
     tool(
       "codewiki_analyze",
       "Run TypeScript graph analysis for a registered repo, path, name, or id.",
-      objectSchema({ repo: repoSelectorSchema() }),
+      objectSchema({
+        repo: repoSelectorSchema(),
+        community_summaries: { type: "boolean", default: true },
+      }),
       async (args) => {
         const repo = await resolveRepo(
           store,
           scanner,
           optionalString(args, "repo"),
         );
-        return services.analysis.analyze(repo.id);
+        const result = await services.analysis.analyze(repo.id);
+        const payload = analysisRunPayload(result);
+        if (boolArg(args, "community_summaries", true)) {
+          payload.community_naming = communityNamingPayloadJson(
+            await services.communityNaming.nameCommunitiesForAnalysis(repo.id),
+          );
+        }
+        return payload;
       },
     ),
     tool(
@@ -36,6 +50,7 @@ export function buildAnalysisTools({
       objectSchema({
         repo: repoSelectorSchema(),
         regenerate_wiki: { type: "boolean", default: true },
+        community_summaries: { type: "boolean", default: true },
       }),
       async (args) => {
         const repo = await resolveRepo(
@@ -49,7 +64,13 @@ export function buildAnalysisTools({
               staleSlugs: result.stale_pages,
             })
           : { requested: false, status: "not_run" };
-        return updatePayloadFromAnalysis(result, wikiRegeneration);
+        const payload = updatePayloadFromAnalysis(result, wikiRegeneration);
+        if (boolArg(args, "community_summaries", true)) {
+          payload.community_naming = communityNamingPayloadJson(
+            await services.communityNaming.nameCommunitiesForAnalysis(repo.id),
+          );
+        }
+        return payload;
       },
     ),
     tool(

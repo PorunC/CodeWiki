@@ -1,24 +1,16 @@
 import { digest } from "../analysis/graphUtils.js";
+import { buildCommunityEdges } from "../analysis/graphCommunities.js";
 import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
-import {
-  LlmCallError,
-  type CachedLlmCompletion,
-  type LlmOperation,
-} from "../llm/cache.js";
+import { type CachedLlmCompletion, type LlmOperation } from "../llm/cache.js";
 import type {
   CodeGraphEdge,
   CodeGraphNode,
   GraphCommunity,
-  GraphCommunityEdge,
   JsonObject,
   JsonValue,
   RepoDescriptor,
 } from "../types.js";
-import {
-  nameGraphCommunities,
-  type CommunityNamingResult,
-} from "./communityNaming.js";
 import {
   dedupeName,
   fileLabel,
@@ -38,9 +30,15 @@ type CommunityNamingOptions = {
   maxCommunities?: number | undefined;
 };
 
-type CommunityNamingPayload = {
+export type CommunityNamingPayload = {
   repo_id: string;
-  status: "renamed" | "unchanged" | "no_communities" | "partial";
+  status:
+    | "renamed"
+    | "unchanged"
+    | "no_communities"
+    | "partial"
+    | "skipped"
+    | "failed";
   renamed_count: number;
   community_count: number;
   max_communities: number;
@@ -63,6 +61,26 @@ const MAX_COMMUNITY_FILES = 12;
 const MAX_COMMUNITY_SYMBOLS = 16;
 const MAX_COMMUNITY_EDGES = 10;
 const MAX_NAME_LENGTH = 64;
+const LLM_NOT_CONFIGURED_ERROR =
+  "LLM community naming skipped because no LLM endpoint or API key is configured.";
+const COMMUNITY_NAMING_SYSTEM_PROMPT = `Name and summarize graph communities for GraphRAG retrieval and Wiki catalog generation.
+
+Focus on:
+- A concise developer-facing subsystem name
+- A source-grounded semantic summary of main responsibility
+- Key files and symbols
+- Important incoming and outgoing dependencies
+- Risks or unclear boundaries
+
+Rules:
+- Use only the provided graph evidence.
+- Keep names short and specific, preferably 2-6 words.
+- Write a fresh summary instead of copying the deterministic summary verbatim.
+- Keep summaries concise, normally one or two sentences.
+- Prefer capability or workflow names over generic layer names.
+- Avoid generic names such as Backend Subsystem, Frontend Subsystem, Core, Misc, Cluster N, or Community N.
+- Do not alter node membership or invent modules.
+- Return only JSON in the requested shape.`;
 
 export class CommunityNamingService {
   constructor(
@@ -78,21 +96,8 @@ export class CommunityNamingService {
     if (!repo) {
       throw notFoundError("Repository", repoId);
     }
-    if (!this.llm?.isConfigured("community_summary")) {
-      return deterministicPayload(
-        await nameGraphCommunities(
-          this.store,
-          repoId,
-          options.maxCommunities === undefined
-            ? {}
-            : { maxCommunities: options.maxCommunities },
-        ),
-        await this.store.listGraphCommunities(repoId),
-      );
-    }
-
-    const communities = await this.store.listGraphCommunities(repoId);
     const maxCommunities = normalizeMaxCommunities(options.maxCommunities);
+    const communities = await this.store.listGraphCommunities(repoId);
     if (!communities.length) {
       return {
         repo_id: repoId,
@@ -105,11 +110,13 @@ export class CommunityNamingService {
         communities: [],
       };
     }
+    if (!this.llm) {
+      throw new Error("LLM community naming service is not configured.");
+    }
 
     const graph = await this.store.getGraph(repoId);
-    const communityEdges = await this.store.listGraphCommunityEdges(repoId);
     const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
-    const targets = selectNamingTargets(communities, maxCommunities, nodeById);
+    const targets = selectNamingTargets(communities, maxCommunities);
     if (!targets.length) {
       return {
         repo_id: repoId,
@@ -139,62 +146,47 @@ export class CommunityNamingService {
         renamed,
       );
       const fallbackNames = fallbackNamesForPayload(payload);
-      try {
-        const completion = await this.llm.complete(repoId, {
-          taskType: "community_summary",
-          cacheKey: `community_naming:batch:${batchIndex + 1}`,
-          modelAlias: "community_namer",
-          promptVersion: "community_naming:v2",
-          inputPayload: payload,
-          messages: communityNamingMessages(payload),
-          completion: { responseFormat: "json_object" },
+      const completion = await this.llm.complete(repoId, {
+        taskType: "community_summary",
+        cacheKey: `community_naming:batch:${batchIndex + 1}`,
+        modelAlias: "community_namer",
+        promptVersion: "community_naming:v2",
+        inputPayload: payload,
+        messages: communityNamingMessages(payload),
+        completion: { responseFormat: "json_object" },
+      });
+      firstCompletion ??= completion;
+      const applied = applyProviderNames(
+        renamed,
+        batch,
+        completion.result.content,
+        fallbackNames,
+      );
+      renamed = applied.communities;
+      errors.push(
+        ...applied.errors.map((error) => `batch ${batchIndex + 1}: ${error}`),
+      );
+      let runId = completion.run.id;
+      if (applied.errors.length) {
+        const updated = await this.store.updateLlmRunStatus(completion.run.id, {
+          status: "partial",
+          error: applied.errors.join("; "),
         });
-        firstCompletion ??= completion;
-        const applied = applyProviderNames(
-          renamed,
-          batch,
-          completion.result.content,
-          fallbackNames,
-        );
-        renamed = applied.communities;
-        errors.push(
-          ...applied.errors.map((error) => `batch ${batchIndex + 1}: ${error}`),
-        );
-        let runId = completion.run.id;
-        if (applied.errors.length) {
-          const updated = await this.store.updateLlmRunStatus(
-            completion.run.id,
-            {
-              status: "partial",
-              error: applied.errors.join("; "),
-            },
-          );
-          runId = updated?.id ?? runId;
-        }
-        llmRunIds.push(runId);
-      } catch (error) {
-        errors.push(
-          `batch ${batchIndex + 1}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        if (error instanceof LlmCallError && error.runId) {
-          llmRunIds.push(error.runId);
-        }
+        runId = updated?.id ?? runId;
       }
+      llmRunIds.push(runId);
     }
 
     await this.store.replaceGraphCommunities(repoId, renamed);
-    await preserveCommunityEdges(this.store, repoId, renamed, communityEdges);
+    await this.store.replaceGraphCommunityEdges(
+      repoId,
+      buildCommunityEdges(repoId, renamed, graph.edges),
+    );
     const targetIds = targets.map((community) => community.id);
     const renamedCount = renamedCountBetween(communities, renamed);
     return {
       repo_id: repoId,
-      status: errors.length
-        ? "partial"
-        : renamedCount > 0
-          ? "renamed"
-          : "unchanged",
+      status: errors.length ? "partial" : "renamed",
       renamed_count: renamedCount,
       community_count: renamed.length,
       max_communities: maxCommunities,
@@ -213,16 +205,53 @@ export class CommunityNamingService {
       },
     };
   }
+
+  async nameCommunitiesForAnalysis(
+    repoId: string,
+    options: CommunityNamingOptions = {},
+  ): Promise<CommunityNamingPayload> {
+    const maxCommunities = normalizeMaxCommunities(options.maxCommunities);
+    try {
+      if (!this.llm?.isConfigured("community_summary")) {
+        const communities = await this.store.listGraphCommunities(repoId);
+        return {
+          repo_id: repoId,
+          status: "skipped",
+          renamed_count: 0,
+          community_count: communities.length,
+          max_communities: maxCommunities,
+          named_community_ids: [],
+          errors: [LLM_NOT_CONFIGURED_ERROR],
+          communities: [],
+        };
+      }
+      return await this.nameCommunities(repoId, options);
+    } catch (error) {
+      const communities = await this.store.listGraphCommunities(repoId);
+      return {
+        repo_id: repoId,
+        status: "failed",
+        renamed_count: 0,
+        community_count: communities.length,
+        max_communities: maxCommunities,
+        named_community_ids: [],
+        errors: [error instanceof Error ? error.message : String(error)],
+        communities: [],
+      };
+    }
+  }
 }
 
-function deterministicPayload(
-  result: CommunityNamingResult,
-  communities: GraphCommunity[],
-): CommunityNamingPayload {
-  return {
-    ...result,
-    communities: communitySummaries(communities, result.named_community_ids),
-  };
+export function communityNamingPayloadJson(
+  payload: CommunityNamingPayload,
+): JsonObject {
+  const result: JsonObject = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (value !== undefined && isJsonValue(value)) {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 function normalizeMaxCommunities(value: number | undefined): number {
@@ -235,7 +264,6 @@ function normalizeMaxCommunities(value: number | undefined): number {
 function selectNamingTargets(
   communities: GraphCommunity[],
   maxCommunities: number,
-  nodeById: Map<string, CodeGraphNode>,
 ): GraphCommunity[] {
   const limit = normalizeMaxCommunities(maxCommunities);
   const byLevel = new Map<number, GraphCommunity[]>();
@@ -270,7 +298,7 @@ function selectNamingTargets(
       [...(byLevel.get(level) ?? [])].sort(
         (left, right) =>
           right.node_ids.length - left.node_ids.length ||
-          fileCount(right, nodeById) - fileCount(left, nodeById) ||
+          fileCount(right) - fileCount(left) ||
           left.rank - right.rank ||
           left.name.localeCompare(right.name),
       ),
@@ -405,26 +433,7 @@ function communityNamingMessages(
   return [
     {
       role: "system",
-      content: [
-        "Name and summarize graph communities for GraphRAG retrieval and Wiki catalog generation.",
-        "",
-        "Focus on:",
-        "- A concise developer-facing subsystem name",
-        "- A source-grounded semantic summary of main responsibility",
-        "- Key files and symbols",
-        "- Important incoming and outgoing dependencies",
-        "- Risks or unclear boundaries",
-        "",
-        "Rules:",
-        "- Use only the provided graph evidence.",
-        "- Keep names short and specific, preferably 2-6 words.",
-        "- Write a fresh summary instead of copying the deterministic summary verbatim.",
-        "- Keep summaries concise, normally one or two sentences.",
-        "- Prefer capability or workflow names over generic layer names.",
-        "- Avoid generic names such as Backend Subsystem, Frontend Subsystem, Core, Misc, Cluster N, or Community N.",
-        "- Do not alter node membership or invent modules.",
-        "- Return only JSON in the requested shape.",
-      ].join("\n"),
+      content: COMMUNITY_NAMING_SYSTEM_PROMPT,
     },
     {
       role: "user",
@@ -654,14 +663,11 @@ function ancestorNames(
   return names.reverse();
 }
 
-function fileCount(
-  community: GraphCommunity,
-  nodeById: Map<string, CodeGraphNode>,
-): number {
+function fileCount(community: GraphCommunity): number {
   return new Set(
-    community.node_ids.flatMap((nodeId) => {
-      const filePath = nodeById.get(nodeId)?.file_path;
-      return filePath ? [filePath] : [];
+    community.node_ids.map((nodeId) => {
+      const index = nodeId.lastIndexOf(":");
+      return index >= 0 ? nodeId.slice(0, index) : nodeId;
     }),
   ).size;
 }
@@ -672,26 +678,6 @@ function batches<T>(items: T[], size: number): T[][] {
     result.push(items.slice(index, index + size));
   }
   return result;
-}
-
-async function preserveCommunityEdges(
-  store: CodeWikiStoreApi,
-  repoId: string,
-  communities: GraphCommunity[],
-  edges: GraphCommunityEdge[],
-): Promise<void> {
-  if (!edges.length) {
-    return;
-  }
-  const communityIds = new Set(communities.map((community) => community.id));
-  await store.replaceGraphCommunityEdges(
-    repoId,
-    edges.filter(
-      (edge) =>
-        communityIds.has(edge.source_community_id) &&
-        communityIds.has(edge.target_community_id),
-    ),
-  );
 }
 
 function renamedCountBetween(

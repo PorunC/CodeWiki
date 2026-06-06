@@ -25,6 +25,10 @@ export type CodeWikiSettings = {
     level: string;
     format: CodeWikiLogFormat;
   };
+  graphrag: {
+    contextTokenBudget: number;
+    maxSourceChunks: number;
+  };
   llm: {
     mode: string;
     default: LlmProfileSettings;
@@ -57,6 +61,16 @@ export function getSettings(env?: NodeJS.ProcessEnv): CodeWikiSettings {
     log: {
       level: sourceEnv.CODEWIKI_LOG_LEVEL ?? "info",
       format: parseLogFormat(sourceEnv.CODEWIKI_LOG_FORMAT),
+    },
+    graphrag: {
+      contextTokenBudget: parsePositiveInt(
+        sourceEnv.CODEWIKI_GRAPHRAG_CONTEXT_TOKEN_BUDGET,
+        8000,
+      ),
+      maxSourceChunks: parsePositiveInt(
+        sourceEnv.CODEWIKI_GRAPHRAG_MAX_SOURCE_CHUNKS,
+        20,
+      ),
     },
     llm: {
       mode: sourceEnv.CODEWIKI_LLM__MODE ?? "sdk",
@@ -163,4 +177,12 @@ function parseNullableInt(value: string | undefined): number | null {
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === "") {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }

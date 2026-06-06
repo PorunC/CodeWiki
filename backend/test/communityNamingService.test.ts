@@ -24,6 +24,62 @@ describe("CommunityNamingService", () => {
     store = null;
   });
 
+  it("returns no_communities before checking LLM configuration", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-community-empty-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: [],
+      edges: [],
+      chunks: [],
+    });
+    const service = new CommunityNamingService(store, new FakeCommunityLlm({}));
+
+    const result = await service.nameCommunities(repo.id, {
+      maxCommunities: 5,
+    });
+
+    expect(result).toMatchObject({
+      repo_id: repo.id,
+      status: "no_communities",
+      renamed_count: 0,
+      community_count: 0,
+      max_communities: 5,
+      named_community_ids: [],
+      errors: [],
+      communities: [],
+    });
+  });
+
+  it("skips analysis-triggered naming when community summary LLM is not configured", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-community-skipped-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    seedGraph(store, repo.id);
+    const service = new CommunityNamingService(store, new FakeCommunityLlm({}));
+
+    const result = await service.nameCommunitiesForAnalysis(repo.id, {
+      maxCommunities: 5,
+    });
+
+    expect(result).toMatchObject({
+      repo_id: repo.id,
+      status: "skipped",
+      renamed_count: 0,
+      community_count: 2,
+      max_communities: 5,
+      named_community_ids: [],
+      errors: [
+        "LLM community naming skipped because no LLM endpoint or API key is configured.",
+      ],
+      communities: [],
+    });
+    expect(namesById(store.listGraphCommunities(repo.id))).toEqual({
+      "community-root": "root",
+      "community-src": "src",
+    });
+  });
+
   it("uses provider-backed names and summaries when configured", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-community-llm-"));
     store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
@@ -84,9 +140,7 @@ describe("CommunityNamingService", () => {
           community.summary_hash.length > 0,
       ),
     ).toBe(true);
-    expect(store.listGraphCommunityEdges(repo.id)).toEqual([
-      expect.objectContaining({ id: "community-edge-root-src" }),
-    ]);
+    expect(store.listGraphCommunityEdges(repo.id)).toEqual([]);
     expect(llm.operations[0]?.inputPayload.communities).toEqual([
       expect.objectContaining({
         id: "community-src",
@@ -162,9 +216,72 @@ describe("CommunityNamingService", () => {
     expect(result.status).toBe("renamed");
     expect(result.llm).toMatchObject({ status: "success" });
     expect(namesById(result.communities)).toEqual({
-      "community-root": "Documentation",
+      "community-root": "README",
       "community-src": "Util",
     });
+  });
+
+  it("orders child naming targets by node id prefix file count like main", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-community-targets-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: hierarchyTargetNodes(repo.id),
+      edges: [],
+      chunks: [],
+    });
+    store.replaceGraphCommunities(repo.id, [
+      community(repo.id, "parent", {
+        level: 0,
+        rank: 0,
+        nodeIds: ["parent:node"],
+      }),
+      community(repo.id, "wide-by-node-id", {
+        level: 1,
+        parentId: "parent",
+        rank: 1,
+        nodeIds: ["src/a.ts:one", "src/b.ts:two"],
+      }),
+      community(repo.id, "wide-by-file-path", {
+        level: 1,
+        parentId: "parent",
+        rank: 0,
+        nodeIds: ["same-prefix:one", "same-prefix:two"],
+      }),
+    ]);
+    const llm = new FakeCommunityLlm({
+      community_summary: {
+        communities: [
+          {
+            id: "parent",
+            name: "Parent Area",
+            summary: "Parent area.",
+          },
+          {
+            id: "wide-by-node-id",
+            name: "Node Prefix Area",
+            summary: "Node id prefixes drive target selection.",
+          },
+        ],
+      },
+    });
+    const service = new CommunityNamingService(store, llm);
+
+    const result = await service.nameCommunities(repo.id, {
+      maxCommunities: 2,
+    });
+
+    expect(result.named_community_ids).toEqual(["parent", "wide-by-node-id"]);
+    const requestedCommunities = llm.operations[0]?.inputPayload.communities;
+    expect(Array.isArray(requestedCommunities)).toBe(true);
+    expect(
+      (Array.isArray(requestedCommunities) ? requestedCommunities : []).map(
+        (item) =>
+          typeof item === "object" && item !== null && "id" in item
+            ? item.id
+            : null,
+      ),
+    ).toEqual(["parent", "wide-by-node-id"]);
   });
 });
 
@@ -350,6 +467,80 @@ function graphCommunities(repoId: string): GraphCommunity[] {
       created_at: "2026-01-01T00:00:00.000Z",
     },
   ];
+}
+
+function hierarchyTargetNodes(repoId: string): CodeGraphNode[] {
+  return [
+    node(
+      repoId,
+      "parent:node",
+      "function",
+      "parent",
+      "parent.ts",
+      "typescript",
+      "parent.ts:parent:1",
+    ),
+    node(
+      repoId,
+      "src/a.ts:one",
+      "function",
+      "one",
+      "shared.ts",
+      "typescript",
+      "src/a.ts:one",
+    ),
+    node(
+      repoId,
+      "src/b.ts:two",
+      "function",
+      "two",
+      "shared.ts",
+      "typescript",
+      "src/b.ts:two",
+    ),
+    node(
+      repoId,
+      "same-prefix:one",
+      "function",
+      "sameOne",
+      "wide/one.ts",
+      "typescript",
+      "same-prefix:one",
+    ),
+    node(
+      repoId,
+      "same-prefix:two",
+      "function",
+      "sameTwo",
+      "wide/two.ts",
+      "typescript",
+      "same-prefix:two",
+    ),
+  ];
+}
+
+function community(
+  repoId: string,
+  id: string,
+  options: {
+    level: number;
+    rank: number;
+    nodeIds: string[];
+    parentId?: string | null | undefined;
+  },
+): GraphCommunity {
+  return {
+    id,
+    repo_id: repoId,
+    name: id,
+    level: options.level,
+    parent_id: options.parentId ?? null,
+    rank: options.rank,
+    node_ids: options.nodeIds,
+    summary: `${id} summary.`,
+    summary_hash: `${id}-hash`,
+    created_at: "2026-01-01T00:00:00.000Z",
+  };
 }
 
 function graphCommunityEdges(repoId: string): GraphCommunityEdge[] {

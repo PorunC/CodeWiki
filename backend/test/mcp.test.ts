@@ -162,26 +162,15 @@ describe("CodeWiki MCP server", () => {
     );
     expect(communities.length).toBeGreaterThanOrEqual(1);
 
-    const namedCommunities = await callTool<{
-      status: string;
-      renamed_count: number;
-      community_count: number;
-      communities: Array<{ name: string; summary: string }>;
-    }>(server, "codewiki_communities_name", {
-      repo: added.id,
-      max_communities: 5,
-    });
-    expect(namedCommunities.status).toBe("renamed");
-    expect(namedCommunities.renamed_count).toBeGreaterThanOrEqual(1);
-    expect(namedCommunities.community_count).toBeGreaterThanOrEqual(1);
-    expect(
-      namedCommunities.communities.map((community) => community.name),
-    ).toEqual(expect.arrayContaining(["Documentation", "Util"]));
-    expect(
-      namedCommunities.communities.some((community) =>
-        community.summary.includes("helper"),
-      ),
-    ).toBe(true);
+    const namedCommunities = await callToolError(
+      server,
+      "codewiki_communities_name",
+      {
+        repo: added.id,
+        max_communities: 5,
+      },
+    );
+    expect(namedCommunities.error).toContain("community_summary");
 
     const catalog = await callTool<{
       title: string;
@@ -246,7 +235,7 @@ describe("CodeWiki MCP server", () => {
       trace_id: string;
       query: string;
       source_chunks: Array<{ file_path: string }>;
-      context_pack: { query?: string };
+      context_pack: { text?: string; chunk_count?: number };
     }>(server, "codewiki_retrieve_context", {
       repo: added.id,
       query: "helper",
@@ -258,7 +247,8 @@ describe("CodeWiki MCP server", () => {
         (chunk) => chunk.file_path === "src/util.ts",
       ),
     ).toBe(true);
-    expect(retrieval.context_pack.query).toBe("helper");
+    expect(retrieval.context_pack.text).toContain("Query: helper");
+    expect(retrieval.context_pack.chunk_count).toBeGreaterThanOrEqual(1);
     const persistedTrace = store?.getRetrievalTrace(
       added.id,
       retrieval.trace_id,
@@ -289,6 +279,25 @@ async function callTool<T>(
   const text = asRecord(content[0]).text;
   expect(typeof text).toBe("string");
   return JSON.parse(text as string) as T;
+}
+
+async function callToolError(
+  server: CodeWikiMCPServer,
+  name: string,
+  args: JsonObject,
+): Promise<{ error: string }> {
+  const response = await server.handleMessage({
+    jsonrpc: "2.0",
+    id: requestId++,
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+  const result = asRecord(asRecord(response).result);
+  expect(result.isError).toBe(true);
+  const content = asArray(result.content);
+  const text = asRecord(content[0]).text;
+  expect(typeof text).toBe("string");
+  return JSON.parse(text as string) as { error: string };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

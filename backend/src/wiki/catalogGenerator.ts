@@ -14,6 +14,7 @@ import {
   type CachedLlmCompletion,
   type LlmOperation,
 } from "../llm/cache.js";
+import { filterWikiGraph } from "../services/fileRoles.js";
 import type {
   CodeChunk,
   CodeGraphEdge,
@@ -66,11 +67,9 @@ type NormalizedCatalog = CatalogDraft & {
   validationErrors: string[];
 };
 
-const MAX_CATALOG_ITEMS = 80;
-const MAX_CATALOG_DEPTH = 4;
 const CATALOG_GENERATION_ATTEMPTS = 3;
 const CATALOG_RETRIEVAL_LIMIT = 18;
-const CATALOG_PROMPT_VERSION = "ts-wiki-catalog-deepwiki-v2";
+const CATALOG_PROMPT_VERSION = "catalog:deepwiki:v4";
 const MAX_REPOSITORY_TREE_DEPTH = 3;
 const MAX_REPOSITORY_TREE_ENTRIES_PER_DIR = 80;
 const MAX_README_CHARS = 6000;
@@ -123,57 +122,6 @@ const EXCLUDED_CONTEXT_DIRS = new Set([
   ".output",
 ]);
 
-const LOCKFILE_NAMES = new Set([
-  "uv.lock",
-  "package-lock.json",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-]);
-
-const GENERATED_DIR_NAMES = new Set([
-  ".next",
-  ".nuxt",
-  ".svelte-kit",
-  "build",
-  "coverage",
-  "dist",
-  "htmlcov",
-  "out",
-  "target",
-]);
-
-const GENERATED_FILE_SUFFIXES = [
-  ".bundle.js",
-  ".bundle.css",
-  ".d.ts",
-  ".generated.py",
-  ".generated.ts",
-  ".generated.tsx",
-  ".min.css",
-  ".min.js",
-];
-
-const VENDOR_DIR_NAMES = new Set([
-  ".git",
-  ".hg",
-  ".svn",
-  ".venv",
-  "node_modules",
-  "site-packages",
-  "vendor",
-  "vendors",
-  "venv",
-]);
-
-const TEST_DIR_NAMES = new Set([
-  "__tests__",
-  "e2e",
-  "spec",
-  "specs",
-  "test",
-  "tests",
-]);
-
 const SPECIAL_CATALOG_PAGES: readonly CatalogItem[] = [
   {
     title: "Overview",
@@ -181,7 +129,8 @@ const SPECIAL_CATALOG_PAGES: readonly CatalogItem[] = [
     path: "overview",
     order: 0,
     kind: "page",
-    topic: "repository overview, entry points, README, and main developer orientation",
+    topic:
+      "repository overview, entry points, README, and main developer orientation",
     source_hints: ["README.md"],
     children: [],
   },
@@ -191,7 +140,8 @@ const SPECIAL_CATALOG_PAGES: readonly CatalogItem[] = [
     path: "architecture",
     order: 1,
     kind: "page",
-    topic: "repository architecture, runtime layers, core components, and cross-module flows",
+    topic:
+      "repository architecture, runtime layers, core components, and cross-module flows",
     source_hints: [],
     children: [],
   },
@@ -201,7 +151,8 @@ const SPECIAL_CATALOG_PAGES: readonly CatalogItem[] = [
     path: "reading-guide",
     order: 2,
     kind: "page",
-    topic: "recommended reading order for understanding the repository from entry points to internals",
+    topic:
+      "recommended reading order for understanding the repository from entry points to internals",
     source_hints: ["README.md"],
     children: [],
   },
@@ -211,7 +162,8 @@ const SPECIAL_CATALOG_PAGES: readonly CatalogItem[] = [
     path: "dependencies",
     order: 3,
     kind: "page",
-    topic: "internal dependencies, external packages, imports, configuration, and integration boundaries",
+    topic:
+      "internal dependencies, external packages, imports, configuration, and integration boundaries",
     source_hints: [],
     children: [],
   },
@@ -242,7 +194,8 @@ const CATALOG_SCALE_PROFILES: readonly [
     target_top_level_sections:
       "4-6 high-signal sections including required special pages",
     target_total_pages: "4-8 focused pages; keep tiny repositories compact",
-    target_depth: "1-2 levels; avoid drill-down pages unless evidence is strong",
+    target_depth:
+      "1-2 levels; avoid drill-down pages unless evidence is strong",
     max_top_level_items: 8,
     max_total_items: 10,
     max_children_per_item: 6,
@@ -253,7 +206,8 @@ const CATALOG_SCALE_PROFILES: readonly [
     target_top_level_sections:
       "5-8 high-signal sections including required special pages",
     target_total_pages: "8-16 focused pages; split only clear subsystems",
-    target_depth: "2 levels for most areas; use 3 only for clear boundaries",
+    target_depth:
+      "2 levels for most areas; use 3 only for clear subsystem boundaries",
     max_top_level_items: 10,
     max_total_items: 22,
     max_children_per_item: 8,
@@ -264,7 +218,7 @@ const CATALOG_SCALE_PROFILES: readonly [
     target_top_level_sections:
       "6-10 high-signal sections including required special pages",
     target_total_pages:
-      "16-32 focused pages; use fewer only when evidence is genuinely small",
+      "16-32 focused pages; use fewer only when the evidence is genuinely small, and more when distinct subsystems are visible",
     target_depth: "2-3 levels for complex areas; never deeper than 4 levels",
     max_top_level_items: 12,
     max_total_items: 40,
@@ -277,7 +231,8 @@ const CATALOG_SCALE_PROFILES: readonly [
       "8-12 high-signal sections including required special pages",
     target_total_pages:
       "28-56 focused pages; split major workflows and public surfaces",
-    target_depth: "2-3 levels; use 4 only for strongly evidenced subsystems",
+    target_depth:
+      "2-3 levels; use 4 only for large, strongly evidenced subsystems",
     max_top_level_items: 14,
     max_total_items: 72,
     max_children_per_item: 14,
@@ -290,7 +245,7 @@ const CATALOG_SCALE_PROFILES: readonly [
     target_total_pages:
       "44-88 focused pages; prefer subsystem drill-downs over broad pages",
     target_depth:
-      "3 levels for complex areas; use 4 only where graph boundaries are clear",
+      "3 levels for complex areas; use 4 only where the graph shows clear boundaries",
     max_top_level_items: 16,
     max_total_items: 110,
     max_children_per_item: 16,
@@ -327,10 +282,14 @@ export class WikiCatalogGenerator {
       let attemptPayload = userPayload;
       let validationErrors: string[] = [];
       let completion: CachedLlmCompletion | null = null;
-      for (let attempt = 0; attempt < CATALOG_GENERATION_ATTEMPTS; attempt += 1) {
+      for (
+        let attempt = 0;
+        attempt < CATALOG_GENERATION_ATTEMPTS;
+        attempt += 1
+      ) {
         completion = await this.llm.complete(request.repoId, {
           taskType: "catalog",
-          cacheKey: `wiki-catalog:${request.languageCode}:${context.retrievalTrace.trace_id}:attempt:${attempt + 1}`,
+          cacheKey: `catalog:v4:${context.retrievalTrace.trace_id}:attempt:${attempt + 1}`,
           modelAlias: "catalog",
           promptVersion: CATALOG_PROMPT_VERSION,
           inputPayload: attemptPayload,
@@ -340,6 +299,7 @@ export class WikiCatalogGenerator {
         const normalized = normalizeCatalogCompletion(
           completion.result.content,
           localDraft,
+          catalogScale(context),
         );
         validationErrors = normalized.validationErrors;
         if (normalized.items.length) {
@@ -393,13 +353,18 @@ export class WikiCatalogGenerator {
     }
     const graph = await this.store.getGraph(request.repoId);
     const wikiGraph = filterWikiGraph(graph.nodes, graph.edges);
-    const chunks = await this.store.listCodeChunks(request.repoId);
     const retrievalTrace = await this.store.saveRetrievalTrace(
-      await buildRetrievalTrace(this.store, request.repoId, "repository overview", {
-        maxHops: 3,
-        limit: CATALOG_RETRIEVAL_LIMIT,
-      }),
+      await buildRetrievalTrace(
+        this.store,
+        request.repoId,
+        "repository overview",
+        {
+          maxHops: 3,
+          limit: CATALOG_RETRIEVAL_LIMIT,
+        },
+      ),
     );
+    const chunks = await this.store.listCodeChunks(request.repoId);
     return {
       repo,
       request,
@@ -436,6 +401,11 @@ function wikiCatalogMessages(
   payload: JsonObject,
   validationErrors: string[] = [],
 ): LlmOperation["messages"] {
+  let instruction =
+    "Return only a valid JSON object. The object must contain `title` and `items`; `items` must be an array of catalog items. Do not include Markdown fences, comments, trailing commas, or prose outside JSON.";
+  if (validationErrors.length) {
+    instruction = `${instruction}\nRepair the previous response. Validation errors: ${JSON.stringify(validationErrors)}`;
+  }
   return [
     {
       role: "system",
@@ -443,39 +413,19 @@ function wikiCatalogMessages(
     },
     {
       role: "user",
-      content: jsonMessage("Stable catalog generation contract", {
-        instructions: validationErrors.length
-          ? `Repair the previous response. Validation errors: ${JSON.stringify(validationErrors)}`
-          : "Return only a valid JSON object with title and items. Do not include Markdown fences, comments, trailing commas, or prose outside JSON.",
+      content: stableJsonMessage("Stable catalog generation contract", {
+        instructions: instruction,
       }),
     },
     {
       role: "user",
-      content: jsonMessage("Catalog payload", payload),
+      content: dynamicJsonMessage("Catalog payload", payload),
     },
   ];
 }
 
 function llmInputPayload(context: WikiCatalogContext): JsonObject {
   const scale = catalogScale(context);
-  const files = context.nodes
-    .filter((node) => node.type === "file" || node.type === "config")
-    .sort((left, right) => left.file_path.localeCompare(right.file_path))
-    .slice(0, 120)
-    .map((node) => ({
-      file_path: node.file_path,
-      type: node.type,
-      language: node.language,
-    }));
-  const symbols = context.nodes
-    .filter((node) => node.type !== "file" && node.type !== "config")
-    .slice(0, 120)
-    .map((node) => ({
-      name: node.name,
-      type: node.type,
-      file_path: node.file_path,
-      language: node.language,
-    }));
   return {
     repo: {
       id: context.repo.id,
@@ -483,16 +433,18 @@ function llmInputPayload(context: WikiCatalogContext): JsonObject {
       path: context.repo.path,
       git_url: context.repo.git_url,
       commit_hash: context.repo.commit_hash,
-      source_type: context.repo.source_type,
     },
-    repo_name: context.repo.name,
     language_code: context.request.languageCode,
-    local_title: catalogTitle(context.repo.name),
-    local_items: context.localItems,
     documentation_style: {
       name: "DeepWiki",
       shape:
         "hierarchical developer wiki with Overview first, subsystem pages, workflow drill-downs, and source-grounded topics",
+      audiences: [
+        "new developers who need orientation and getting-started guidance",
+        "users who need how-to-use pages for API or UI surfaces",
+        "contributors who need architecture and developer guide pages",
+        "operators who need configuration, deployment, and operations pages when evidenced",
+      ],
       preferred_top_level_flow: [
         "Overview",
         "Architecture",
@@ -507,8 +459,9 @@ function llmInputPayload(context: WikiCatalogContext): JsonObject {
       catalog_design: [
         "group related files and symbols into logical feature or subsystem pages",
         "use parent categories for navigation and leaf pages for implementation detail",
+        "split broad modules into child pages by workflow, API surface, data contract, UI surface, provider, or operational concern",
         "avoid file-by-file catalogs unless a file is the public surface",
-        "exclude tests, docs, generated output, and scaffolding from core pages unless explicitly scoped",
+        "exclude tests/docs/generated output from core feature pages unless explicitly scoped",
       ],
     },
     catalog_scale: scale,
@@ -541,26 +494,73 @@ function llmInputPayload(context: WikiCatalogContext): JsonObject {
     expanded_nodes: context.retrievalTrace.expanded_nodes.slice(0, 80),
     community_edges: context.retrievalTrace.community_edges,
     community_summaries: context.retrievalTrace.community_summaries,
-    source_chunks: sourceChunkSummaries(context.retrievalTrace.chunks),
-    files,
-    symbols,
-    communities: context.communities.slice(0, 40).map((community) => ({
-      id: community.id,
-      name: community.name,
-      level: community.level,
-      rank: community.rank,
-      summary: community.summary,
-    })),
+    community_hierarchy: communityHierarchy(
+      context.retrievalTrace.community_summaries,
+    ),
+    source_chunks: sourceChunkSummaries(context.retrievalTrace.source_chunks),
     required_json_shape: {
       title: "Code Wiki",
-      items: SPECIAL_CATALOG_PAGES.map((item) => ({ ...item })),
+      items: catalogRequiredJsonShapeItems(),
     },
   };
+}
+
+function catalogRequiredJsonShapeItems(): CatalogItem[] {
+  return [
+    ...SPECIAL_CATALOG_PAGES.map((item) => ({ ...item })),
+    {
+      title: "Backend Services",
+      slug: "backend-services",
+      path: "backend-services",
+      order: 4,
+      kind: "category",
+      topic:
+        "backend service layer, API routes, storage, and background workflows",
+      source_hints: [],
+      children: [
+        {
+          title: "API Routes",
+          slug: "api-routes",
+          path: "backend-services/api-routes",
+          order: 0,
+          kind: "page",
+          topic:
+            "FastAPI route modules, request payloads, response payloads, and service boundaries",
+          source_hints: ["backend/app/api"],
+          children: [],
+        },
+        {
+          title: "Wiki Generation",
+          slug: "wiki-generation",
+          path: "backend-services/wiki-generation",
+          order: 1,
+          kind: "category",
+          topic:
+            "catalog generation, page generation, translation, sources, and diagrams",
+          source_hints: ["backend/app/services/wiki"],
+          children: [
+            {
+              title: "Catalog Planning",
+              slug: "catalog-planning",
+              path: "backend-services/wiki-generation/catalog-planning",
+              order: 0,
+              kind: "page",
+              topic:
+                "wiki catalog generation, hierarchy planning, source hints, and module candidates",
+              source_hints: ["backend/app/services/wiki/catalog_generator.py"],
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
+  ];
 }
 
 function normalizeCatalogCompletion(
   content: string,
   fallback: CatalogDraft,
+  scale: CatalogScale,
 ): NormalizedCatalog {
   const validationErrors: string[] = [];
   const parsed = parseJsonObject(content, validationErrors);
@@ -568,33 +568,51 @@ function normalizeCatalogCompletion(
     return { ...fallback, items: [], validationErrors };
   }
   const root = catalogRoot(parsed);
-  const rawItems = Array.isArray(root.items) ? root.items : root.pages;
+  const rawItems =
+    Array.isArray(root.items) && root.items.length
+      ? root.items
+      : Array.isArray(root.pages)
+        ? root.pages
+        : root.items;
   if (!Array.isArray(rawItems)) {
-    validationErrors.push("Catalog JSON must include an items array.");
+    validationErrors.push("Catalog response must contain an items array.");
     return { ...fallback, items: [], validationErrors };
   }
+  const topLevelLimit = Math.max(
+    SPECIAL_CATALOG_PAGES.length,
+    scale.max_top_level_items,
+  );
+  const totalItemLimit = Math.max(
+    SPECIAL_CATALOG_PAGES.length,
+    scale.max_total_items,
+  );
   const usedSlugs = new Set<string>();
   const items = limitCatalogItems(
-    sortCatalogItems(ensureSpecialCatalogPages(
-      normalizeItems(rawItems, {
-        depth: 0,
-        usedSlugs,
-        validationErrors,
-        remaining: { count: MAX_CATALOG_ITEMS },
-      }),
-    )),
-    MAX_CATALOG_ITEMS,
+    sortCatalogItems(
+      ensureSpecialCatalogPages(
+        normalizeItems(rawItems.slice(0, topLevelLimit), {
+          depth: 0,
+          usedSlugs,
+          validationErrors,
+          maxDepth: scale.max_depth,
+          maxChildrenPerItem: scale.max_children_per_item,
+        }),
+      ),
+    ).slice(0, topLevelLimit),
+    totalItemLimit,
   );
   const title = nonEmptyString(root.title) ?? fallback.title;
   return { title, items, validationErrors };
 }
 
 function catalogRoot(parsed: JsonObject): JsonObject {
-  return isRecord(parsed.catalog) ? (parsed.catalog as JsonObject) : parsed;
+  return isRecord(parsed.catalog) ? parsed.catalog : parsed;
 }
 
 function ensureSpecialCatalogPages(items: CatalogItem[]): CatalogItem[] {
-  const existingSlugs = new Set(flattenCatalogItems(items).map((item) => item.slug));
+  const existingSlugs = new Set(
+    flattenCatalogItems(items).map((item) => item.slug),
+  );
   const nextItems = [...items];
   for (const special of SPECIAL_CATALOG_PAGES) {
     if (special.slug && existingSlugs.has(special.slug)) {
@@ -606,7 +624,9 @@ function ensureSpecialCatalogPages(items: CatalogItem[]): CatalogItem[] {
     }
   }
   return nextItems.map((item) => {
-    const special = SPECIAL_CATALOG_PAGES.find((page) => page.slug === item.slug);
+    const special = SPECIAL_CATALOG_PAGES.find(
+      (page) => page.slug === item.slug,
+    );
     return {
       ...item,
       order: special?.order ?? (item.order ?? 0) + SPECIAL_CATALOG_PAGES.length,
@@ -629,10 +649,8 @@ function sortCatalogItems(items: CatalogItem[]): CatalogItem[] {
   return [...items]
     .map((item) => {
       const sorted: CatalogItem = { ...item };
-      if (Array.isArray(item.children) && item.children.length) {
+      if (Array.isArray(item.children)) {
         sorted.children = sortCatalogItems(item.children);
-      } else {
-        delete sorted.children;
       }
       return sorted;
     })
@@ -704,14 +722,122 @@ function catalogRepairPayload(
 
 function catalogSystemPrompt(): string {
   return [
-    "You are generating a DeepWiki-style Code Wiki catalog from a repository graph and repository context.",
-    "Read the repository context, compact module candidates, graph evidence, source chunks, and local fallback items before deciding pages.",
-    "Build a navigable documentation tree, not a flat list of file summaries. Start with high-signal orientation pages when evidenced, then group pages by real systems, layers, workflows, data models, APIs, services, frontend surfaces, and operational concerns.",
-    "Use parent categories for navigation and leaf pages for implementation detail. Leaf pages should have focused source_hints and a topic that is a retrieval query naming concrete files, symbols, APIs, workflows, or configuration.",
-    "Use module_candidates as a shortlist of directories and symbol clusters that deserve splitting. Avoid file-by-file catalogs unless a file is the public surface.",
-    "Exclude tests, docs, generated output, and scaffolding from core feature pages unless the page is explicitly about those concerns.",
-    "Return only JSON with title and items. Catalog item fields are title, slug, path, order, kind, topic, source_hints, and children.",
-  ].join("\n\n");
+    "You are generating a DeepWiki-style Code Wiki catalog from a repository graph and",
+    "repository context.",
+    "",
+    "Analysis workflow:",
+    "- First read the repository README, entry points, compact directory tree, and graph",
+    "  evidence in the payload before deciding pages.",
+    "- Treat the directory tree and graph as a module map. Group related files, symbols,",
+    "  routes, models, and workflows into logical developer-facing modules.",
+    "- Identify the main systems, capabilities, workflows, public surfaces, data contracts,",
+    "  and UI or API areas. Use individual files only as evidence for those boundaries.",
+    "- Cross-check each proposed page against source_hints, graph nodes, source chunks,",
+    "  entry points, or README claims.",
+    "- If a topic is only weakly evidenced, merge it into a broader page instead of",
+    "  creating a thin page.",
+    "- Prefer a leaf-first mindset: child pages carry implementation detail, while parent",
+    "  categories or parent pages summarize how those children fit together. When a parent",
+    "  would otherwise cover many unrelated responsibilities, split it into children.",
+    "",
+    "Organization goals:",
+    "- Build a navigable documentation tree, not a flat list of summaries.",
+    '- Consider audience explicitly: new developers need "Getting Started" or a quick',
+    '  orientation, users need a "User Guide" or "How to Use" section, contributors need',
+    '  "Architecture" and "Developer Guide" sections, and operators need "Configuration",',
+    '  "Deployment", or "Operations" only when those concerns are evidenced.',
+    "- Prefer a DeepWiki-like progression when evidence supports it: Overview, Architecture,",
+    "  Reading Guide, Dependencies, Getting Started/User Guide, Core Workflows, API",
+    "  Reference, Developer Guide, and Operations.",
+    '- Include at least one "how to use" section and one "how it works" section when the',
+    "  repository has both API or UI surfaces and internal implementation layers.",
+    '- Start with top-level "Overview", "Architecture", "Reading Guide", and',
+    '  "Dependencies" pages, then group pages by real systems, layers, workflows, data',
+    "  models, APIs, services, and frontend surfaces that appear in the provided graph.",
+    "- Use the top-level section, total page, and depth ranges from `granularity_contract`.",
+    "  Use children aggressively when a subsystem has enough retrieved evidence to justify",
+    "  drill-down pages.",
+    "- A parent can contain category children when a layer has several distinct workflows",
+    "  or surfaces, but do not exceed the configured `catalog_scale.hard_limits.max_depth`.",
+    "- Follow the `catalog_scale` and `granularity_contract` values in the payload. Treat",
+    "  `catalog_scale.hard_limits.max_total_items` as the maximum total catalog items,",
+    "  counting both pages and categories.",
+    '- Use `kind: "category"` for parent section pages that should receive lightweight',
+    '  overview content and point readers to child pages. Use `kind: "page"` for focused',
+    "  documents that carry implementation detail.",
+    "- Prefer detailed content for leaf pages. Parent category pages should summarize the",
+    "  child section, explain the mental model, and avoid repeating child implementation",
+    "  details.",
+    "- Leaf pages should be narrow enough that `source_hints` are focused. A leaf should",
+    "  normally cover one workflow stage, route/API group, data model family, UI view,",
+    "  provider integration, export format, CLI/automation flow, or extension point.",
+    '- Page titles should be short and concrete, like "Architecture", "Wiki Generation",',
+    '  "GraphRAG Retrieval", or "Frontend Wiki View".',
+    "- Each topic must be a retrieval query that names the concrete subsystem and key files,",
+    "  symbols, or workflows it should cover.",
+    "- Include `source_hints` with the most relevant file paths when known.",
+    "- Use README and the compact directory tree to infer documentation boundaries, but keep",
+    "  every page grounded in graph nodes, edges, source chunks, or visible repository files.",
+    "- Mirror DeepWiki's shape: broad overview first, architecture/system pages next,",
+    "  then user-facing workflows, implementation areas, API references, developer",
+    "  extension points, and operational topics with focused child pages.",
+    '- Parent categories should have concise, meaningful names such as "Backend Services",',
+    '  "Graph Pipeline", "Wiki Generation", "Frontend", or "Operations" only when those',
+    "  boundaries are evident in the repository.",
+    '- Split broad categories into concrete children. For example, "Backend Services" can',
+    '  have "API Routes", "Graph Analysis", "GraphRAG Retrieval", "Wiki Generation",',
+    '  "Persistence", and "Incremental Updates" when those boundaries are evidenced.',
+    '  "Frontend" can have "Graph Explorer", "Wiki Reader", "Ask Interface", "Exports",',
+    '  and "Settings" when evidenced.',
+    "- Prefer pages such as Overview, Architecture, Core Workflows, API Surface,",
+    "  Data Model, Configuration, Frontend/UI, Testing, and Operations only when those",
+    "  topics are actually present in the repository evidence.",
+    "- Keep child paths stable and URL-friendly. Use child pages for meaningful drill-downs,",
+    "  not for every source file.",
+    "- Exclude tests, docs, examples, generated output, and scaffolding from core feature",
+    "  pages unless the page is explicitly about testing, documentation, examples, or",
+    "  operations.",
+    "",
+    "Coverage checklist:",
+    "- Include the application bootstrap or runtime entry points when present.",
+    "- Include public API or UI surfaces when present.",
+    "- Include data persistence, schemas, migrations, or storage models when present.",
+    "- Include core pipelines, background jobs, indexing, retrieval, generation, or",
+    "  rendering workflows when present.",
+    "- Include configuration, environment variables, deployment, or operational concerns",
+    "  only when evidenced by repository files.",
+    "- If a complex subsystem has several strongly related files, create one detailed page",
+    "  for the subsystem instead of one page per file.",
+    "- If a complex subsystem has several distinct responsibilities, create a category",
+    "  plus multiple focused leaf pages rather than one broad implementation page.",
+    "- Use `module_candidates` as a shortlist of directories and symbol clusters that",
+    "  deserve detailed splitting. Large candidates should normally become categories or",
+    "  multiple leaf pages unless the evidence shows they are trivial.",
+    "",
+    "Rules:",
+    "- Use only the provided graph context, community summaries, nodes, edges, and source",
+    "  references.",
+    "- Do not invent modules, APIs, files, dependencies, or deployment surfaces.",
+    "- Return a concise hierarchy suitable for a developer-facing wiki.",
+    "- Return only JSON in the requested shape.",
+    "- Do not create pages for individual helpers, single tests, or isolated classes unless",
+    "  they are the primary public surface of the repository.",
+    "- Do not collapse API, storage, background jobs, rendering, exports, and configuration",
+    "  into one page when source evidence shows they are separate concerns.",
+    "",
+    "Catalog item shape:",
+    "- `title`: display name.",
+    "- `slug`: URL-safe stable id.",
+    "- `path`: URL-safe path, usually same as slug.",
+    "- `order`: integer ordering inside its parent.",
+    '- `kind`: `"page"` or `"category"`.',
+    "- `topic`: retrieval query for this page. Name the concrete subsystem, workflow,",
+    "  files, symbols, endpoints, models, and configuration keys that should be retrieved.",
+    "- `source_hints`: array of relevant file paths. Include the most important P0/P1",
+    "  files for the page: primary implementation, public contracts, routes, models,",
+    "  configuration, and representative tests when they clarify behavior.",
+    "- `children`: nested catalog items.",
+  ].join("\n");
 }
 
 function catalogScale(context: WikiCatalogContext): CatalogScale {
@@ -772,22 +898,7 @@ function granularityContract(scale: CatalogScale): JsonObject {
 }
 
 function repositoryContext(context: WikiCatalogContext): JsonObject {
-  const files: string[] = uniqueStrings(
-    context.nodes
-      .filter((node) => node.type === "file" || node.type === "config")
-      .map((node) => node.file_path),
-  ).sort((left, right) => left.localeCompare(right));
-  const filesystemContext = repositoryFilesystemContext(context.repo.path);
-  return {
-    ...filesystemContext,
-    graph_entry_points: files
-      .filter((filePath) => /(^|\/)(package\.json|pyproject\.toml|README\.md|Makefile|Dockerfile|vite\.config|tsconfig|main|index|cli|server)/i.test(filePath))
-      .slice(0, 40),
-    compact_tree: compactTree(files),
-    top_level_directories: uniqueStrings(
-      files.map((filePath) => filePath.split("/")[0] ?? filePath),
-    ).slice(0, 40),
-  };
+  return repositoryFilesystemContext(context.repo.path);
 }
 
 function repositoryFilesystemContext(repoPath: string): JsonObject {
@@ -807,34 +918,34 @@ function directoryTree(root: string): string {
     return basename(root);
   }
   const lines = [basename(root)];
-  appendTree(root, root, lines, 0);
+  appendTree(root, lines, 0);
   return lines.join("\n");
 }
 
-function appendTree(
-  root: string,
-  directory: string,
-  lines: string[],
-  depth: number,
-): void {
+function appendTree(directory: string, lines: string[], depth: number): void {
   if (depth >= MAX_REPOSITORY_TREE_DEPTH) {
     return;
   }
   const entries = safeReadDir(directory)
-    .filter((entry) => !entry.name.startsWith(".") && !EXCLUDED_CONTEXT_DIRS.has(entry.name))
+    .filter(
+      (entry) =>
+        !entry.name.startsWith(".") && !EXCLUDED_CONTEXT_DIRS.has(entry.name),
+    )
     .sort((left, right) => {
       const leftIsFile = left.isFile();
       const rightIsFile = right.isFile();
-      return Number(leftIsFile) - Number(rightIsFile) || left.name.localeCompare(right.name);
+      return (
+        Number(leftIsFile) - Number(rightIsFile) ||
+        left.name.toLowerCase().localeCompare(right.name.toLowerCase())
+      );
     })
     .slice(0, MAX_REPOSITORY_TREE_ENTRIES_PER_DIR);
   for (const entry of entries) {
     const absolutePath = resolve(directory, entry.name);
-    const relativePath = relative(root, absolutePath).replace(/\\/g, "/");
     const suffix = entry.isDirectory() ? "/" : "";
-    lines.push(`${"  ".repeat(depth + 1)}- ${relativePath}${suffix}`);
+    lines.push(`${"  ".repeat(depth + 1)}- ${entry.name}${suffix}`);
     if (entry.isDirectory()) {
-      appendTree(root, absolutePath, lines, depth + 1);
+      appendTree(absolutePath, lines, depth + 1);
     }
   }
 }
@@ -854,11 +965,23 @@ function readmeContent(root: string): string {
 }
 
 function keyFiles(root: string): string[] {
-  return COMMON_KEY_FILES.filter((name) => safeStat(resolve(root, name))?.isFile());
+  const paths = COMMON_KEY_FILES.filter((name) =>
+    safeStat(resolve(root, name))?.isFile(),
+  );
+  paths.push(
+    ...safeReadDir(root)
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          (entry.name.endsWith(".sln") || entry.name.endsWith(".csproj")),
+      )
+      .map((entry) => entry.name),
+  );
+  return uniqueStrings(paths).sort((left, right) => left.localeCompare(right));
 }
 
 function entryPoints(root: string): string[] {
-  return [
+  const directPatterns = [
     "backend/app/main.py",
     "app.py",
     "main.py",
@@ -873,6 +996,18 @@ function entryPoints(root: string): string[] {
     "Program.cs",
     "Startup.cs",
   ].filter((filePath) => safeStat(resolve(root, filePath))?.isFile());
+  const goCommandEntries = safeReadDir(resolve(root, "cmd")).flatMap(
+    (entry) => {
+      if (!entry.isDirectory()) {
+        return [];
+      }
+      const filePath = `cmd/${entry.name}/main.go`;
+      return safeStat(resolve(root, filePath))?.isFile() ? [filePath] : [];
+    },
+  );
+  return uniqueStrings([...directPatterns, ...goCommandEntries])
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, 12);
 }
 
 function detectProjectType(root: string): string {
@@ -883,11 +1018,24 @@ function detectProjectType(root: string): string {
   ) {
     types.push("python");
   }
-  const packageJson = safeReadFile(resolve(root, "package.json"));
-  if (packageJson) {
+  const packageTexts = packageJsonFiles(root)
+    .slice(0, 5)
+    .map((filePath) => safeReadFile(resolve(root, filePath)))
+    .filter(Boolean);
+  if (packageTexts.length) {
+    const packageText = packageTexts.join("\n");
     types.push(
-      /"(react|next|vite|vue|angular)"/.test(packageJson) ? "frontend" : "nodejs",
+      /"(react|next|vite|vue|angular)"/.test(packageText)
+        ? "frontend"
+        : "nodejs",
     );
+  }
+  if (
+    safeReadDir(root).some(
+      (entry) => entry.name.endsWith(".sln") || entry.name.endsWith(".csproj"),
+    )
+  ) {
+    types.push("dotnet");
   }
   if (safeStat(resolve(root, "go.mod"))?.isFile()) {
     types.push("go");
@@ -895,13 +1043,18 @@ function detectProjectType(root: string): string {
   if (safeStat(resolve(root, "Cargo.toml"))?.isFile()) {
     types.push("rust");
   }
-  if (safeStat(resolve(root, "pom.xml"))?.isFile()) {
+  if (
+    safeStat(resolve(root, "pom.xml"))?.isFile() ||
+    safeReadDir(root).some((entry) => entry.name.startsWith("build.gradle"))
+  ) {
     types.push("java");
   }
   if (!types.length) {
     return "unknown";
   }
-  return types.length > 1 ? `fullstack:${types.join("+")}` : types[0] ?? "unknown";
+  return types.length > 1
+    ? `fullstack:${types.join("+")}`
+    : (types[0] ?? "unknown");
 }
 
 function safeReadDir(path: string): Dirent[] {
@@ -928,86 +1081,45 @@ function safeStat(path: string): Stats | null {
   }
 }
 
-function filterWikiGraph(
-  nodes: CodeGraphNode[],
-  edges: CodeGraphEdge[],
-): { nodes: CodeGraphNode[]; edges: CodeGraphEdge[] } {
-  const filteredNodes = nodes.filter((node) => !isWikiNoiseNode(node));
-  const nodeIds = new Set(filteredNodes.map((node) => node.id));
-  return {
-    nodes: filteredNodes,
-    edges: edges.filter(
-      (edge) => nodeIds.has(edge.source_id) && nodeIds.has(edge.target_id),
-    ),
-  };
-}
-
-function isWikiNoiseNode(node: CodeGraphNode): boolean {
-  if (node.metadata.external === true) {
-    return true;
-  }
-  return Boolean(node.file_path && isWikiNoiseFile(node.file_path));
-}
-
-function isWikiNoiseFile(filePath: string): boolean {
-  return (
-    isTestFile(filePath) ||
-    isGeneratedFile(filePath) ||
-    isVendorFile(filePath)
-  );
-}
-
-function isTestFile(filePath: string): boolean {
-  const normalized = normalizedPath(filePath).toLowerCase();
-  const name = normalized.split("/").pop() ?? "";
-  const parts = new Set(normalized.split("/").filter(Boolean));
-  return (
-    name.startsWith("test_") ||
-    name.endsWith("_test.py") ||
-    name.endsWith("_test.go") ||
-    name.includes(".test.") ||
-    name.includes(".spec.") ||
-    intersects(parts, TEST_DIR_NAMES)
-  );
-}
-
-function normalizedPath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").trim();
-}
-
-function isGeneratedFile(filePath: string): boolean {
-  const normalized = normalizedPath(filePath).toLowerCase();
-  const name = normalized.split("/").pop() ?? "";
-  const parts = new Set(normalized.split("/").filter(Boolean));
-  return (
-    LOCKFILE_NAMES.has(name) ||
-    GENERATED_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix)) ||
-    intersects(parts, GENERATED_DIR_NAMES)
-  );
-}
-
-function isVendorFile(filePath: string): boolean {
-  return intersects(
-    new Set(normalizedPath(filePath).toLowerCase().split("/").filter(Boolean)),
-    VENDOR_DIR_NAMES,
-  );
-}
-
-function intersects(left: Set<string>, right: Set<string>): boolean {
-  for (const value of left) {
-    if (right.has(value)) {
-      return true;
+function packageJsonFiles(root: string): string[] {
+  const results: string[] = [];
+  const visit = (directory: string, depth: number) => {
+    if (results.length >= 5 || depth > MAX_REPOSITORY_TREE_DEPTH + 2) {
+      return;
     }
-  }
-  return false;
+    for (const entry of safeReadDir(directory)) {
+      if (entry.name.startsWith(".") || EXCLUDED_CONTEXT_DIRS.has(entry.name)) {
+        continue;
+      }
+      const absolutePath = resolve(directory, entry.name);
+      const relativePath = relative(root, absolutePath).replace(/\\/g, "/");
+      if (entry.isFile() && entry.name === "package.json") {
+        results.push(relativePath);
+      } else if (entry.isDirectory()) {
+        visit(absolutePath, depth + 1);
+      }
+      if (results.length >= 5) {
+        return;
+      }
+    }
+  };
+  visit(root, 0);
+  return results;
 }
 
 function fileCountForNodes(nodes: CodeGraphNode[]): number {
-  return uniqueStrings(
+  const filePaths = uniqueStrings(
     nodes
-      .filter((node) => node.type === "file" || node.type === "config")
+      .filter(
+        (node) =>
+          Boolean(node.file_path) &&
+          !["directory", "module", "repository"].includes(node.type),
+      )
       .map((node) => node.file_path),
-  ).length;
+  );
+  return (
+    filePaths.length || nodes.filter((node) => node.type === "file").length
+  );
 }
 
 function bucket(value: number, thresholds: number[]): number {
@@ -1015,66 +1127,35 @@ function bucket(value: number, thresholds: number[]): number {
   return index === -1 ? thresholds.length : index;
 }
 
-function compactTree(files: string[]): JsonObject {
-  const root: Record<string, unknown> = {};
-  for (const filePath of files.slice(0, 400)) {
-    const parts = filePath.split("/").filter(Boolean);
-    let current = root;
-    parts.forEach((part, index) => {
-      if (index === parts.length - 1) {
-        const filesForDirectory = current._files;
-        current._files = Array.isArray(filesForDirectory)
-          ? [...filesForDirectory, part]
-          : [part];
-        return;
-      }
-      const child = current[part];
-      if (isRecord(child)) {
-        current = child;
-        return;
-      }
-      const next: Record<string, unknown> = {};
-      current[part] = next;
-      current = next;
-    });
-  }
-  return toJsonObject(root);
-}
-
-function toJsonObject(value: Record<string, unknown>): JsonObject {
-  const result: JsonObject = {};
-  for (const [key, rawValue] of Object.entries(value)) {
-    if (Array.isArray(rawValue)) {
-      result[key] = rawValue.filter(
-        (item): item is string => typeof item === "string",
-      );
-    } else if (isRecord(rawValue)) {
-      result[key] = toJsonObject(rawValue);
-    }
-  }
-  return result;
-}
-
 function modulePathForFile(filePath: string): string {
   const parts = filePath.split("/").filter(Boolean);
   if (parts.length <= 1) {
-    return "root";
+    return ".";
   }
-  if (parts.length <= 3) {
-    return parts.slice(0, -1).join("/");
+  const directoryParts = parts.slice(0, -1);
+  if (!directoryParts.length) {
+    return ".";
   }
-  return parts.slice(0, 3).join("/");
+  if (
+    (directoryParts[0] === "backend" || directoryParts[0] === "frontend") &&
+    directoryParts.length >= 3
+  ) {
+    return directoryParts.slice(0, 4).join("/");
+  }
+  return directoryParts.slice(0, 3).join("/");
 }
 
 function increment(values: Map<string, number>, key: string): void {
   values.set(key, (values.get(key) ?? 0) + 1);
 }
 
-function topEntries(values: Map<string, number>, limit: number): JsonObject[] {
-  return [...values.entries()]
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .slice(0, limit)
-    .map(([name, count]) => ({ name, count }));
+function topEntries(values: Map<string, number>, limit: number): JsonObject {
+  const entries = [...values.entries()]
+    .sort(
+      (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+    )
+    .slice(0, limit);
+  return Object.fromEntries(entries);
 }
 
 function splitHint(
@@ -1082,16 +1163,37 @@ function splitHint(
   files: string[],
   nodeTypes: Map<string, number>,
 ): string {
-  const symbolCount = [...nodeTypes.entries()]
-    .filter(([type]) => type !== "file" && type !== "config")
-    .reduce((total, [, count]) => total + count, 0);
-  if (files.length >= 8 || symbolCount >= 20) {
-    return `${modulePath} is large enough for multiple focused pages.`;
+  const names = new Set(
+    files.map((filePath) => basename(filePath).toLowerCase()),
+  );
+  if (
+    files.some(
+      (filePath) => filePath.includes("api") || filePath.includes("routes"),
+    )
+  ) {
+    return "Consider separate pages for public routes, request/response contracts, and service delegation.";
   }
-  if (files.length >= 3 || symbolCount >= 8) {
-    return `${modulePath} may deserve a focused subsystem page.`;
+  if (
+    ["models.py", "schema.py", "schemas.py", "database.py"].some((name) =>
+      names.has(name),
+    )
+  ) {
+    return "Consider separate pages for data models, repositories, persistence, and migrations.";
   }
-  return `${modulePath} is likely best covered inside a nearby workflow or overview page.`;
+  if (
+    [...nodeTypes.keys()].some(
+      (nodeType) => nodeType.includes("component") || nodeType === "hook",
+    )
+  ) {
+    return "Consider separate pages for UI views, reusable components, hooks, and user workflows.";
+  }
+  if (files.length >= 6) {
+    return `Large module ${modulePath}; split by workflow stage, public surface, and extension point.`;
+  }
+  if (files.length >= 3) {
+    return `Medium module ${modulePath}; use at least one focused implementation leaf page.`;
+  }
+  return `Small module ${modulePath}; merge into a nearby broader page unless it is a public surface.`;
 }
 
 function moduleCandidates(
@@ -1114,17 +1216,15 @@ function moduleCandidates(
     }
     const modulePath = modulePathForFile(node.file_path);
     nodeModule.set(node.id, modulePath);
-    const group =
-      groups.get(modulePath) ??
-      {
-        files: new Set<string>(),
-        nodeTypes: new Map<string, number>(),
-        edgeTypes: new Map<string, number>(),
-        symbols: [],
-      };
+    const group = groups.get(modulePath) ?? {
+      files: new Set<string>(),
+      nodeTypes: new Map<string, number>(),
+      edgeTypes: new Map<string, number>(),
+      symbols: [],
+    };
     group.files.add(node.file_path);
     increment(group.nodeTypes, node.type);
-    if (node.type !== "file" && node.type !== "config" && group.symbols.length < 18) {
+    if (node.type !== "file" && group.symbols.length < 18) {
       group.symbols.push({
         name: node.name,
         type: node.type,
@@ -1189,21 +1289,83 @@ function catalogContextPack(contextPack: JsonObject): JsonObject {
   return compact;
 }
 
-function sourceChunkSummaries(chunks: CodeChunk[]): JsonObject[] {
-  return chunks.slice(0, CATALOG_RETRIEVAL_LIMIT).map((chunk) => ({
-    id: chunk.id,
-    node_id: chunk.node_id,
-    file_path: chunk.file_path,
-    start_line: chunk.start_line,
-    end_line: chunk.end_line,
-    content_hash: chunk.content_hash,
-    token_count: chunk.token_count,
-    preview: chunk.content.slice(0, 1200),
-  }));
+function sourceChunkSummaries(chunks: JsonObject[]): JsonObject[] {
+  return chunks.map((chunk) =>
+    compactJsonObject({
+      id: chunk.id,
+      node_id: chunk.node_id,
+      file_path: chunk.file_path,
+      start_line: chunk.start_line,
+      end_line: chunk.end_line,
+      reasons: chunk.reasons,
+    }),
+  );
 }
 
-function jsonMessage(title: string, payload: JsonObject): string {
-  return `${title}:\n${JSON.stringify(payload, null, 2)}`;
+function communityHierarchy(communities: JsonObject[]): JsonObject[] {
+  const byId = new Map<string, JsonObject>();
+  const roots: JsonObject[] = [];
+  for (const community of communities) {
+    const id = stringValue(community.id);
+    if (id) {
+      byId.set(id, catalogCommunitySummary(community));
+    }
+  }
+  for (const community of communities) {
+    const id = stringValue(community.id);
+    if (!id) {
+      continue;
+    }
+    const item = byId.get(id);
+    if (!item) {
+      continue;
+    }
+    const parentId = stringValue(community.parent_id);
+    const parent = parentId ? byId.get(parentId) : null;
+    if (parent) {
+      const children = Array.isArray(parent.children) ? parent.children : [];
+      children.push(item);
+      parent.children = children;
+    } else {
+      roots.push(item);
+    }
+  }
+  return roots;
+}
+
+function catalogCommunitySummary(community: JsonObject): JsonObject {
+  const nodeIds = stringList(community.node_ids);
+  const matchedNodeIds = stringList(community.matched_node_ids);
+  return {
+    id: stringValue(community.id),
+    name: stringValue(community.name),
+    level: numberValue(community.level),
+    parent_id: nonEmptyString(community.parent_id),
+    summary: stringValue(community.summary),
+    node_count: numberValue(community.node_count) || nodeIds.length,
+    matched_node_ids: matchedNodeIds.length ? matchedNodeIds : nodeIds,
+  };
+}
+
+function stableJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${stableJson(payload)}`;
+}
+
+function dynamicJsonMessage(label: string, payload: JsonObject): string {
+  return `${label}:\n${JSON.stringify(payload)}`;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -1216,20 +1378,17 @@ function normalizeItems(
     depth: number;
     usedSlugs: Set<string>;
     validationErrors: string[];
-    remaining: { count: number };
+    maxDepth: number;
+    maxChildrenPerItem: number;
   },
 ): CatalogItem[] {
-  if (options.depth >= MAX_CATALOG_DEPTH || options.remaining.count <= 0) {
+  if (options.depth >= options.maxDepth) {
     return [];
   }
   const items: CatalogItem[] = [];
   values.forEach((value, index) => {
-    if (options.remaining.count <= 0) {
-      return;
-    }
     const item = normalizeItem(value, index, options);
     if (item) {
-      options.remaining.count -= 1;
       items.push(item);
     }
   });
@@ -1243,7 +1402,8 @@ function normalizeItem(
     depth: number;
     usedSlugs: Set<string>;
     validationErrors: string[];
-    remaining: { count: number };
+    maxDepth: number;
+    maxChildrenPerItem: number;
   },
 ): CatalogItem | null {
   if (!isRecord(value)) {
@@ -1259,28 +1419,33 @@ function normalizeItem(
     );
     return null;
   }
-  const children = Array.isArray(value.children)
-    ? normalizeItems(value.children, { ...options, depth: options.depth + 1 })
-    : [];
+  const rawChildren = Array.isArray(value.children) ? value.children : [];
+  const children =
+    rawChildren.length && options.depth < options.maxDepth - 1
+      ? normalizeItems(rawChildren.slice(0, options.maxChildrenPerItem), {
+          ...options,
+          depth: options.depth + 1,
+        })
+      : [];
   const rawKind = nonEmptyString(value.kind);
   const kind: "page" | "category" =
-    rawKind === "category" || (!nonEmptyString(value.path) && children.length)
-      ? "category"
-      : "page";
+    rawKind === "category" ? "category" : "page";
   const slug = uniqueSlug(
-    nonEmptyString(value.slug) ?? title,
+    nonEmptyString(value.slug) ?? nonEmptyString(value.path) ?? title,
     options.usedSlugs,
   );
-  const path = nonEmptyString(value.path) ?? slug;
+  const path = normalizedCatalogPath(value.path) ?? slug;
   return {
-    title: title.slice(0, 120),
+    title,
     slug,
     path,
-    order: integerValue(value.order) ?? index,
+    order: nonNegativeIntegerValue(value.order) ?? options.usedSlugs.size - 1,
     kind,
-    topic: nonEmptyString(value.topic) ?? "",
-    source_hints: stringList(value.source_hints).slice(0, 8),
-    ...(children.length ? { children } : {}),
+    topic: scalarString(value.topic) || title,
+    source_hints: arrayValue(value.source_hints)
+      .slice(0, 8)
+      .map((hint) => String(hint)),
+    children,
   };
 }
 
@@ -1333,6 +1498,23 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizedCatalogPath(value: unknown): string | null {
+  const path = scalarString(value)
+    .trim()
+    .replace(/^\/+|\/+$/g, "");
+  return path || null;
+}
+
+function scalarString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -1343,6 +1525,15 @@ function numberValue(value: unknown): number {
 
 function integerValue(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+function nonNegativeIntegerValue(value: unknown): number | null {
+  const integer = integerValue(value);
+  return integer !== null && integer >= 0 ? integer : null;
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function stringList(value: unknown): string[] {
@@ -1362,6 +1553,31 @@ function llmMetadata(
     model: completion.result.model,
     provider: completion.result.provider,
   };
+}
+
+function compactJsonObject(values: Record<string, unknown>): JsonObject {
+  const payload: JsonObject = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined && isJsonValue(value)) {
+      payload[key] = value;
+    }
+  }
+  return payload;
+}
+
+function isJsonValue(value: unknown): value is JsonObject[string] {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+  return isRecord(value) && Object.values(value).every(isJsonValue);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

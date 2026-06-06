@@ -58,10 +58,6 @@ export type {
   BackendServices,
 } from "./services/backendServices.js";
 export { AnalysisService } from "./analysis/analysisService.js";
-export {
-  nameGraphCommunities,
-  type CommunityNamingResult,
-} from "./graph/communityNaming.js";
 export { CommunityNamingService } from "./graph/communityNamingService.js";
 export {
   LLM_TASK_TYPES,

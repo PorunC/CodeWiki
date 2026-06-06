@@ -32,16 +32,7 @@ export function fileLabel(filePath: string): string {
       ? `${humanizeName(packageName)} Package`
       : "Python Package";
   }
-  const stem = fileStem(fileName);
-  if (stem.toLowerCase() === "readme") {
-    return "Documentation";
-  }
-  if (stem.toLowerCase() === "index") {
-    return humanizeName(
-      lastPathPart(filePath.split("/").slice(0, -1).join("/")),
-    );
-  }
-  return humanizeName(stem);
+  return humanizeName(fileStem(fileName));
 }
 
 export function normalizeCommunityName(
@@ -52,7 +43,7 @@ export function normalizeCommunityName(
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^(?:community|cluster)\s+\d+\s*[:-]\s*/i, "")
-    .slice(0, 80)
+    .slice(0, 64)
     .replace(/^[\s:-]+|[\s:-]+$/g, "");
   return name || fallback;
 }
@@ -65,7 +56,7 @@ export function nonGenericFallbackName(name: string, index: number): string {
 
 export function humanizeName(value: string): string {
   return value
-    .replace(/^test[_-]/i, "")
+    .replace(/^test_/, "")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .split(/\s+/)
@@ -73,7 +64,7 @@ export function humanizeName(value: string): string {
     .map((word) =>
       word.toUpperCase() === word
         ? word
-        : `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`,
+        : `${word.slice(0, 1).toUpperCase()}${word.slice(1).toLowerCase()}`,
     )
     .join(" ")
     .trim();
@@ -101,10 +92,8 @@ export function dedupeName(name: string, seenNames: Set<string>): string {
 export function isGenericName(name: string): boolean {
   const normalized = name.toLowerCase().replace(/\s+/g, " ").trim();
   return (
-    !normalized ||
-    GENERIC_FILE_LABELS.has(normalized) ||
     GENERIC_COMMUNITY_NAMES.has(normalized) ||
-    /^(?:community|cluster|code area)[\s_:#-]*(?:\d+|n)?$/.test(normalized)
+    /^(?:community|cluster)[\s_:#-]*(?:\d+|n)?$/.test(normalized)
   );
 }
 
