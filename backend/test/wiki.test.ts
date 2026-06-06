@@ -157,6 +157,47 @@ describe("WikiService", () => {
     );
   });
 
+  it("generates requested non-base language pages via translation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-generate-zh-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+    const llm = new FakeWikiLlm({
+      translation: (operation) => translationCompletion(operation),
+    });
+    const service = new WikiService(store, llm);
+
+    const results = await service.generateAllPagesWithLlmFallback(
+      repo.id,
+      "zh",
+    );
+
+    expect(results.map((result) => result.page.language_code)).toEqual([
+      "zh",
+      "zh",
+    ]);
+    expect(results.map((result) => result.page.title)).toEqual([
+      "概览",
+      "源码",
+    ]);
+    expect(store.getDocPage(repo.id, "src", "en")?.title).toBe("Src");
+    expect(store.getDocPage(repo.id, "src", "zh")?.title).toBe("源码");
+    expect(store.listDocPages(repo.id, "en")).toHaveLength(2);
+    expect(store.listDocPages(repo.id, "zh")).toHaveLength(2);
+    expect(
+      llm.operations.filter((operation) => operation.taskType === "page"),
+    ).toHaveLength(0);
+    expect(
+      llm.operations.filter(
+        (operation) => operation.taskType === "translation",
+      ),
+    ).toHaveLength(3);
+  });
+
   it("uses provider-backed nested catalogs when a catalog LLM is configured", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-catalog-llm-"));
     store = new CodeWikiStore(join(root, "codewiki.sqlite3"));

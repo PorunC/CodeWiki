@@ -137,6 +137,21 @@ describe("HTTP API", () => {
       wikiResponse.json<{ page_count: number }>().page_count,
     ).toBeGreaterThanOrEqual(1);
 
+    const zhWikiResponse = await app.inject({
+      method: "POST",
+      url: `/api/repos/${created.id}/wiki/pages/generate?language=zh`,
+      payload: {},
+    });
+    expect(zhWikiResponse.statusCode).toBe(200);
+    const zhWiki = zhWikiResponse.json<{
+      page_count: number;
+      pages: Array<{ language_code: string; slug: string }>;
+    }>();
+    expect(zhWiki.page_count).toBeGreaterThanOrEqual(1);
+    expect(zhWiki.pages.every((page) => page.language_code === "zh")).toBe(
+      true,
+    );
+
     writeFileSync(
       join(repo, "src", "util.ts"),
       [

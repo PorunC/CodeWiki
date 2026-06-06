@@ -53,9 +53,21 @@ export class WikiService {
     repoId: string,
     languageCode = "en",
   ): Promise<WikiCatalogResult> {
+    const language = normalizeLanguage(languageCode);
+    if (!isBaseLanguage(language)) {
+      await this.ensureBaseCatalogWithLlmFallback(repoId);
+      await this.translateWiki(repoId, BASE_WIKI_LANGUAGE, language);
+      const catalog = await this.store.getLatestDocCatalog(repoId, language);
+      if (!catalog) {
+        throw new Error(
+          `Translated catalog not found for language: ${language}`,
+        );
+      }
+      return { catalog, validation_errors: [] };
+    }
     return this.catalogGenerator.generateWithLlmFallback({
       repoId,
-      languageCode,
+      languageCode: language,
     });
   }
 
@@ -86,23 +98,28 @@ export class WikiService {
     repoId: string,
     languageCode = "en",
   ): Promise<WikiPageResult[]> {
-    let catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
+    const language = normalizeLanguage(languageCode);
+    if (!isBaseLanguage(language)) {
+      await this.ensureBasePagesWithLlmFallback(repoId);
+      await this.translateWiki(repoId, BASE_WIKI_LANGUAGE, language);
+      return this.translatedPageResults(repoId, language);
+    }
+    let catalog = await this.store.getLatestDocCatalog(repoId, language);
     if (!catalog) {
-      catalog = (
-        await this.generateCatalogWithLlmFallback(repoId, languageCode)
-      ).catalog;
+      catalog = (await this.generateCatalogWithLlmFallback(repoId, language))
+        .catalog;
     }
     const nodes = catalogGenerationNodesFromStructure(catalog.structure);
     const results = nodes.length
       ? orderedResults(
           nodes,
-          await this.generateNodes(repoId, nodes, languageCode, true),
+          await this.generateNodes(repoId, nodes, language, true),
         )
-      : [await this.generateStandaloneOverview(repoId, languageCode, true)];
+      : [await this.generateStandaloneOverview(repoId, language, true)];
     await this.store.deleteDocPagesNotIn(
       repoId,
       results.map((result) => result.page.slug),
-      languageCode,
+      language,
     );
     return results;
   }
@@ -158,7 +175,21 @@ export class WikiService {
     slug: string,
     languageCode = "en",
   ): Promise<WikiPageResult> {
-    const catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
+    const language = normalizeLanguage(languageCode);
+    if (!isBaseLanguage(language)) {
+      await this.regeneratePageWithLlmFallback(
+        repoId,
+        slug,
+        BASE_WIKI_LANGUAGE,
+      );
+      await this.translateWiki(repoId, BASE_WIKI_LANGUAGE, language);
+      const page = await this.store.getDocPage(repoId, slug, language);
+      if (!page) {
+        throw new Error(`Translated catalog page not found: ${slug}`);
+      }
+      return translatedPageResult(page);
+    }
+    const catalog = await this.store.getLatestDocCatalog(repoId, language);
     if (!catalog) {
       throw new Error("Generate a catalog before regenerating pages.");
     }
@@ -174,7 +205,7 @@ export class WikiService {
           parentSlug: node.slug,
           depth: node.depth + 1,
         }),
-        languageCode,
+        language,
         true,
         pagesBySlug,
       );
@@ -185,7 +216,7 @@ export class WikiService {
     return this.pageGenerator.generateWithLlmFallback({
       repoId,
       slug: node.slug,
-      languageCode,
+      languageCode: language,
       title: catalogItemTitle(node.item),
       kind: node.item.kind ?? "page",
       path: node.item.path ?? null,
@@ -220,20 +251,48 @@ export class WikiService {
     languageCode = "en",
     options: { staleSlugs?: string[] } = {},
   ) {
-    let catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
+    const language = normalizeLanguage(languageCode);
+    if (!isBaseLanguage(language)) {
+      await this.updatePagesWithLlmFallback(
+        repoId,
+        BASE_WIKI_LANGUAGE,
+        options,
+      );
+      await this.translateWiki(repoId, BASE_WIKI_LANGUAGE, language);
+      const pages = await this.store.listDocPages(repoId, language);
+      const sourceSlugs = (
+        await this.store.listDocPages(repoId, BASE_WIKI_LANGUAGE)
+      ).map((page) => page.slug);
+      const deletedPageCount = await this.store.deleteDocPagesNotIn(
+        repoId,
+        sourceSlugs,
+        language,
+      );
+      const results = pages.map(translatedPageResult);
+      return this.updatePagesPayload(repoId, language, {
+        results,
+        reusedPages: [],
+        staleSlugs: results
+          .filter((result) => result.page.status !== "generated")
+          .map((result) => result.page.slug),
+        missingSlugs: [],
+        metadataChangedSlugs: [],
+        deletedPageCount,
+      });
+    }
+    let catalog = await this.store.getLatestDocCatalog(repoId, language);
     if (!catalog) {
-      catalog = (
-        await this.generateCatalogWithLlmFallback(repoId, languageCode)
-      ).catalog;
+      catalog = (await this.generateCatalogWithLlmFallback(repoId, language))
+        .catalog;
     }
     const result = await this.updatePagesForCatalog(
       repoId,
-      languageCode,
+      language,
       catalog,
       true,
       options,
     );
-    return this.updatePagesPayload(repoId, languageCode, result);
+    return this.updatePagesPayload(repoId, language, result);
   }
 
   translateWiki(
@@ -308,6 +367,41 @@ export class WikiService {
       },
       llm_cache: await this.llmCachePayload(repoId, ["catalog", "page"]),
     };
+  }
+
+  private async ensureBaseCatalogWithLlmFallback(
+    repoId: string,
+  ): Promise<DocCatalog> {
+    const catalog = await this.store.getLatestDocCatalog(
+      repoId,
+      BASE_WIKI_LANGUAGE,
+    );
+    if (catalog) {
+      return catalog;
+    }
+    return (
+      await this.generateCatalogWithLlmFallback(repoId, BASE_WIKI_LANGUAGE)
+    ).catalog;
+  }
+
+  private async ensureBasePagesWithLlmFallback(
+    repoId: string,
+  ): Promise<WikiPageResult[]> {
+    await this.ensureBaseCatalogWithLlmFallback(repoId);
+    const pages = await this.store.listDocPages(repoId, BASE_WIKI_LANGUAGE);
+    if (pages.length) {
+      return pages.map((page) => ({ page, validation_errors: [] }));
+    }
+    return this.generateAllPagesWithLlmFallback(repoId, BASE_WIKI_LANGUAGE);
+  }
+
+  private async translatedPageResults(
+    repoId: string,
+    languageCode: string,
+  ): Promise<WikiPageResult[]> {
+    return (await this.store.listDocPages(repoId, languageCode)).map(
+      translatedPageResult,
+    );
   }
 
   private async updatePagesForCatalog(
@@ -495,6 +589,26 @@ type WikiUpdateResult = {
   metadataChangedSlugs: string[];
   deletedPageCount: number;
 };
+
+const BASE_WIKI_LANGUAGE = "en";
+
+function normalizeLanguage(languageCode: string | undefined | null): string {
+  return languageCode?.trim().toLowerCase() || BASE_WIKI_LANGUAGE;
+}
+
+function isBaseLanguage(languageCode: string): boolean {
+  return normalizeLanguage(languageCode) === BASE_WIKI_LANGUAGE;
+}
+
+function translatedPageResult(page: DocPage): WikiPageResult {
+  return {
+    page,
+    validation_errors:
+      page.status === "draft"
+        ? ["Translation failed; page was saved as a draft."]
+        : [],
+  };
+}
 
 function dirtyPagePlan(
   nodes: GenerationNode[],
