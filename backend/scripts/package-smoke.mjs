@@ -623,6 +623,25 @@ function checkSkillInstall() {
     readFileSync(skillPath, "utf8").includes("codewiki wiki plan"),
     "installed CodeWiki skill does not describe the wiki plan workflow.",
   );
+  assertValidSkillFrontmatter(readFileSync(skillPath, "utf8"));
+}
+
+function assertValidSkillFrontmatter(content) {
+  assert(
+    content.startsWith("---\n"),
+    "installed CodeWiki skill is missing YAML frontmatter.",
+  );
+  const end = content.indexOf("\n---\n", 4);
+  assert(end > 4, "installed CodeWiki skill frontmatter is not terminated.");
+  const frontmatter = content.slice(4, end);
+  assert(
+    /^name:\s*codewiki$/m.test(frontmatter),
+    "installed CodeWiki skill frontmatter is missing name: codewiki.",
+  );
+  assert(
+    /^description:\s*\S.+$/m.test(frontmatter),
+    "installed CodeWiki skill frontmatter is missing a description.",
+  );
 }
 
 function checkLiteCliWorkflow() {

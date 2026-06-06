@@ -1,3 +1,8 @@
+---
+name: codewiki
+description: Use this skill when the user wants Codex to generate or refresh CodeWiki wiki pages from local repository evidence without relying on CodeWiki's external LLM-backed wiki generator.
+---
+
 # CodeWiki
 
 Use this skill when the user wants Codex to generate or refresh CodeWiki wiki pages from local repository evidence without relying on CodeWiki's external LLM-backed wiki generator.
