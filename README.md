@@ -52,11 +52,44 @@ Install from npm:
 
 ```bash
 npm install -g @misaka09982/code-wiki
+codewiki --version
+```
+
+Start the bundled web app and API:
+
+```bash
 codewiki serve
 ```
 
 Open `http://127.0.0.1:8000`, register a repository, run analysis, then generate a
 wiki or ask questions.
+
+You can also run the complete flow from the CLI:
+
+```bash
+cd /path/to/your/repo
+codewiki repos add . --name my-repo
+codewiki analyze my-repo
+codewiki wiki catalog my-repo
+codewiki wiki pages my-repo
+codewiki ask "How does the main workflow fit together?" my-repo
+```
+
+List and read pages:
+
+```bash
+codewiki wiki list my-repo
+codewiki wiki read root my-repo
+```
+
+Refresh after code changes:
+
+```bash
+codewiki update my-repo
+```
+
+Most repository arguments accept an id, id prefix, registered name, path, or Git
+URL. Use `--json` for machine-readable output.
 
 Run with Docker Compose:
 
@@ -73,6 +106,14 @@ The package also includes a stdio MCP server:
 codewiki-mcp
 ```
 
+For editor integrations that should keep state inside the project, use lite MCP:
+
+```bash
+codewiki mcp --lite --path .
+```
+
+This creates and uses `.codewiki/codewiki-lite.sqlite3` in the selected project.
+
 ## Common Commands
 
 ```bash
@@ -81,6 +122,10 @@ codewiki analyze .
 codewiki wiki catalog .
 codewiki wiki pages .
 codewiki ask "How does the main workflow fit together?" my-repo
+codewiki graph status my-repo
+codewiki graph search "handler" my-repo
+codewiki graphrag build my-repo
+codewiki graphrag retrieve "startup flow" my-repo
 ```
 
 Most repository arguments accept an id, id prefix, registered name, path, or Git URL.
@@ -105,6 +150,48 @@ provider when the QA/default LLM profile is configured:
 ```bash
 CODEWIKI_LLM__DEFAULT__MODEL=openai/gpt-4.1
 CODEWIKI_LLM__DEFAULT__API_KEY="$OPENAI_API_KEY"
+```
+
+The CLI can create and edit the env file for you:
+
+```bash
+codewiki config --init
+codewiki config --model openai/gpt-4.1 --api-key "$OPENAI_API_KEY"
+codewiki config list
+codewiki config models
+```
+
+For wiki pages or community naming, you can configure task-specific profiles:
+
+```bash
+CODEWIKI_LLM__PROFILES__PAGE__MODEL=openai/gpt-4.1
+CODEWIKI_LLM__PROFILES__PAGE__API_KEY="$OPENAI_API_KEY"
+CODEWIKI_LLM__PROFILES__COMMUNITY_SUMMARY__MODEL=openai/gpt-4.1
+CODEWIKI_LLM__PROFILES__COMMUNITY_SUMMARY__API_KEY="$OPENAI_API_KEY"
+```
+
+## npm Usage Details
+
+After `npm install -g @misaka09982/code-wiki`, these commands are available:
+
+- `codewiki`: main CLI and web server.
+- `codewiki-backend`: alias for the main CLI.
+- `codewiki-mcp`: stdio MCP server.
+
+Useful first commands:
+
+```bash
+codewiki --help
+codewiki serve --host 127.0.0.1 --port 8000
+codewiki repos list
+codewiki config list
+```
+
+Import from Node.js:
+
+```js
+import { createServer, CodeWikiStore } from "@misaka09982/code-wiki";
+import { CodeWikiMCPServer } from "@misaka09982/code-wiki/mcp";
 ```
 
 ## Documentation
