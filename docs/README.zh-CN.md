@@ -4,7 +4,7 @@
 
 CodeWiki 是一个面向单用户的本地代码知识平台，用于仓库分析、源码图检索、
 Wiki 草稿生成和基于源码的本地问答。后端已经迁移到 `backend`，是一个可发布到
-npm 的 TypeScript/Fastify 包，包名为 `code-wiki`。
+npm 的 TypeScript/Fastify 包，包名为 `@misaka09982/code-wiki`。
 
 ## 当前范围
 
@@ -24,7 +24,7 @@ npm 的 TypeScript/Fastify 包，包名为 `code-wiki`。
 从 npm 安装：
 
 ```bash
-npm install -g code-wiki
+npm install -g @misaka09982/code-wiki
 codewiki --help
 ```
 
@@ -119,9 +119,9 @@ npm run pack:smoke
 
 - CLI：`codewiki`、`codewiki-backend`
 - MCP：`codewiki-mcp`
-- Library export：`code-wiki`
-- Server export：`code-wiki/server`
-- MCP export：`code-wiki/mcp`
+- Library export：`@misaka09982/code-wiki`
+- Server export：`@misaka09982/code-wiki/server`
+- MCP export：`@misaka09982/code-wiki/mcp`
 
 ## MCP
 

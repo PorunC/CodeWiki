@@ -90,43 +90,43 @@ describe("workspace Node scripts", () => {
 
     expect(
       verifyReleaseVersion({
-        packageName: "code-wiki",
+        packageName: "@misaka09982/code-wiki",
         packageVersion: "0.7.0",
         refType: "tag",
         refName: "v0.7.0",
       }),
     ).toMatchObject({
       verified: true,
-      packageName: "code-wiki",
+      packageName: "@misaka09982/code-wiki",
       packageVersion: "0.7.0",
     });
     expect(
       verifyReleaseVersion({
-        packageName: "code-wiki",
+        packageName: "@misaka09982/code-wiki",
         packageVersion: "0.7.0",
         requestedVersion: "v0.7.0",
       }).message,
-    ).toBe("Release version verified for code-wiki@0.7.0.");
+    ).toBe("Release version verified for @misaka09982/code-wiki@0.7.0.");
   });
 
   it("rejects npm release versions that do not match the backend package", () => {
     expect(() =>
       verifyReleaseVersion({
-        packageName: "code-wiki",
+        packageName: "@misaka09982/code-wiki",
         packageVersion: "0.7.0",
         refType: "tag",
         refName: "v0.8.0",
       }),
-    ).toThrow("does not match code-wiki@0.7.0");
+    ).toThrow("does not match @misaka09982/code-wiki@0.7.0");
     expect(() =>
       verifyReleaseVersion({
-        packageName: "code-wiki",
+        packageName: "@misaka09982/code-wiki",
         packageVersion: "0.7.0",
       }),
     ).toThrow("No release version provided");
     expect(() =>
       verifyReleaseVersion({
-        packageName: "code-wiki",
+        packageName: "@misaka09982/code-wiki",
         packageVersion: "0.7",
         requestedVersion: "0.7",
       }),

@@ -1,4 +1,4 @@
-# code-wiki
+# @misaka09982/code-wiki
 
 TypeScript backend for CodeWiki. It provides the HTTP API, CLI commands, stdio
 MCP server, SQLite storage, repository scanning, lightweight graph analysis,
@@ -6,7 +6,7 @@ wiki drafts, source-grounded Q&A endpoints, and optional OpenAI-compatible Q&A
 answers plus wiki catalog/page generation with cached LLM runs.
 
 ```bash
-npm install -g code-wiki
+npm install -g @misaka09982/code-wiki
 codewiki serve
 codewiki-mcp
 codewiki mcp --lite --path .

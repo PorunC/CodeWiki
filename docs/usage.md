@@ -8,7 +8,7 @@ workflows, CLI commands, Docker, and HTTP APIs for CodeWiki.
 ## Current Scope
 
 - TypeScript/Fastify backend in `backend`, published as the npm package
-  `code-wiki`.
+  `@misaka09982/code-wiki`.
 - React/Vite frontend with repository management, graph explorer, wiki reader, ask,
   and settings pages.
 - SQLite storage with the existing CodeWiki table names for repositories, analysis
@@ -28,7 +28,7 @@ workflows, CLI commands, Docker, and HTTP APIs for CodeWiki.
 Install the npm package:
 
 ```bash
-npm install -g code-wiki
+npm install -g @misaka09982/code-wiki
 codewiki --help
 ```
 
@@ -164,9 +164,9 @@ Package entrypoints:
 
 - CLI binaries: `codewiki`, `codewiki-backend`
 - MCP binary: `codewiki-mcp`
-- Library export: `code-wiki`
-- Server export: `code-wiki/server`
-- MCP export: `code-wiki/mcp`
+- Library export: `@misaka09982/code-wiki`
+- Server export: `@misaka09982/code-wiki/server`
+- MCP export: `@misaka09982/code-wiki/mcp`
 
 ## MCP
 

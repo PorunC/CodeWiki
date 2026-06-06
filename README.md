@@ -33,7 +33,7 @@ can be installed globally from npm.
 
 ## Highlights
 
-- TypeScript backend package: `code-wiki`, with `codewiki`,
+- TypeScript backend package: `@misaka09982/code-wiki`, with `codewiki`,
   `codewiki-backend`, and `codewiki-mcp` npm binaries.
 - Fastify HTTP API compatible with the existing React/Vite frontend routes under
   `/api`.
@@ -51,7 +51,7 @@ can be installed globally from npm.
 Install from npm:
 
 ```bash
-npm install -g code-wiki
+npm install -g @misaka09982/code-wiki
 codewiki serve
 ```
 
@@ -151,8 +151,8 @@ npm run pack:smoke
 ```
 
 Package entrypoints include the CLI binaries `codewiki`, `codewiki-backend`, and
-`codewiki-mcp`, plus library exports `code-wiki`,
-`code-wiki/server`, and `code-wiki/mcp`.
+`codewiki-mcp`, plus library exports `@misaka09982/code-wiki`,
+`@misaka09982/code-wiki/server`, and `@misaka09982/code-wiki/mcp`.
 
 ## License
 
