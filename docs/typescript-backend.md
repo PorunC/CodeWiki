@@ -21,13 +21,12 @@ Repository path or Git URL
   -> React/Vite frontend and editor agents
 ```
 
-The package is published from `backend` as `codewiki-backend`. Runtime entry
+The package is published from `backend` as `code-wiki`. Runtime entry
 points are:
 
 - CLI binaries: `codewiki`, `codewiki-backend`
 - MCP binary: `codewiki-mcp`
-- Library exports: `codewiki-backend`, `codewiki-backend/server`,
-  `codewiki-backend/mcp`
+- Library exports: `code-wiki`, `code-wiki/server`, `code-wiki/mcp`
 
 ## Module Boundaries
 

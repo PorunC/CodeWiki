@@ -19,6 +19,7 @@ const packageRoot = resolve(scriptDir, "..");
 const packageJson = JSON.parse(
   readFileSync(join(packageRoot, "package.json"), "utf8"),
 );
+const packageImportName = packageJson.name;
 const workRoot = mkdtempSync(join(tmpdir(), "codewiki-package-smoke-"));
 const packDir = join(workRoot, "pack");
 const installDir = join(workRoot, "install");
@@ -272,7 +273,7 @@ function checkConfigWorkflow() {
       "--input-type=module",
       "-e",
       [
-        "const { environmentWithDotEnv, getSettings, readEnvValues } = await import('codewiki-backend');",
+        `const { environmentWithDotEnv, getSettings, readEnvValues } = await import(${JSON.stringify(packageImportName)});`,
         `const envFile = ${JSON.stringify(configEnvFile)};`,
         "const settings = getSettings(environmentWithDotEnv({}, envFile));",
         "if (settings.appName !== 'Packaged Wiki') throw new Error(`Unexpected app name ${settings.appName}`);",
@@ -636,7 +637,7 @@ function checkPersistedGraphRagTrace(repoId, traceId) {
       "--input-type=module",
       "-e",
       [
-        "const { CodeWikiStore, getSettings } = await import('codewiki-backend');",
+        `const { CodeWikiStore, getSettings } = await import(${JSON.stringify(packageImportName)});`,
         "const store = new CodeWikiStore(getSettings().databasePath);",
         `const trace = store.getRetrievalTrace(${JSON.stringify(repoId)}, ${JSON.stringify(traceId)});`,
         "if (!trace) throw new Error('Missing persisted GraphRAG trace');",
@@ -662,9 +663,9 @@ function checkLibraryExports() {
       "--input-type=module",
       "-e",
       [
-        "const main = await import('codewiki-backend');",
-        "const server = await import('codewiki-backend/server');",
-        "const mcp = await import('codewiki-backend/mcp');",
+        `const main = await import(${JSON.stringify(packageImportName)});`,
+        `const server = await import(${JSON.stringify(`${packageImportName}/server`)});`,
+        `const mcp = await import(${JSON.stringify(`${packageImportName}/mcp`)});`,
         "const required = ['AnalysisService', 'CODEWIKI_VERSION', 'CachedLlmService', 'CodeWikiError', 'CodeWikiStore', 'CodeWikiMCPServer', 'DEFAULT_ENV_CONTENT', 'FALLBACK_MODEL', 'GraphRAGService', 'LLM_PROFILES', 'LLM_TASK_TYPES', 'LlmCallError', 'OpenAiCompatibleLlmGateway', 'RepoScanner', 'RepositoryService', 'codewikiValues', 'conflictError', 'createBackendRuntime', 'createBackendServices', 'createLiteMcpServer', 'createServer', 'defaultEnvFile', 'defaultLlmProfile', 'ensureEnvFile', 'environmentWithDotEnv', 'formatEnvValue', 'isCodeWikiError', 'isOpenAiCompatibleProfile', 'isSecretKey', 'liteDatabasePath', 'llmProfileKey', 'llmTaskProfiles', 'maskConfigValues', 'nameGraphCommunities', 'notFoundError', 'parseEnvAssignment', 'payloadHash', 'profileForTask', 'providerUserIdForRepo', 'readEnvValues', 'retrievalTracePayload', 'startServer', 'testLlmConfiguration', 'validationError', 'validateEnvKey', 'writeEnvValues'];",
         "for (const name of required) { if (!(name in main)) throw new Error(`Missing export ${name}`); }",
         `if (main.CODEWIKI_VERSION !== ${JSON.stringify(packageJson.version)}) throw new Error(\`Unexpected CODEWIKI_VERSION ${"${main.CODEWIKI_VERSION}"}\`);`,
@@ -695,7 +696,7 @@ function checkPackagedStaticFrontend() {
       "--input-type=module",
       "-e",
       [
-        "const { createServer, getSettings } = await import('codewiki-backend');",
+        `const { createServer, getSettings } = await import(${JSON.stringify(packageImportName)});`,
         "const app = await createServer({ settings: getSettings() });",
         "const index = await app.inject({ method: 'GET', url: '/' });",
         "if (index.statusCode !== 200) throw new Error(`Unexpected index status ${index.statusCode}`);",
