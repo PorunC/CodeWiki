@@ -74,6 +74,10 @@ export function readStdinLines(): string[] {
     .filter(Boolean);
 }
 
+export function readStdinText(): string {
+  return readFileSync(0, "utf8");
+}
+
 export function parseLimit(value: string): number {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 20;

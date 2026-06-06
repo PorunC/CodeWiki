@@ -6,6 +6,7 @@ import { registerConfigCommands } from "./cli/commands/config.js";
 import { registerGraphCommands } from "./cli/commands/graph.js";
 import { registerGraphRagCommands } from "./cli/commands/graphrag.js";
 import { registerRepoCommands } from "./cli/commands/repos.js";
+import { registerSkillCommands } from "./cli/commands/skill.js";
 import { registerSystemCommands } from "./cli/commands/system.js";
 import { registerWikiCommands } from "./cli/commands/wiki.js";
 import { registerLiteCommands } from "./cli/lite.js";
@@ -33,5 +34,6 @@ registerGraphCommands(program, runtime);
 registerGraphRagCommands(program, runtime);
 registerWikiCommands(program, runtime);
 registerAskCommand(program, runtime);
+registerSkillCommands(program);
 
 await program.parseAsync(process.argv);

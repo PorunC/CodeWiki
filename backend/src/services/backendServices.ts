@@ -37,14 +37,15 @@ export function createBackendServices({
 }: BackendServiceDependencies): BackendServices {
   const gateway = new OpenAiCompatibleLlmGateway(settings);
   const llm = new CachedLlmService(store, gateway);
+  const graphRag = new GraphRAGService(store, gateway, settings.graphrag);
   return {
     analysis: new AnalysisService(store, scanner),
     communityNaming: new CommunityNamingService(store, llm),
-    graphRag: new GraphRAGService(store, gateway, settings.graphrag),
+    graphRag,
     llm,
     questionAnswerer: new QuestionAnswerer(store, llm),
     repositories: new RepositoryService(store, scanner),
-    wiki: new WikiService(store, llm),
+    wiki: new WikiService(store, llm, graphRag),
   };
 }
 

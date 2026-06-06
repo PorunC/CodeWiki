@@ -1,6 +1,16 @@
+import { randomUUID } from "node:crypto";
 import type { CodeWikiStoreApi } from "../db/types.js";
+import { GraphRAGService } from "../graphrag/graphragService.js";
+import { retrievalTracePayload } from "../graphrag/payloads.js";
 import type { CachedLlmCompletion, LlmOperation } from "../llm/cache.js";
-import type { DocCatalog, DocPage, JsonObject, LlmRun } from "../types.js";
+import type {
+  DocCatalog,
+  DocPage,
+  JsonObject,
+  JsonValue,
+  LlmRun,
+  RetrievalTrace,
+} from "../types.js";
 import {
   catalogItemTitle,
   catalogGenerationNodes,
@@ -13,7 +23,9 @@ import {
 import { WikiCatalogGenerator } from "./catalogGenerator.js";
 import { WikiPageGenerator } from "./pageGenerator.js";
 import {
+  catalogPayload,
   llmCachePayloadForTasks,
+  pagePayload,
   pageResultPayload,
   type WikiCatalogResult,
   type WikiPageResult,
@@ -36,6 +48,7 @@ export class WikiService {
   constructor(
     private readonly store: CodeWikiStoreApi,
     llm?: WikiLlm,
+    private readonly graphRag: GraphRAGService = new GraphRAGService(store),
   ) {
     this.llm = llm;
     this.catalogGenerator = new WikiCatalogGenerator(store, llm);
@@ -309,6 +322,156 @@ export class WikiService {
     );
   }
 
+  async agentWikiPlan(
+    repoId: string,
+    languageCode = "en",
+  ): Promise<JsonObject> {
+    const language = normalizeLanguage(languageCode);
+    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const nodes = catalogGenerationNodesFromStructure(catalog.structure);
+    return {
+      repo_id: repoId,
+      language_code: language,
+      catalog: catalogPayload(catalog),
+      pages: nodes.map((node) => agentPageQueueItem(node)),
+    };
+  }
+
+  async agentWikiEvidence(
+    repoId: string,
+    slug: string,
+    languageCode = "en",
+    options: { limit?: number } = {},
+  ): Promise<JsonObject> {
+    const language = normalizeLanguage(languageCode);
+    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const nodes = catalogGenerationNodesFromStructure(catalog.structure);
+    const node = nodes.find((candidate) => candidate.slug === slug);
+    if (!node) {
+      throw new Error(`Catalog page not found: ${slug}`);
+    }
+    const query = agentEvidenceQuery(node);
+    const trace = await this.graphRag.retrieve(repoId, query, {
+      limit: positiveInt(options.limit, 12),
+    });
+    return agentEvidencePayload(repoId, language, catalog, nodes, node, trace);
+  }
+
+  async saveAgentWikiPage(
+    repoId: string,
+    slug: string,
+    markdown: string,
+    languageCode = "en",
+    options: { title?: string; parentSlug?: string | null } = {},
+  ): Promise<JsonObject> {
+    const language = normalizeLanguage(languageCode);
+    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const nodes = catalogGenerationNodesFromStructure(catalog.structure);
+    const node = nodes.find((candidate) => candidate.slug === slug) ?? null;
+    const validationErrors = validateAgentMarkdown(markdown);
+    if (!node) {
+      validationErrors.push(`Catalog page not found: ${slug}`);
+    }
+
+    const allowedRefs = node
+      ? allowedSourceRefsFromTrace(
+          await this.graphRag.retrieve(repoId, agentEvidenceQuery(node), {
+            limit: 12,
+          }),
+        )
+      : [];
+    const allowedByCitation = new Map(
+      allowedRefs
+        .map((ref): [string, JsonObject] | null =>
+          typeof ref.citation_id === "string" ? [ref.citation_id, ref] : null,
+        )
+        .filter((entry): entry is [string, JsonObject] => Boolean(entry)),
+    );
+    const citations = extractMarkdownCitations(markdown);
+    const sourceRefs: JsonObject[] = [];
+    for (const citationId of citations) {
+      const sourceRef = allowedByCitation.get(citationId);
+      if (!sourceRef) {
+        validationErrors.push(`Unknown source citation: [[${citationId}]]`);
+        continue;
+      }
+      sourceRefs.push(sourceRef);
+    }
+    if (!citations.length) {
+      validationErrors.push("Markdown must cite at least one evidence source.");
+    }
+
+    const page = await this.store.upsertDocPage({
+      id: randomUUID(),
+      repo_id: repoId,
+      language_code: language,
+      slug,
+      title:
+        options.title?.trim() ||
+        (node ? catalogItemTitle(node.item) : titleFromAgentSlug(slug)),
+      parent_slug: options.parentSlug ?? node?.parentSlug ?? null,
+      markdown,
+      source_refs: uniqueSourceRefs(sourceRefs),
+      graph_refs: [],
+      status: validationErrors.length ? "draft" : "generated",
+      updated_at: new Date().toISOString(),
+    });
+    return {
+      status: validationErrors.length ? "draft" : "generated",
+      validation_errors: unique(validationErrors),
+      page: pagePayload(page),
+    };
+  }
+
+  async validateAgentWikiPage(
+    repoId: string,
+    slug: string,
+    languageCode = "en",
+  ): Promise<JsonObject> {
+    const language = normalizeLanguage(languageCode);
+    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const nodes = catalogGenerationNodesFromStructure(catalog.structure);
+    const validationErrors: string[] = [];
+    if (!nodes.some((node) => node.slug === slug)) {
+      validationErrors.push(`Catalog page not found: ${slug}`);
+    }
+    const page = await this.store.getDocPage(repoId, slug, language);
+    if (!page) {
+      validationErrors.push(`Wiki page not found: ${slug}`);
+      return {
+        repo_id: repoId,
+        language_code: language,
+        status: "invalid",
+        validation_errors: unique(validationErrors),
+        page: null,
+      };
+    }
+    validationErrors.push(...validateAgentMarkdown(page.markdown));
+    if (!page.title.trim()) {
+      validationErrors.push("Page title must not be empty.");
+    }
+    const sourceCitationIds = new Set(
+      page.source_refs
+        .map((ref) => ref.citation_id)
+        .filter((value): value is string => typeof value === "string"),
+    );
+    for (const citationId of extractMarkdownCitations(page.markdown)) {
+      if (!sourceCitationIds.has(citationId)) {
+        validationErrors.push(`Unknown source citation: [[${citationId}]]`);
+      }
+    }
+    if (!sourceCitationIds.size) {
+      validationErrors.push("Page must include source references.");
+    }
+    return {
+      repo_id: repoId,
+      language_code: language,
+      status: validationErrors.length ? "invalid" : "valid",
+      validation_errors: unique(validationErrors),
+      page: pagePayload(page),
+    };
+  }
+
   async llmCachePayload(
     repoId: string,
     taskTypes: string[],
@@ -382,6 +545,17 @@ export class WikiService {
     return (
       await this.generateCatalogWithLlmFallback(repoId, BASE_WIKI_LANGUAGE)
     ).catalog;
+  }
+
+  private async ensureDeterministicCatalog(
+    repoId: string,
+    languageCode: string,
+  ): Promise<DocCatalog> {
+    const catalog = await this.store.getLatestDocCatalog(repoId, languageCode);
+    if (catalog) {
+      return catalog;
+    }
+    return this.generateCatalog(repoId, languageCode);
   }
 
   private async ensureBasePagesWithLlmFallback(
@@ -668,6 +842,138 @@ function dirtyPagePlan(
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function agentPageQueueItem(node: GenerationNode): JsonObject {
+  return {
+    slug: node.slug,
+    title: catalogItemTitle(node.item),
+    parent_slug: node.parentSlug,
+    kind: node.item.kind ?? "page",
+    topic: wikiPageTopic(node.item),
+    path: node.item.path ?? null,
+    source_hints: wikiPageSourceHints(node.item),
+    order: node.order,
+    has_children: node.hasChildren,
+  };
+}
+
+function agentEvidenceQuery(node: GenerationNode): string {
+  return [
+    catalogItemTitle(node.item),
+    wikiPageTopic(node.item),
+    ...wikiPageSourceHints(node.item),
+    node.slug,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function agentEvidencePayload(
+  repoId: string,
+  languageCode: string,
+  catalog: DocCatalog,
+  nodes: GenerationNode[],
+  node: GenerationNode,
+  trace: RetrievalTrace,
+): JsonObject {
+  const parent = node.parentSlug
+    ? nodes.find((candidate) => candidate.slug === node.parentSlug)
+    : null;
+  return {
+    repo_id: repoId,
+    language_code: languageCode,
+    page: agentPageQueueItem(node),
+    catalog_context: {
+      catalog: catalogPayload(catalog),
+      parent: parent ? agentPageQueueItem(parent) : null,
+      children: nodes
+        .filter((candidate) => candidate.parentSlug === node.slug)
+        .map(agentPageQueueItem),
+      siblings: nodes
+        .filter(
+          (candidate) =>
+            candidate.parentSlug === node.parentSlug &&
+            candidate.slug !== node.slug,
+        )
+        .map(agentPageQueueItem),
+    },
+    retrieval_trace: retrievalTracePayload(trace),
+    allowed_source_refs: allowedSourceRefsFromTrace(trace),
+    instructions:
+      "Only write claims supported by evidence; cite with [[S#]] using allowed_source_refs.",
+  };
+}
+
+function allowedSourceRefsFromTrace(trace: RetrievalTrace): JsonObject[] {
+  const sourceChunks = trace.source_chunks.length
+    ? trace.source_chunks
+    : trace.chunks.map((chunk, index) => ({
+        citation_id: `S${index + 1}`,
+        file_path: chunk.file_path,
+        start_line: chunk.start_line,
+        end_line: chunk.end_line,
+      }));
+  return sourceChunks.map((chunk, index) => ({
+    citation_id: stringJson(chunk.citation_id) ?? `S${index + 1}`,
+    file_path: stringJson(chunk.file_path) ?? "",
+    start_line: numberJson(chunk.start_line),
+    end_line: numberJson(chunk.end_line),
+  }));
+}
+
+function validateAgentMarkdown(markdown: string): string[] {
+  const errors: string[] = [];
+  const trimmed = markdown.trim();
+  if (!trimmed) {
+    errors.push("Markdown must not be empty.");
+  }
+  if (trimmed && !/^#\s+\S/m.test(trimmed)) {
+    errors.push("Markdown must include an H1 title.");
+  }
+  if (trimmed && trimmed.length < 40) {
+    errors.push("Markdown is too short to be useful.");
+  }
+  return errors;
+}
+
+function extractMarkdownCitations(markdown: string): string[] {
+  return unique(
+    [...markdown.matchAll(/\[\[(S\d+)]]/g)].map((match) => match[1] ?? ""),
+  ).filter(Boolean);
+}
+
+function uniqueSourceRefs(refs: JsonObject[]): JsonObject[] {
+  const byCitation = new Map<string, JsonObject>();
+  for (const ref of refs) {
+    const citationId = ref.citation_id;
+    if (typeof citationId === "string" && !byCitation.has(citationId)) {
+      byCitation.set(citationId, ref);
+    }
+  }
+  return [...byCitation.values()];
+}
+
+function stringJson(value: JsonValue | undefined): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function numberJson(value: JsonValue | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function positiveInt(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function titleFromAgentSlug(slug: string): string {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function orderedResults(

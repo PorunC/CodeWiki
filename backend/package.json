@@ -51,6 +51,7 @@
     "package.json",
     "scripts/check-ports.mjs",
     "scripts/verify-release-version.mjs",
+    "skills",
     "static"
   ],
   "engines": {

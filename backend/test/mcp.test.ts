@@ -70,6 +70,10 @@ describe("CodeWiki MCP server", () => {
         "codewiki_repo_add",
         "codewiki_analyze",
         "codewiki_wiki_pages_generate",
+        "codewiki_wiki_plan",
+        "codewiki_wiki_evidence",
+        "codewiki_wiki_page_save",
+        "codewiki_wiki_page_validate",
         "codewiki_llm_models",
         "codewiki_graph_explore",
         "codewiki_trace",
@@ -185,6 +189,50 @@ describe("CodeWiki MCP server", () => {
       "root",
       "src",
     ]);
+
+    const agentPlan = await callTool<{
+      pages: Array<{ slug: string; title: string }>;
+    }>(server, "codewiki_wiki_plan", { repo: added.id });
+    expect(agentPlan.pages.map((page) => page.slug)).toEqual(["root", "src"]);
+
+    const agentEvidence = await callTool<{
+      allowed_source_refs: Array<{ citation_id: string; file_path: string }>;
+    }>(server, "codewiki_wiki_evidence", {
+      repo: added.id,
+      slug: "src",
+    });
+    expect(
+      agentEvidence.allowed_source_refs.some(
+        (ref) => ref.citation_id === "S1" && ref.file_path.startsWith("src/"),
+      ),
+    ).toBe(true);
+
+    const agentSaved = await callTool<{
+      status: string;
+      validation_errors: string[];
+      page: { slug: string; source_refs: Array<{ citation_id: string }> };
+    }>(server, "codewiki_wiki_page_save", {
+      repo: added.id,
+      slug: "src",
+      title: "Src",
+      markdown:
+        "# Src\n\nThe source directory contains TypeScript runtime code and utilities. [[S1]]",
+    });
+    expect(agentSaved.status).toBe("generated");
+    expect(agentSaved.validation_errors).toEqual([]);
+    expect(agentSaved.page.source_refs).toEqual([
+      expect.objectContaining({ citation_id: "S1" }),
+    ]);
+
+    const agentValidation = await callTool<{
+      status: string;
+      validation_errors: string[];
+    }>(server, "codewiki_wiki_page_validate", {
+      repo: added.id,
+      slug: "src",
+    });
+    expect(agentValidation.status).toBe("valid");
+    expect(agentValidation.validation_errors).toEqual([]);
 
     const wiki = await callTool<{ page_count: number }>(
       server,

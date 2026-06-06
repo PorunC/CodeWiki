@@ -36,6 +36,7 @@ const smokeEnv = {
   ...smokeProcessEnv,
   CODEWIKI_DATABASE_URL: `sqlite:///${databasePath}`,
   CODEWIKI_STORAGE_DIR: join(workRoot, "storage"),
+  CODEX_HOME: join(workRoot, "codex-home"),
 };
 const REQUIRED_MCP_TOOLS = [
   "codewiki_analyze",
@@ -66,8 +67,12 @@ const REQUIRED_MCP_TOOLS = [
   "codewiki_trace",
   "codewiki_update",
   "codewiki_wiki_catalog_generate",
+  "codewiki_wiki_evidence",
   "codewiki_wiki_page_read",
   "codewiki_wiki_page_regenerate",
+  "codewiki_wiki_page_save",
+  "codewiki_wiki_page_validate",
+  "codewiki_wiki_plan",
   "codewiki_wiki_pages_generate",
   "codewiki_wiki_pages_list",
   "codewiki_wiki_pages_update",
@@ -82,6 +87,7 @@ try {
   installPackage(tarballPath);
   checkPackageMetadata();
   checkCliBinaries();
+  checkSkillInstall();
   checkConfigWorkflow();
   const { add, retrieval } = checkRepositoryWorkflow();
   checkLiteCliWorkflow();
@@ -376,6 +382,80 @@ function checkRepositoryWorkflow() {
     generatedCatalog.structure?.items?.length >= 1,
     "wiki catalog did not include catalog items.",
   );
+  const agentPlan = JSON.parse(
+    execPackageBin([
+      "codewiki",
+      "--database-url",
+      smokeEnv.CODEWIKI_DATABASE_URL,
+      "wiki",
+      "plan",
+      "smoke",
+      "--json",
+    ]).stdout,
+  );
+  assert(
+    agentPlan.pages?.some((page) => page.slug === "src"),
+    "agent wiki plan did not include the src page.",
+  );
+  const agentEvidence = JSON.parse(
+    execPackageBin([
+      "codewiki",
+      "--database-url",
+      smokeEnv.CODEWIKI_DATABASE_URL,
+      "wiki",
+      "evidence",
+      "src",
+      "smoke",
+      "--json",
+    ]).stdout,
+  );
+  assert(
+    agentEvidence.allowed_source_refs?.some(
+      (ref) => ref.citation_id === "S1" && ref.file_path.startsWith("src/"),
+    ),
+    "agent wiki evidence did not return allowed source refs.",
+  );
+  const agentSaved = JSON.parse(
+    execPackageBin(
+      [
+        "codewiki",
+        "--database-url",
+        smokeEnv.CODEWIKI_DATABASE_URL,
+        "wiki",
+        "save",
+        "src",
+        "smoke",
+        "--title",
+        "Src",
+        "--stdin",
+        "--json",
+      ],
+      {
+        input:
+          "# Src\n\nThe source directory contains TypeScript code used by the package smoke repository. [[S1]]",
+      },
+    ).stdout,
+  );
+  assert(
+    agentSaved.status === "generated",
+    `agent wiki save status was ${agentSaved.status}.`,
+  );
+  const agentValidated = JSON.parse(
+    execPackageBin([
+      "codewiki",
+      "--database-url",
+      smokeEnv.CODEWIKI_DATABASE_URL,
+      "wiki",
+      "validate",
+      "src",
+      "smoke",
+      "--json",
+    ]).stdout,
+  );
+  assert(
+    agentValidated.status === "valid",
+    `agent wiki validate status was ${agentValidated.status}.`,
+  );
   const generatedWiki = JSON.parse(
     execPackageBin([
       "codewiki",
@@ -527,6 +607,22 @@ function checkRepositoryWorkflow() {
     "graphrag retrieve did not return the expected source chunk.",
   );
   return { add, retrieval };
+}
+
+function checkSkillInstall() {
+  console.log("Checking installed CodeWiki skill workflow...");
+  const installed = JSON.parse(
+    execPackageBin(["codewiki", "skill", "install", "codex", "--json"]).stdout,
+  );
+  const skillPath = join(smokeEnv.CODEX_HOME, "skills", "codewiki", "SKILL.md");
+  assert(
+    installed.status === "installed" && existsSync(skillPath),
+    "codewiki skill install codex did not install SKILL.md.",
+  );
+  assert(
+    readFileSync(skillPath, "utf8").includes("codewiki wiki plan"),
+    "installed CodeWiki skill does not describe the wiki plan workflow.",
+  );
 }
 
 function checkLiteCliWorkflow() {
@@ -895,6 +991,8 @@ function assertPackageContents(files) {
     "dist/http/server.js",
     "scripts/check-ports.mjs",
     "scripts/verify-release-version.mjs",
+    "skills/codewiki/SKILL.md",
+    "skills/codewiki/references/page-style.md",
     "static/index.html",
   ];
   for (const file of requiredFiles) {

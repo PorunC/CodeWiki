@@ -217,6 +217,48 @@ describe("codewiki CLI", () => {
       "src",
     ]);
 
+    const agentPlan = runJson<{
+      pages: Array<{ slug: string; title: string }>;
+    }>(["wiki", "plan", added.id, "--json"], env);
+    expect(agentPlan.pages.map((page) => page.slug)).toEqual(["root", "src"]);
+
+    const agentEvidence = runJson<{
+      allowed_source_refs: Array<{ citation_id: string; file_path: string }>;
+    }>(["wiki", "evidence", "src", added.id, "--json"], env);
+    expect(
+      agentEvidence.allowed_source_refs.some(
+        (ref) => ref.citation_id === "S1" && ref.file_path.startsWith("src/"),
+      ),
+    ).toBe(true);
+
+    const agentSaved = runJson<{
+      status: string;
+      validation_errors: string[];
+      page: { slug: string; source_refs: Array<{ citation_id: string }> };
+    }>(
+      ["wiki", "save", "src", added.id, "--title", "Src", "--stdin", "--json"],
+      env,
+      {
+        input: [
+          "# Src",
+          "",
+          "The source directory contains the TypeScript entry and utility implementation. [[S1]]",
+        ].join("\n"),
+      },
+    );
+    expect(agentSaved.status).toBe("generated");
+    expect(agentSaved.validation_errors).toEqual([]);
+    expect(agentSaved.page.source_refs).toEqual([
+      expect.objectContaining({ citation_id: "S1" }),
+    ]);
+
+    const agentValidation = runJson<{
+      status: string;
+      validation_errors: string[];
+    }>(["wiki", "validate", "src", added.id, "--json"], env);
+    expect(agentValidation.status).toBe("valid");
+    expect(agentValidation.validation_errors).toEqual([]);
+
     const initialWikiUpdate = runJson<{
       status: string;
       generated_pages: string[];

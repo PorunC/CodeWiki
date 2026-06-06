@@ -102,6 +102,43 @@ codewiki update my-repo
 Most repository arguments accept a registered name, id, id prefix, filesystem path,
 or Git URL. Add `--json` to most commands for machine-readable output.
 
+## Agent-Generated Wiki
+
+CodeWiki can also act as a local evidence engine for Codex, Claude Code, or other
+agents. In this mode CodeWiki does not call an external LLM for page writing. It
+plans pages, returns bounded GraphRAG evidence, saves the agent-written Markdown,
+and validates citations.
+
+Install the Codex skill:
+
+```bash
+codewiki skill install codex
+```
+
+Then use the local workflow:
+
+```bash
+codewiki repos add . --name my-repo --json
+codewiki analyze my-repo --json
+codewiki wiki plan my-repo --language en --json
+codewiki wiki evidence src my-repo --language en --json
+printf '# Src\n\nThis page is grounded in returned evidence. [[S1]]\n' \
+  | codewiki wiki save src my-repo --language en --title Src --stdin --json
+codewiki wiki validate src my-repo --language en --json
+codewiki wiki read src my-repo
+```
+
+Agents must cite returned `allowed_source_refs` with `[[S#]]`. Pages with missing
+citations or unknown slugs are saved as drafts and reported by `wiki validate`.
+
+Claude Code can use the same capability through `codewiki-mcp`. Configure the MCP
+server and call:
+
+- `codewiki_wiki_plan`
+- `codewiki_wiki_evidence`
+- `codewiki_wiki_page_save`
+- `codewiki_wiki_page_validate`
+
 ## LLM Configuration
 
 CodeWiki works without an LLM: analysis, graph search, deterministic retrieval, and

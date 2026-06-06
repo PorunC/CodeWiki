@@ -13,6 +13,8 @@ import {
   displayNumber,
   displayString,
   output,
+  parseLimit,
+  readStdinText,
   runWithContextAsync,
   type CliRuntime,
 } from "../runtime.js";
@@ -24,6 +26,131 @@ export function registerWikiCommands(
   const wiki = program
     .command("wiki")
     .description("Read and generate wiki pages");
+
+  wiki
+    .command("plan")
+    .argument("<repo>", "Repository id, id prefix, or name")
+    .option("--language <language>", "Language code", "en")
+    .option("--json", "Print JSON output")
+    .action((selector: string, options: { language: string; json?: boolean }) =>
+      runWithContextAsync(runtime, async ({ store, services }) => {
+        const repo = await resolveRepo(store, selector);
+        const payload = await services.wiki.agentWikiPlan(
+          repo.id,
+          options.language,
+        );
+        output(
+          options.json,
+          payload,
+          `Planned ${displayNumber(Array.isArray(payload.pages) ? payload.pages.length : 0)} wiki pages`,
+        );
+      }),
+    );
+
+  wiki
+    .command("evidence")
+    .argument("<slug>", "Page slug")
+    .argument("<repo>", "Repository id, id prefix, or name")
+    .option("--language <language>", "Language code", "en")
+    .option("--limit <limit>", "Maximum source chunks", parseLimit, 12)
+    .option("--json", "Print JSON output")
+    .action(
+      (
+        slug: string,
+        selector: string,
+        options: { language: string; limit: number; json?: boolean },
+      ) =>
+        runWithContextAsync(runtime, async ({ store, services }) => {
+          const repo = await resolveRepo(store, selector);
+          const payload = await services.wiki.agentWikiEvidence(
+            repo.id,
+            slug,
+            options.language,
+            { limit: options.limit },
+          );
+          output(
+            options.json,
+            payload,
+            `Prepared evidence for ${displayString(slug)}`,
+          );
+        }),
+    );
+
+  wiki
+    .command("save")
+    .argument("<slug>", "Page slug")
+    .argument("<repo>", "Repository id, id prefix, or name")
+    .option("--language <language>", "Language code", "en")
+    .option("--title <title>", "Page title")
+    .option("--parent-slug <parentSlug>", "Parent page slug")
+    .option("--stdin", "Read Markdown from stdin")
+    .option("--json", "Print JSON output")
+    .action(
+      (
+        slug: string,
+        selector: string,
+        options: {
+          language: string;
+          title?: string;
+          parentSlug?: string;
+          stdin?: boolean;
+          json?: boolean;
+        },
+      ) =>
+        runWithContextAsync(runtime, async ({ store, services }) => {
+          if (!options.stdin) {
+            throw new Error("Use --stdin to provide Markdown content.");
+          }
+          const repo = await resolveRepo(store, selector);
+          const saveOptions: { title?: string; parentSlug?: string | null } =
+            {};
+          if (options.title) {
+            saveOptions.title = options.title;
+          }
+          if (options.parentSlug) {
+            saveOptions.parentSlug = options.parentSlug;
+          }
+          const payload = await services.wiki.saveAgentWikiPage(
+            repo.id,
+            slug,
+            readStdinText(),
+            options.language,
+            saveOptions,
+          );
+          output(
+            options.json,
+            payload,
+            `Saved ${displayString(slug)} as ${displayString(payload.status)}`,
+          );
+        }),
+    );
+
+  wiki
+    .command("validate")
+    .argument("<slug>", "Page slug")
+    .argument("<repo>", "Repository id, id prefix, or name")
+    .option("--language <language>", "Language code", "en")
+    .option("--json", "Print JSON output")
+    .action(
+      (
+        slug: string,
+        selector: string,
+        options: { language: string; json?: boolean },
+      ) =>
+        runWithContextAsync(runtime, async ({ store, services }) => {
+          const repo = await resolveRepo(store, selector);
+          const payload = await services.wiki.validateAgentWikiPage(
+            repo.id,
+            slug,
+            options.language,
+          );
+          output(
+            options.json,
+            payload,
+            `Wiki page ${displayString(slug)} is ${displayString(payload.status)}`,
+          );
+        }),
+    );
 
   wiki
     .command("catalog")

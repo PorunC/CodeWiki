@@ -6,6 +6,7 @@ import {
   pageResultPayload,
 } from "../../wiki/payloads.js";
 import {
+  intArg,
   languageArg,
   maybeMap,
   objectSchema,
@@ -23,6 +24,113 @@ export function buildWikiTools({
   services,
 }: ToolRuntime): ToolSpec[] {
   return [
+    tool(
+      "codewiki_wiki_plan",
+      "Plan agent-generated wiki pages without calling an external LLM.",
+      objectSchema({
+        repo: repoSelectorSchema(),
+        language: { type: "string", default: "en" },
+      }),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.wiki.agentWikiPlan(repo.id, languageArg(args));
+      },
+    ),
+    tool(
+      "codewiki_wiki_evidence",
+      "Return bounded evidence for an agent-generated wiki page.",
+      objectSchema(
+        {
+          repo: repoSelectorSchema(),
+          slug: { type: "string", description: "Wiki page slug." },
+          language: { type: "string", default: "en" },
+          limit: { type: "integer", default: 12 },
+        },
+        ["slug"],
+      ),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.wiki.agentWikiEvidence(
+          repo.id,
+          requiredString(args, "slug"),
+          languageArg(args),
+          { limit: intArg(args, "limit", 12) },
+        );
+      },
+    ),
+    tool(
+      "codewiki_wiki_page_save",
+      "Save agent-written Markdown for a wiki page.",
+      objectSchema(
+        {
+          repo: repoSelectorSchema(),
+          slug: { type: "string", description: "Wiki page slug." },
+          markdown: { type: "string", description: "Markdown content." },
+          language: { type: "string", default: "en" },
+          title: { type: "string", description: "Optional page title." },
+          parent_slug: {
+            type: "string",
+            description: "Optional parent page slug.",
+          },
+        },
+        ["slug", "markdown"],
+      ),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        const saveOptions: { title?: string; parentSlug?: string | null } = {};
+        const title = optionalString(args, "title");
+        if (title) {
+          saveOptions.title = title;
+        }
+        const parentSlug = optionalString(args, "parent_slug");
+        if (parentSlug) {
+          saveOptions.parentSlug = parentSlug;
+        }
+        return services.wiki.saveAgentWikiPage(
+          repo.id,
+          requiredString(args, "slug"),
+          requiredString(args, "markdown"),
+          languageArg(args),
+          saveOptions,
+        );
+      },
+    ),
+    tool(
+      "codewiki_wiki_page_validate",
+      "Validate an agent-generated wiki page.",
+      objectSchema(
+        {
+          repo: repoSelectorSchema(),
+          slug: { type: "string", description: "Wiki page slug." },
+          language: { type: "string", default: "en" },
+        },
+        ["slug"],
+      ),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.wiki.validateAgentWikiPage(
+          repo.id,
+          requiredString(args, "slug"),
+          languageArg(args),
+        );
+      },
+    ),
     tool(
       "codewiki_wiki_catalog_generate",
       "Generate a wiki catalog for a repository and language.",

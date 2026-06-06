@@ -513,6 +513,72 @@ describe("WikiService", () => {
     expect(store.getDocPage(repo.id, "old-page")).toBeNull();
   });
 
+  it("plans, evidences, saves, and validates agent-generated wiki pages", async () => {
+    const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-agent-"));
+    store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
+    const repo = store.upsertRepo(repoDescriptor(root));
+    store.replaceGraph(repo.id, {
+      nodes: graphNodes(repo.id),
+      edges: graphEdges(repo.id),
+      chunks: codeChunks(repo.id),
+    });
+
+    const service = new WikiService(store);
+    const plan = await service.agentWikiPlan(repo.id);
+
+    expect(plan).toMatchObject({
+      repo_id: repo.id,
+      language_code: "en",
+    });
+    expect(jsonObjectArray(plan.pages).map((page) => page.slug)).toEqual([
+      "root",
+      "src",
+    ]);
+
+    const evidence = await service.agentWikiEvidence(repo.id, "src");
+    const allowedSourceRefs = jsonObjectArray(evidence.allowed_source_refs);
+    expect(allowedSourceRefs[0]).toMatchObject({
+      citation_id: "S1",
+    });
+    expect(typeof allowedSourceRefs[0]?.file_path).toBe("string");
+    expect(allowedSourceRefs[0]?.file_path).toMatch(/^src\//);
+    expect(jsonObject(evidence.retrieval_trace).query).toContain("Src");
+
+    const saved = await service.saveAgentWikiPage(
+      repo.id,
+      "src",
+      [
+        "# Src",
+        "",
+        "The `src` directory contains TypeScript runtime code and the helper implementation. [[S1]]",
+      ].join("\n"),
+      "en",
+      { title: "Src" },
+    );
+    expect(saved.status).toBe("generated");
+    expect(saved.validation_errors).toEqual([]);
+    expect(store.getDocPage(repo.id, "src")?.source_refs).toEqual([
+      expect.objectContaining({ citation_id: "S1" }),
+    ]);
+
+    const valid = await service.validateAgentWikiPage(repo.id, "src");
+    expect(valid.status).toBe("valid");
+    expect(valid.validation_errors).toEqual([]);
+
+    const invalid = await service.saveAgentWikiPage(
+      repo.id,
+      "missing",
+      "# Missing\n\nUnsupported claim. [[S99]]",
+    );
+    expect(invalid.status).toBe("draft");
+    expect(stringArray(invalid.validation_errors)).toEqual(
+      expect.arrayContaining([
+        "Catalog page not found: missing",
+        "Unknown source citation: [[S99]]",
+      ]),
+    );
+  });
+
   it("lazily builds GraphRAG chunks when wiki page generation starts from graph-only data", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-lazy-chunks-"));
     writeDemoSourceFiles(root);
