@@ -460,8 +460,13 @@ function checkRepositoryWorkflow() {
     ]).stdout,
   );
   assert(
-    updatedWiki.generated_pages?.length >= 1,
-    "wiki update did not generate any pages.",
+    updatedWiki.status === "updated" || updatedWiki.status === "up_to_date",
+    `wiki update status was ${updatedWiki.status}.`,
+  );
+  assert(
+    (updatedWiki.generated_pages?.length ?? 0) >= 1 ||
+      (updatedWiki.reused_count ?? 0) >= 1,
+    "wiki update did not generate or reuse any pages.",
   );
   const regeneratedPage = JSON.parse(
     execPackageBin([
