@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { CodeWikiStoreApi } from "../db/types.js";
 import { type CachedLlmCompletion, type LlmOperation } from "../llm/cache.js";
+import { dynamicJsonMessage, stableJsonMessage } from "../llm/messages.js";
+import { loadPrompt } from "../services/prompts.js";
 import type { DocCatalog, DocPage, JsonObject, JsonValue } from "../types.js";
 import { catalogPayload, llmCachePayload, pagePayload } from "./payloads.js";
 
@@ -388,34 +390,7 @@ function translationMessages(
 }
 
 function translationSystemPrompt(): string {
-  return [
-    "You are translating Code Wiki documentation.",
-    "",
-    "Rules:",
-    "- Translate human-facing prose and headings into the target language, but localize the",
-    "  writing instead of translating word-for-word.",
-    "- Preserve code blocks, inline code, file paths, URLs, anchors, slugs, identifiers,",
-    "  environment variables, API route paths, and citation/source links.",
-    "- For catalog translation, translate only `title` values. Keep each returned `path`",
-    "  exactly unchanged.",
-    "- For page translation, preserve Markdown structure and keep source evidence sections",
-    "  intact. Do not remove citations, source file links, or graph sections.",
-    "- When the target language is Chinese (`zh`, `zh-CN`, or `zh-Hans`), write as a",
-    "  native Chinese technical document:",
-    "  - Use natural Simplified Chinese phrasing that fits how Chinese developers read",
-    "    architecture and API docs.",
-    '  - Prefer concise headings and noun phrases, such as "架构", "阅读指南",',
-    '    "依赖关系", "相关源文件", "控制流程", "数据模型", and "故障处理".',
-    "  - Reorder sentences when needed so the Chinese reads smoothly. Avoid English-style",
-    "    sentence order, stiff passive voice, and literal connective phrases.",
-    '  - Avoid machine-translation markers such as repeated "该/此/其", "进行",',
-    '    "通过...来", "被用于", "负责于", or awkward "的" chains.',
-    "  - Keep technical terms that are normally written in English, such as API, CLI,",
-    "    GraphRAG, FastAPI, React, Markdown, Mermaid, JSON, cache, endpoint, hook, and",
-    "    provider, unless a natural Chinese term is standard in context.",
-    "  - Preserve citations and source labels exactly; translate the surrounding prose.",
-    "- Return only one valid JSON object in the requested shape.",
-  ].join("\n");
+  return loadPrompt("translation.md");
 }
 
 function translationRepairPayload(
@@ -742,27 +717,6 @@ function translationCacheKey(cacheParts: unknown[], attempt: number): string {
   return `translation:v3:${[...cacheParts, "attempt", attempt]
     .map((part) => String(part).replace(/[:\s]+/g, "-"))
     .join(":")}`;
-}
-
-function stableJsonMessage(label: string, payload: JsonObject): string {
-  return `${label}:\n${stableJson(payload)}`;
-}
-
-function dynamicJsonMessage(label: string, payload: JsonObject): string {
-  return `${label}:\n${JSON.stringify(payload)}`;
-}
-
-function stableJson(value: JsonValue): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function normalizeLanguage(value: string | undefined | null): string {

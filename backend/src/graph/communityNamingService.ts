@@ -3,6 +3,8 @@ import { buildCommunityEdges } from "../analysis/graphCommunities.js";
 import type { CodeWikiStoreApi } from "../db/types.js";
 import { notFoundError } from "../errors.js";
 import { type CachedLlmCompletion, type LlmOperation } from "../llm/cache.js";
+import { dynamicJsonMessage, stableJsonMessage } from "../llm/messages.js";
+import { loadPrompt } from "../services/prompts.js";
 import type {
   CodeGraphEdge,
   CodeGraphNode,
@@ -63,24 +65,7 @@ const MAX_COMMUNITY_EDGES = 10;
 const MAX_NAME_LENGTH = 64;
 const LLM_NOT_CONFIGURED_ERROR =
   "LLM community naming skipped because no LLM endpoint or API key is configured.";
-const COMMUNITY_NAMING_SYSTEM_PROMPT = `Name and summarize graph communities for GraphRAG retrieval and Wiki catalog generation.
-
-Focus on:
-- A concise developer-facing subsystem name
-- A source-grounded semantic summary of main responsibility
-- Key files and symbols
-- Important incoming and outgoing dependencies
-- Risks or unclear boundaries
-
-Rules:
-- Use only the provided graph evidence.
-- Keep names short and specific, preferably 2-6 words.
-- Write a fresh summary instead of copying the deterministic summary verbatim.
-- Keep summaries concise, normally one or two sentences.
-- Prefer capability or workflow names over generic layer names.
-- Avoid generic names such as Backend Subsystem, Frontend Subsystem, Core, Misc, Cluster N, or Community N.
-- Do not alter node membership or invent modules.
-- Return only JSON in the requested shape.`;
+const COMMUNITY_NAMING_SYSTEM_PROMPT = loadPrompt("community_summary.md");
 
 export class CommunityNamingService {
   constructor(
@@ -695,27 +680,6 @@ function renamedCountBetween(
         previous.summary !== community.summary)
     );
   }).length;
-}
-
-function stableJsonMessage(label: string, payload: JsonObject): string {
-  return `${label}:\n${stableJson(payload)}`;
-}
-
-function dynamicJsonMessage(label: string, payload: JsonObject): string {
-  return `${label}:\n${JSON.stringify(payload)}`;
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function compactJsonObject(values: Record<string, unknown>): JsonObject {

@@ -57,7 +57,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-prompts.mjs",
     "build:frontend": "npm --prefix ../frontend run build",
     "check:ports": "node scripts/check-ports.mjs",
     "clean": "rimraf dist coverage",

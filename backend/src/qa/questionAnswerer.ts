@@ -7,10 +7,12 @@ import {
   type CachedLlmCompletion,
   type LlmOperation,
 } from "../llm/cache.js";
+import { dynamicJsonMessage, stableJsonMessage } from "../llm/messages.js";
 import {
   sourceUrlBaseForRepo,
   sourceUrlForRange,
 } from "../services/sourceUrls.js";
+import { loadPrompt } from "../services/prompts.js";
 import type { JsonObject, RepoDescriptor, RetrievalTrace } from "../types.js";
 
 export type QuestionAnswerRequest = {
@@ -228,15 +230,7 @@ function qaMessages(context: QuestionContext): LlmOperation["messages"] {
   return [
     {
       role: "system",
-      content: [
-        "Answer the user's code question using only the provided GraphRAG context.",
-        "",
-        "Rules:",
-        "- Cite source references.",
-        "- Do not speculate beyond the retrieved code.",
-        "- If evidence is missing, say what is missing.",
-        "- Keep the answer actionable for a developer reading the repository.",
-      ].join("\n"),
+      content: loadPrompt("qa.md"),
     },
     {
       role: "user",
@@ -271,27 +265,6 @@ function llmInputPayload(context: QuestionContext): JsonObject {
     related_edges: context.relatedEdges,
     community_summaries: context.relatedCommunities,
   };
-}
-
-function stableJsonMessage(label: string, payload: JsonObject): string {
-  return `${label}:\n${stableJson(payload)}`;
-}
-
-function dynamicJsonMessage(label: string, payload: JsonObject): string {
-  return `${label}:\n${JSON.stringify(payload)}`;
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function questionHash(question: string): string {
