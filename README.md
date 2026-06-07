@@ -37,6 +37,8 @@ GraphRAG retrieval, source-grounded wiki generation, and LiteLLM-powered Q&A.
   source references, and configuration usage.
 - Generate DeepWiki-style catalogs and pages with source citations, diagrams,
   translations, incremental updates, and browser-side exports.
+- Install the bundled Codex skill so Codex can plan, write, validate, and export
+  source-grounded wiki pages from local CodeWiki evidence.
 - Ask GraphRAG-grounded questions through the Web UI, CLI, HTTP API, or MCP server.
 - Use Lite Mode for a project-local, no-LLM graph index optimized for AI agent context,
   traces, impact analysis, and MCP tools.
@@ -72,6 +74,8 @@ codewiki analyze .
 codewiki graphrag build . --embeddings
 codewiki wiki catalog .
 codewiki wiki pages .
+codewiki skill install codex
+codewiki wiki plan . --json
 codewiki ask --repo my-repo "How does the main workflow fit together?"
 codewiki mcp
 ```
@@ -102,6 +106,24 @@ catches up an existing index on startup unless `--no-sync` is passed.
 `codewiki lite agents install` can write Codex CLI and Claude Code MCP config plus
 agent instructions for the project.
 
+### Codex Skill
+
+CodeWiki ships a Codex-ready skill for agent-written wiki pages. It installs to
+`$CODEX_HOME/skills/codewiki`, or `~/.codex/skills/codewiki` when `CODEX_HOME` is not
+set, and includes compact evidence and standalone HTML export helpers:
+
+```bash
+codewiki skill install codex
+codewiki wiki plan . --language en --json
+codewiki wiki evidence overview . --language en --limit 5 --json
+cat overview.md | codewiki wiki save overview . --language en --title "Overview" --stdin --json
+codewiki wiki validate overview . --language en --json
+```
+
+This workflow does not call CodeWiki's external LLM-backed wiki generator. Codex reads
+bounded source evidence, writes Markdown with CodeWiki source citations, saves it into
+the normal wiki store, and validates the saved page before export or publication.
+
 ## Configuration
 
 CodeWiki defaults to SQLite:
@@ -127,7 +149,7 @@ codewiki config --profile qa --model openai/gpt-4.1 --api-key "$OPENAI_API_KEY"
 ## Documentation
 
 - [Usage Guide](docs/usage.md): installation, Docker, database setup, wiki workflow,
-  LLM profiles, CLI, MCP, HTTP API, and supported languages.
+  Codex skill setup, LLM profiles, CLI, MCP, HTTP API, and supported languages.
 - [Design Notes](docs/design.md): architecture and feature design.
 - [Benchmarking Guide](docs/benchmarking.md) and
   [Benchmark Report](docs/benchmark-report-2026-05-22.md): benchmark workflow and

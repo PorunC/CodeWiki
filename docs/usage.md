@@ -3,7 +3,8 @@
 [Project README](../README.md) | [简体中文](README.zh-CN.md)
 
 This guide covers installation, runtime configuration, repository workflows, CLI
-commands, MCP integration, HTTP APIs, and supported AST languages for CodeWiki.
+commands, Codex skill setup, MCP integration, HTTP APIs, and supported AST languages
+for CodeWiki.
 
 ## Current Scope
 
@@ -22,6 +23,8 @@ commands, MCP integration, HTTP APIs, and supported AST languages for CodeWiki.
 - DeepWiki-style wiki generation with catalog planning, detailed page generation,
   source citations, automatic diagrams, multi-language translation, and incremental
   updates.
+- Bundled Codex skill for agent-written wiki pages based on bounded CodeWiki evidence,
+  without calling CodeWiki's external LLM-backed wiki generator.
 - Pure frontend wiki exports: interactive standalone HTML and Obsidian vault ZIP.
 - Design notes live in [design.md](design.md).
 
@@ -111,6 +114,47 @@ errors.
 Mermaid diagrams are generated server-side from validated graph facts. Invalid diagrams
 are filtered out instead of failing the whole page, so a bad graph block should not turn
 a good wiki page into a draft.
+
+### Codex Skill and Agent-Written Wikis
+
+CodeWiki ships a Codex-ready skill that lets Codex generate or refresh wiki pages from
+local repository evidence. Install it with:
+
+```bash
+codewiki skill install codex
+```
+
+By default the skill is copied to `$CODEX_HOME/skills/codewiki`, or to
+`~/.codex/skills/codewiki` when `CODEX_HOME` is not set. The skill includes:
+
+- `SKILL.md`, which teaches Codex the source-grounded wiki workflow.
+- `scripts/compact-evidence.mjs`, which trims `codewiki wiki evidence` output for one
+  page into a smaller evidence pack.
+- `scripts/export-html.mjs`, which exports the generated wiki to a standalone HTML
+  file.
+- `references/page-style.md`, which defines the expected Markdown page shape.
+
+Use this workflow when you want Codex to write wiki pages itself instead of using
+CodeWiki's external LLM-backed `wiki catalog` and `wiki pages` generator:
+
+```bash
+codewiki repos add . --json
+codewiki analyze . --json
+codewiki wiki plan . --language en --json
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/codewiki"
+node "$SKILL_DIR/scripts/compact-evidence.mjs" overview . --language en --limit 5
+# Codex writes Markdown using only the returned evidence and [[S#]] source citations.
+cat overview.md | codewiki wiki save overview . --language en --title "Overview" --stdin --json
+codewiki wiki validate overview . --language en --json
+node "$SKILL_DIR/scripts/export-html.mjs" . --language en --output codewiki-wiki.html
+```
+
+`codewiki wiki plan` creates a deterministic page queue from analyzed repository facts.
+`codewiki wiki evidence` returns bounded source refs for one slug, and the compact
+evidence script is the recommended Codex path because raw evidence can be too large for
+agent context. `codewiki wiki save` persists the agent-written Markdown in the normal
+wiki store, and `codewiki wiki validate` checks source citations before the page is
+treated as valid.
 
 ## Wiki Languages
 
@@ -263,6 +307,13 @@ codewiki wiki pages .
 codewiki wiki update . --language en
 codewiki wiki page overview .
 
+# Codex skill and agent-written wiki generation
+codewiki skill install codex
+codewiki wiki plan . --language en --json
+codewiki wiki evidence overview . --language en --limit 5 --json
+cat overview.md | codewiki wiki save overview . --language en --title "Overview" --stdin --json
+codewiki wiki validate overview . --language en --json
+
 # Incremental graph update, with wiki regeneration enabled by default
 codewiki update .
 codewiki watch .
@@ -384,7 +435,9 @@ repository graph and wiki as tools:
 
 The MCP server exposes tools for repository registration/listing, AST analysis,
 GraphRAG index building and retrieval, LLM-backed Q&A, graph search/exploration,
-affected-file analysis, and generated wiki page reads.
+affected-file analysis, generated wiki page reads, and agent-written wiki workflows.
+The agent wiki tools are `codewiki_wiki_plan`, `codewiki_wiki_evidence`,
+`codewiki_wiki_page_save`, and `codewiki_wiki_page_validate`.
 
 ## HTTP API Highlights
 
