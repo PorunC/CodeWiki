@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-06-07
+
+### Added
+
+- **CodeWiki agent skill** - bundled a Codex-ready CodeWiki skill with compact
+  evidence and standalone HTML export helper scripts.
+- **Agent wiki workflow** - added no-LLM `wiki plan`, `wiki evidence`,
+  `wiki save`, and `wiki validate` CLI commands, plus matching MCP tools for
+  agent-written source-grounded wiki pages.
+
 ## [0.6.4] - 2026-06-03
 
 ### Changed
