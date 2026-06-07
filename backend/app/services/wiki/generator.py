@@ -5,6 +5,7 @@ from backend.app.database import DocCatalogRecord, DocPageRecord, CodeWikiStore,
 from backend.app.services.graphrag import GraphRAGRetriever
 from backend.app.services.llm.gateway import LLMGateway
 from backend.app.services.repo_context import RepositoryContextBuilder
+from backend.app.services.wiki.agent_workflow import WikiAgentWorkflow
 from backend.app.services.wiki.catalog_generator import WikiCatalogGenerator
 from backend.app.services.wiki.incremental_strategy import WikiIncrementalStrategy, WikiUpdateResult
 from backend.app.services.wiki.language import WikiLanguageConfig, normalize_language
@@ -45,6 +46,7 @@ class WikiGenerator:
             store=self.store,
         )
         self.translator = WikiTranslator(self.llm, store=self.store)
+        self.agent_workflow = WikiAgentWorkflow(store=self.store, retriever=self.retriever)
         self.page_orchestrator = WikiPageOrchestrator(
             store=self.store,
             catalog_generator=self.catalog_generator,
@@ -134,6 +136,57 @@ class WikiGenerator:
             source_language=source_language,
             target_language=target_language,
         )
+
+    async def agent_wiki_plan(
+        self,
+        repo_id: str,
+        *,
+        language_code: str = "en",
+    ) -> dict[str, Any]:
+        return await self.agent_workflow.plan(repo_id, language_code=language_code)
+
+    async def agent_wiki_evidence(
+        self,
+        repo_id: str,
+        slug: str,
+        *,
+        language_code: str = "en",
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        return await self.agent_workflow.evidence(
+            repo_id,
+            slug,
+            language_code=language_code,
+            limit=limit,
+        )
+
+    async def save_agent_wiki_page(
+        self,
+        repo_id: str,
+        slug: str,
+        markdown: str,
+        *,
+        language_code: str = "en",
+        title: str | None = None,
+        parent_slug: str | None = None,
+    ) -> dict[str, Any]:
+        return await self.agent_workflow.save_page(
+            repo_id,
+            slug,
+            markdown,
+            language_code=language_code,
+            title=title,
+            parent_slug=parent_slug,
+        )
+
+    async def validate_agent_wiki_page(
+        self,
+        repo_id: str,
+        slug: str,
+        *,
+        language_code: str = "en",
+    ) -> dict[str, Any]:
+        return await self.agent_workflow.validate_page(repo_id, slug, language_code=language_code)
 
 
 __all__ = ["PageGenerationResult", "WikiGenerator", "WikiTranslationResult", "WikiUpdateResult"]

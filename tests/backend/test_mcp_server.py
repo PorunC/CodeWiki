@@ -42,6 +42,10 @@ def test_mcp_initialize_and_lists_tools(tmp_path: Path) -> None:
     assert "codewiki_trace" in tool_names
     assert "codewiki_node" in tool_names
     assert "codewiki_wiki_catalog_generate" in tool_names
+    assert "codewiki_wiki_plan" in tool_names
+    assert "codewiki_wiki_evidence" in tool_names
+    assert "codewiki_wiki_page_save" in tool_names
+    assert "codewiki_wiki_page_validate" in tool_names
     assert "codewiki_wiki_translate" in tool_names
     assert "codewiki_graph_search" in tool_names
     assert "codewiki_ask" in tool_names
@@ -93,6 +97,36 @@ def test_mcp_repo_add_analyze_and_graph_search(tmp_path: Path) -> None:
 
     status = _call_tool(server, "codewiki_graph_status", {"repo": added["id"]})
     assert status["node_count"] >= 2
+
+    plan = _call_tool(server, "codewiki_wiki_plan", {"repo": added["id"]})
+    assert [page["slug"] for page in plan["pages"]] == ["root"]
+
+    evidence = _call_tool(
+        server,
+        "codewiki_wiki_evidence",
+        {"repo": added["id"], "slug": "root", "limit": 1},
+    )
+    assert evidence["allowed_source_refs"][0]["citation_id"] == "S1"
+
+    saved = _call_tool(
+        server,
+        "codewiki_wiki_page_save",
+        {
+            "repo": added["id"],
+            "slug": "root",
+            "title": "Overview",
+            "markdown": "# Overview\n\nThe repository answer function is indexed for agents. [[S1]]",
+        },
+    )
+    assert saved["status"] == "generated"
+    assert saved["validation_errors"] == []
+
+    validation = _call_tool(
+        server,
+        "codewiki_wiki_page_validate",
+        {"repo": added["id"], "slug": "root"},
+    )
+    assert validation["status"] == "valid"
 
     context = _call_tool(server, "codewiki_context", {"repo": added["id"], "task": "answer"})
     assert "answer" in context["text"]

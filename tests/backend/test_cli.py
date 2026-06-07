@@ -139,6 +139,77 @@ def test_cli_reads_wiki_pages_by_language(tmp_path: Path, monkeypatch) -> None:
     assert read_result.output == "# 概览\n\n"
 
 
+def test_cli_installs_codex_skill(tmp_path: Path, monkeypatch) -> None:
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["skill", "install", "codex", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    skill_dir = codex_home / "skills" / "codewiki"
+    skill = skill_dir / "SKILL.md"
+    assert payload["status"] == "installed"
+    assert Path(payload["destination"]) == skill_dir
+    assert skill.exists()
+    content = skill.read_text(encoding="utf-8")
+    assert content.startswith("---\n")
+    assert "name: codewiki" in content
+    assert "codewiki wiki plan" in content
+    assert (skill_dir / "scripts" / "compact-evidence.mjs").exists()
+    assert (skill_dir / "scripts" / "export-html.mjs").exists()
+
+
+def test_cli_agent_wiki_plan_evidence_save_validate(tmp_path: Path, monkeypatch) -> None:
+    _configure_database(tmp_path, monkeypatch)
+    repo_dir = _repo(tmp_path)
+    runner = CliRunner()
+    add_result = runner.invoke(main, ["repos", "add", str(repo_dir), "--json"])
+    repo_id = json.loads(add_result.output)["id"]
+    analyze_result = runner.invoke(
+        main,
+        ["analyze", repo_id, "--no-community-summaries", "--json"],
+    )
+    assert analyze_result.exit_code == 0, analyze_result.output
+
+    plan_result = runner.invoke(main, ["wiki", "plan", repo_id, "--json"])
+
+    assert plan_result.exit_code == 0, plan_result.output
+    plan = json.loads(plan_result.output)
+    assert plan["repo_id"] == repo_id
+    assert [page["slug"] for page in plan["pages"]] == ["root"]
+
+    evidence_result = runner.invoke(
+        main,
+        ["wiki", "evidence", "root", repo_id, "--limit", "1", "--json"],
+    )
+
+    assert evidence_result.exit_code == 0, evidence_result.output
+    evidence = json.loads(evidence_result.output)
+    assert evidence["allowed_source_refs"][0]["citation_id"] == "S1"
+    assert evidence["retrieval_trace"]["nodes"]
+
+    save_result = runner.invoke(
+        main,
+        ["wiki", "save", "root", repo_id, "--title", "Overview", "--stdin", "--json"],
+        input="# Overview\n\nThe repository has indexed source files for agents. [[S1]]\n",
+    )
+
+    assert save_result.exit_code == 0, save_result.output
+    saved = json.loads(save_result.output)
+    assert saved["status"] == "generated"
+    assert saved["validation_errors"] == []
+    assert saved["page"]["source_refs"][0]["citation_id"] == "S1"
+
+    validate_result = runner.invoke(main, ["wiki", "validate", "root", repo_id, "--json"])
+
+    assert validate_result.exit_code == 0, validate_result.output
+    validation = json.loads(validate_result.output)
+    assert validation["status"] == "valid"
+    assert validation["validation_errors"] == []
+
+
 def test_cli_registers_git_url(tmp_path: Path, monkeypatch) -> None:
     if shutil.which("git") is None:
         pytest.skip("git executable is required for clone integration test")

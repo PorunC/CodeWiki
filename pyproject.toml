@@ -80,6 +80,7 @@ exclude = ["data*", "docs*", "frontend*", "tests*"]
 [tool.setuptools.package-data]
 "backend.app.prompts" = ["*.md"]
 "backend.app" = ["static/**/*"]
+"backend.skills.codewiki" = ["SKILL.md", "references/*.md", "scripts/*.mjs"]
 
 [tool.setuptools.cmdclass]
 build_py = "backend.build_frontend.build_py"

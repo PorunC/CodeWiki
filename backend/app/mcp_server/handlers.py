@@ -412,6 +412,45 @@ async def wiki_page_regenerate(store: CodeWikiStore, args: JsonObject) -> Any:
     return _page_result_payload(result)
 
 
+async def wiki_plan(store: CodeWikiStore, args: JsonObject) -> Any:
+    repo = resolve_repo(store, optional_string(args, "repo"))
+    return await _wiki_generator(store).agent_wiki_plan(
+        repo.id,
+        language_code=optional_string(args, "language") or "en",
+    )
+
+
+async def wiki_evidence(store: CodeWikiStore, args: JsonObject) -> Any:
+    repo = resolve_repo(store, optional_string(args, "repo"))
+    return await _wiki_generator(store).agent_wiki_evidence(
+        repo.id,
+        required_string(args, "slug"),
+        language_code=optional_string(args, "language") or "en",
+        limit=int_arg(args, "limit", 12),
+    )
+
+
+async def wiki_page_save(store: CodeWikiStore, args: JsonObject) -> Any:
+    repo = resolve_repo(store, optional_string(args, "repo"))
+    return await _wiki_generator(store).save_agent_wiki_page(
+        repo.id,
+        required_string(args, "slug"),
+        required_string(args, "markdown"),
+        language_code=optional_string(args, "language") or "en",
+        title=optional_string(args, "title"),
+        parent_slug=optional_string(args, "parent_slug"),
+    )
+
+
+async def wiki_page_validate(store: CodeWikiStore, args: JsonObject) -> Any:
+    repo = resolve_repo(store, optional_string(args, "repo"))
+    return await _wiki_generator(store).validate_agent_wiki_page(
+        repo.id,
+        required_string(args, "slug"),
+        language_code=optional_string(args, "language") or "en",
+    )
+
+
 async def wiki_translate(store: CodeWikiStore, args: JsonObject) -> Any:
     repo = resolve_repo(store, optional_string(args, "repo"))
     result = await _wiki_generator(store).translate_wiki(

@@ -385,6 +385,60 @@ def build_tools(store: CodeWikiStore) -> dict[str, ToolSpec]:
             handler=lambda args: handlers.wiki_page_regenerate(store, args),
         ),
         ToolSpec(
+            name="codewiki_wiki_plan",
+            description="Plan agent-generated wiki pages without calling an external LLM.",
+            input_schema=object_schema(
+                {
+                    "repo": {"type": "string", "description": "Repo id, name, path, or Git URL."},
+                    "language": {"type": "string", "default": "en"},
+                }
+            ),
+            handler=lambda args: handlers.wiki_plan(store, args),
+        ),
+        ToolSpec(
+            name="codewiki_wiki_evidence",
+            description="Return bounded evidence for an agent-generated wiki page.",
+            input_schema=object_schema(
+                {
+                    "repo": {"type": "string", "description": "Repo id, name, path, or Git URL."},
+                    "slug": {"type": "string", "description": "Wiki page slug."},
+                    "language": {"type": "string", "default": "en"},
+                    "limit": {"type": "integer", "default": 12},
+                },
+                required=["slug"],
+            ),
+            handler=lambda args: handlers.wiki_evidence(store, args),
+        ),
+        ToolSpec(
+            name="codewiki_wiki_page_save",
+            description="Save agent-written Markdown for a wiki page.",
+            input_schema=object_schema(
+                {
+                    "repo": {"type": "string", "description": "Repo id, name, path, or Git URL."},
+                    "slug": {"type": "string", "description": "Wiki page slug."},
+                    "markdown": {"type": "string", "description": "Markdown content."},
+                    "language": {"type": "string", "default": "en"},
+                    "title": {"type": "string", "description": "Optional page title."},
+                    "parent_slug": {"type": "string", "description": "Optional parent page slug."},
+                },
+                required=["slug", "markdown"],
+            ),
+            handler=lambda args: handlers.wiki_page_save(store, args),
+        ),
+        ToolSpec(
+            name="codewiki_wiki_page_validate",
+            description="Validate an agent-generated wiki page.",
+            input_schema=object_schema(
+                {
+                    "repo": {"type": "string", "description": "Repo id, name, path, or Git URL."},
+                    "slug": {"type": "string", "description": "Wiki page slug."},
+                    "language": {"type": "string", "default": "en"},
+                },
+                required=["slug"],
+            ),
+            handler=lambda args: handlers.wiki_page_validate(store, args),
+        ),
+        ToolSpec(
             name="codewiki_wiki_translate",
             description="Translate an existing wiki from one language to another.",
             input_schema=object_schema(

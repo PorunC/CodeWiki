@@ -6,3 +6,4 @@ include frontend/tsconfig.node.json
 include frontend/vite.config.ts
 recursive-include frontend/src *
 recursive-include backend/app/static *
+recursive-include backend/skills/codewiki *

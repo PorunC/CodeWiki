@@ -4,7 +4,7 @@ import click
 
 from backend.app.config import get_settings
 from backend.app.database import get_store
-from backend.app.cli import analysis, ask, config, files, graph, graphrag, lite, repos, serve, wiki
+from backend.app.cli import analysis, ask, config, files, graph, graphrag, lite, repos, serve, skill, wiki
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -46,6 +46,7 @@ files.register(main)
 wiki.register(main)
 ask.register(main)
 lite.register(main)
+skill.register(main)
 serve.register(main)
 
 
