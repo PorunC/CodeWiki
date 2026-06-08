@@ -22,12 +22,16 @@ Use this skill when the user wants Codex to generate or refresh CodeWiki wiki pa
 3. Plan the wiki queue:
    - `codewiki wiki plan <repo> --language en --json`
 4. For each page slug, fetch compact evidence:
-   - `node <skill-dir>/scripts/compact-evidence.mjs <slug> <repo> --language en --limit 5`
+   - `node <skill-dir>/scripts/compact-evidence.mjs <slug> <repo> --language en --limit 8`
    - Use a lower `--limit` for simple pages. Raise it only when validation or obvious gaps require more evidence.
-   - Fall back to `codewiki wiki evidence <slug> <repo> --language en --limit 3 --json` only when the compact script is unavailable.
+   - Fall back to `codewiki wiki evidence <slug> <repo> --language en --limit 5 --json` only when the compact script is unavailable.
 5. Write Markdown using only the compact evidence.
    - Cite claims with `[[S#]]` citation IDs from `allowed_source_refs`.
    - Follow `references/page-style.md` for page shape.
+   - Start with `# <title>` and `## Purpose and Scope`.
+   - Include at least one implementation detail section after Purpose and Scope.
+   - Prefer evidence-backed tables for key files, components, workflows, APIs/data contracts, configuration, or failure modes.
+   - Do not add `Sources`, `Relevant source files`, `Related Pages`, or Mermaid sections.
 6. Save the page:
    - `codewiki wiki save <slug> <repo> --language en --title "<title>" --stdin --json`
 7. Validate and repair until valid:
@@ -48,6 +52,6 @@ When CodeWiki MCP is available, prefer these tools for catalog planning, page pl
 - `codewiki_wiki_page_save`
 - `codewiki_wiki_page_validate`
 
-For page evidence, prefer `scripts/compact-evidence.mjs` because raw MCP evidence can be too large for the agent context. Use `codewiki_wiki_evidence` only as a fallback with `limit <= 3`, then keep only `page`, `catalog_context`, `allowed_source_refs`, and short `source_chunks.content` excerpts before writing.
+For page evidence, prefer `scripts/compact-evidence.mjs` because raw MCP evidence can be too large for the agent context. Use `codewiki_wiki_evidence` only as a fallback with `limit <= 5`, then keep only `page`, `catalog_context`, `writing_brief`, `allowed_source_refs`, and short `source_chunks.content` excerpts before writing.
 
-Always save and validate the catalog before requesting page evidence. Always fetch compact evidence before writing a page. Do not paste full `retrieval_trace.context`, `context_pack`, large chunk bodies, or unrelated nodes into the conversation. Do not invent source claims, file paths, APIs, wiki pages, or architecture facts that are absent from the catalog/page evidence packs.
+Always save and validate the catalog before requesting page evidence. Always fetch compact evidence and read `references/page-style.md` before writing a page. Do not paste full `retrieval_trace.context`, `context_pack`, large chunk bodies, or unrelated nodes into the conversation. Do not invent source claims, file paths, APIs, wiki pages, or architecture facts that are absent from the catalog/page evidence packs.

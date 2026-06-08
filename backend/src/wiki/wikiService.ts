@@ -990,8 +990,48 @@ function agentEvidencePayload(
     },
     retrieval_trace: retrievalTracePayload(trace),
     allowed_source_refs: allowedSourceRefsFromTrace(trace),
-    instructions:
-      "Only write claims supported by evidence; cite with [[S#]] using allowed_source_refs.",
+    writing_brief: agentPageWritingBrief(node),
+    instructions: [
+      "Write a DeepWiki-style Markdown page from the returned evidence only.",
+      'Start with "# {title}" and include "## Purpose and Scope" immediately after the title.',
+      "Use concrete file, symbol, workflow, API, data, and boundary details from retrieval_trace and allowed_source_refs.",
+      "Cite concrete code claims with [[S#]] markers from allowed_source_refs.",
+      "Do not add Sources, Relevant source files, Related Pages, or Mermaid sections; CodeWiki renders source refs and graph context separately.",
+      "If evidence is too thin, request more evidence for this slug instead of inventing details.",
+    ],
+  };
+}
+
+function agentPageWritingBrief(node: GenerationNode): JsonObject {
+  return {
+    title: catalogItemTitle(node.item),
+    page_kind: node.item.kind ?? "page",
+    path: node.item.path ?? null,
+    topic: wikiPageTopic(node.item),
+    required_sections: [
+      "# {title}",
+      "## Purpose and Scope",
+      "one or more implementation-specific sections such as System Context, Core Components, Control Flow, Data Model, API Surface, Configuration, Extension Points, Failure Handling, or Operational Notes",
+    ],
+    required_detail_blocks: [
+      "a Key Files or component responsibility table when multiple files or symbols are evidenced",
+      "a workflow/control-flow table when calls, imports, routes, or execution steps are evidenced",
+      "a boundary/dependency/configuration/failure-mode section when the evidence supports it",
+    ],
+    parent_page_guidance:
+      node.hasChildren || node.item.kind === "category"
+        ? "Synthesize how child pages relate, which responsibilities stay in each child, and where shared control flow, data contracts, or dependencies cross boundaries. Do not simply list child pages."
+        : "Explain the concrete subsystem, workflow stage, public surface, data contract family, UI view, provider integration, export format, CLI flow, or extension point represented by this page.",
+    citation_policy: [
+      "Every factual claim about code should have a nearby [[S#]] citation.",
+      "Use exact file paths from allowed_source_refs.",
+      "Do not cite IDs that are absent from allowed_source_refs.",
+    ],
+    quality_bar: [
+      "Avoid generic tutorial prose.",
+      "Prefer short paragraphs and compact tables over long summaries.",
+      "State missing evidence briefly instead of guessing.",
+    ],
   };
 }
 
@@ -1021,10 +1061,40 @@ function validateAgentMarkdown(markdown: string): string[] {
   if (trimmed && !/^#\s+\S/m.test(trimmed)) {
     errors.push("Markdown must include an H1 title.");
   }
-  if (trimmed && trimmed.length < 40) {
+  if (trimmed && !/^##\s+Purpose and Scope\s*$/im.test(trimmed)) {
+    errors.push(
+      "markdown must include required heading: ## Purpose and Scope.",
+    );
+  }
+  if (trimmed && !/\[\[S\d+]]/.test(trimmed)) {
+    errors.push("Markdown must include at least one [[S#]] citation marker.");
+  }
+  if (trimmed && h2Headings(trimmed).length < 2) {
+    errors.push(
+      "Markdown must include at least one implementation detail section after Purpose and Scope.",
+    );
+  }
+  if (trimmed && forbiddenAgentHeadings(trimmed).length) {
+    errors.push(
+      "Markdown must not include Sources, Relevant source files, Related Pages, or Mermaid sections.",
+    );
+  }
+  if (trimmed && trimmed.length < 160) {
     errors.push("Markdown is too short to be useful.");
   }
   return errors;
+}
+
+function h2Headings(markdown: string): string[] {
+  return [...markdown.matchAll(/^##\s+\S.*$/gm)].map((match) => match[0] ?? "");
+}
+
+function forbiddenAgentHeadings(markdown: string): string[] {
+  return h2Headings(markdown).filter((heading) =>
+    /^##\s+(Sources?|Relevant source files|Related Pages|Mermaid)\s*$/i.test(
+      heading,
+    ),
+  );
 }
 
 function extractMarkdownCitations(markdown: string): string[] {

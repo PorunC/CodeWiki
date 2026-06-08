@@ -602,7 +602,15 @@ describe("WikiService", () => {
       [
         "# Src",
         "",
-        "The `src` directory contains TypeScript runtime code and the helper implementation. [[S1]]",
+        "## Purpose and Scope",
+        "",
+        "The `src` page covers the TypeScript runtime source files and helper implementation that the catalog scoped to this module. [[S1]]",
+        "",
+        "## Key Files",
+        "",
+        "| File | Role | Evidence |",
+        "| --- | --- | --- |",
+        "| `src` | Runtime source module represented by this page. | [[S1]] |",
       ].join("\n"),
       "en",
       { title: "Src" },
@@ -626,6 +634,8 @@ describe("WikiService", () => {
     expect(stringArray(invalid.validation_errors)).toEqual(
       expect.arrayContaining([
         "Catalog page not found: missing",
+        "markdown must include required heading: ## Purpose and Scope.",
+        "Markdown must include at least one implementation detail section after Purpose and Scope.",
         "Unknown source citation: [[S99]]",
       ]),
     );

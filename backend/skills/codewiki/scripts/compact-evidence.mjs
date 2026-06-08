@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 
-const DEFAULT_LIMIT = 5;
-const DEFAULT_MAX_CHARS = 700;
+const DEFAULT_LIMIT = 8;
+const DEFAULT_MAX_CHARS = 1200;
 
 main();
 
@@ -40,7 +40,10 @@ function compactEvidence(payload, options) {
   const sourceChunks = arrayValue(trace.source_chunks).length
     ? arrayValue(trace.source_chunks)
     : arrayValue(trace.chunks);
-  const allowedRefs = arrayValue(payload.allowed_source_refs).slice(0, options.limit);
+  const allowedRefs = arrayValue(payload.allowed_source_refs).slice(
+    0,
+    options.limit,
+  );
   const chunksByCitation = new Map(
     sourceChunks
       .map((chunk, index) => {
@@ -55,6 +58,8 @@ function compactEvidence(payload, options) {
     language_code: payload.language_code,
     page: compactPage(payload.page),
     catalog_context: compactCatalogContext(payload.catalog_context),
+    writing_brief: compactWritingBrief(payload.writing_brief, payload.page),
+    evidence_overview: evidenceOverview(allowedRefs),
     allowed_source_refs: allowedRefs.map((ref) => compactSourceRef(ref)),
     source_snippets: allowedRefs.map((ref) =>
       compactSnippet(ref, chunksByCitation, options.maxChars),
@@ -62,9 +67,13 @@ function compactEvidence(payload, options) {
     symbols: arrayValue(trace.nodes).slice(0, 8).map(compactNode),
     relationships: arrayValue(trace.related_edges).slice(0, 8).map(compactEdge),
     instructions: [
-      "Write only claims supported by source_snippets, symbols, relationships, or catalog_context.",
-      "Cite concrete code claims with [[S#]] from allowed_source_refs.",
-      "If this compact pack is insufficient, rerun compact-evidence for this slug with a slightly higher --limit.",
+      'Start with "# {title}" and put "## Purpose and Scope" immediately after the title.',
+      "Write only claims supported by source_snippets, symbols, relationships, catalog_context, or writing_brief.",
+      "Cite every concrete code claim with [[S#]] from allowed_source_refs.",
+      "Include at least one implementation detail section after Purpose and Scope.",
+      "Use tables for key files, component responsibilities, workflow steps, APIs/data contracts, configuration, or failure modes when evidence supports them.",
+      "Do not write Sources, Relevant source files, Related Pages, or Mermaid sections.",
+      "If this compact pack is insufficient, rerun compact-evidence for this slug with a higher --limit or --max-chars.",
     ],
     omitted: {
       retrieval_trace_context: true,
@@ -72,6 +81,68 @@ function compactEvidence(payload, options) {
       full_chunk_bodies: true,
       total_source_chunks: sourceChunks.length,
     },
+  };
+}
+
+function compactWritingBrief(value, page) {
+  const brief = objectValue(value);
+  if (Object.keys(brief).length) {
+    return {
+      title: stringValue(brief.title),
+      page_kind: stringValue(brief.page_kind),
+      path: stringValue(brief.path),
+      topic: stringValue(brief.topic),
+      required_sections: arrayValue(brief.required_sections).filter(
+        (entry) => typeof entry === "string",
+      ),
+      required_detail_blocks: arrayValue(brief.required_detail_blocks).filter(
+        (entry) => typeof entry === "string",
+      ),
+      parent_page_guidance: stringValue(brief.parent_page_guidance),
+      citation_policy: arrayValue(brief.citation_policy).filter(
+        (entry) => typeof entry === "string",
+      ),
+      quality_bar: arrayValue(brief.quality_bar).filter(
+        (entry) => typeof entry === "string",
+      ),
+    };
+  }
+  const compactedPage = compactPage(page) || {};
+  return {
+    title: compactedPage.title,
+    page_kind: compactedPage.kind,
+    path: compactedPage.path,
+    topic: compactedPage.topic,
+    required_sections: [
+      "# {title}",
+      "## Purpose and Scope",
+      "one or more implementation-specific sections",
+    ],
+    required_detail_blocks: [
+      "Key Files or component responsibility table",
+      "workflow/control-flow table when evidenced",
+    ],
+    parent_page_guidance: compactedPage.has_children
+      ? "Synthesize child-page boundaries instead of listing child pages."
+      : "Explain the concrete subsystem represented by this page.",
+    citation_policy: [
+      "Every factual claim about code should have a nearby [[S#]] citation.",
+      "Use exact file paths from allowed_source_refs.",
+    ],
+    quality_bar: ["Avoid generic prose.", "Do not guess beyond evidence."],
+  };
+}
+
+function evidenceOverview(refs) {
+  const files = [
+    ...new Set(refs.map((ref) => stringValue(ref.file_path)).filter(Boolean)),
+  ];
+  return {
+    source_count: refs.length,
+    files,
+    citation_ids: refs
+      .map((ref) => stringValue(ref.citation_id))
+      .filter(Boolean),
   };
 }
 
@@ -83,7 +154,9 @@ function compactSnippet(ref, chunksByCitation, maxChars) {
     ...compactSourceRef(ref),
     score: numberValue(chunk.score),
     match_type: stringValue(chunk.match_type),
-    reasons: arrayValue(chunk.reasons).filter((value) => typeof value === "string"),
+    reasons: arrayValue(chunk.reasons).filter(
+      (value) => typeof value === "string",
+    ),
     excerpt: clip(content, maxChars),
   };
 }
@@ -211,7 +284,9 @@ function clip(value, maxChars) {
 }
 
 function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
 }
 
 function arrayValue(value) {

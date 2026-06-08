@@ -278,7 +278,15 @@ describe("codewiki CLI", () => {
         input: [
           "# Src",
           "",
-          "The source directory contains the TypeScript entry and utility implementation. [[S1]]",
+          "## Purpose and Scope",
+          "",
+          "The `src` page covers the TypeScript entry and utility implementation selected by the catalog. [[S1]]",
+          "",
+          "## Key Files",
+          "",
+          "| File | Role | Evidence |",
+          "| --- | --- | --- |",
+          "| `src` | Runtime source module represented by this wiki page. | [[S1]] |",
         ].join("\n"),
       },
     );

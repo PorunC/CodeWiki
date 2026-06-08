@@ -262,8 +262,19 @@ describe("CodeWiki MCP server", () => {
       repo: added.id,
       slug: "src",
       title: "Src",
-      markdown:
-        "# Src\n\nThe source directory contains TypeScript runtime code and utilities. [[S1]]",
+      markdown: [
+        "# Src",
+        "",
+        "## Purpose and Scope",
+        "",
+        "The `src` page covers TypeScript runtime code and utilities selected by the catalog. [[S1]]",
+        "",
+        "## Key Files",
+        "",
+        "| File | Role | Evidence |",
+        "| --- | --- | --- |",
+        "| `src` | Runtime source module represented by this wiki page. | [[S1]] |",
+      ].join("\n"),
     });
     expect(agentSaved.status).toBe("generated");
     expect(agentSaved.validation_errors).toEqual([]);

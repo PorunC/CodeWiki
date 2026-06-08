@@ -550,8 +550,19 @@ function checkRepositoryWorkflow() {
         "--json",
       ],
       {
-        input:
-          "# Src\n\nThe source directory contains TypeScript code used by the package smoke repository. [[S1]]",
+        input: [
+          "# Src",
+          "",
+          "## Purpose and Scope",
+          "",
+          "The `src` page covers TypeScript code used by the package smoke repository. [[S1]]",
+          "",
+          "## Key Files",
+          "",
+          "| File | Role | Evidence |",
+          "| --- | --- | --- |",
+          "| `src` | Runtime source module represented by this wiki page. | [[S1]] |",
+        ].join("\n"),
       },
     ).stdout,
   );
@@ -1131,6 +1142,8 @@ function assertPackageContents(files) {
     "scripts/verify-release-version.mjs",
     "skills/codewiki/SKILL.md",
     "skills/codewiki/references/page-style.md",
+    "skills/codewiki/scripts/compact-evidence.mjs",
+    "skills/codewiki/scripts/export-html.mjs",
     "static/index.html",
   ];
   for (const file of requiredFiles) {
