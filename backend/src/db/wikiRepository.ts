@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { CodeWikiSqliteDatabase } from "./sqlite.js";
 import { randomUUID } from "node:crypto";
 import type { DocCatalog, DocPage, JsonObject } from "../types.js";
 import {
@@ -11,7 +11,7 @@ import {
 } from "./mappers.js";
 
 export class WikiRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: CodeWikiSqliteDatabase) {}
 
   saveDocCatalog(
     repoId: string,

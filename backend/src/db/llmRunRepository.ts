@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { CodeWikiSqliteDatabase } from "./sqlite.js";
 import { randomUUID } from "node:crypto";
 import type { JsonObject, LlmRun } from "../types.js";
 import { isoNow, llmRunFromRow, stringifyJson, type Row } from "./mappers.js";
@@ -35,7 +35,7 @@ export type ListLlmRunsOptions = {
 };
 
 export class LlmRunRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: CodeWikiSqliteDatabase) {}
 
   recordLlmRun(repoId: string, input: RecordLlmRunInput): LlmRun {
     const run = {

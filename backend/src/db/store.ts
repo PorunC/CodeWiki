@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import { AnalysisRunRepository } from "./analysisRunRepository.js";
 import {
   CodeChunkEmbeddingRepository,
@@ -14,6 +13,7 @@ import {
 import { RepoRepository } from "./repoRepository.js";
 import { RetrievalTraceRepository } from "./retrievalTraceRepository.js";
 import { ensureSchema } from "./schema.js";
+import { CodeWikiSqliteDatabase } from "./sqlite.js";
 import { WikiRepository } from "./wikiRepository.js";
 import type {
   AnalysisRun,
@@ -32,7 +32,7 @@ import type {
 } from "../types.js";
 
 export class CodeWikiStore {
-  readonly db: Database.Database;
+  readonly db: CodeWikiSqliteDatabase;
   private readonly analysisRunRepository: AnalysisRunRepository;
   private readonly embeddingRepository: CodeChunkEmbeddingRepository;
   private readonly graphRepository: GraphRepository;
@@ -42,7 +42,7 @@ export class CodeWikiStore {
   private readonly wikiRepository: WikiRepository;
 
   constructor(readonly databasePath: string) {
-    this.db = new Database(databasePath);
+    this.db = new CodeWikiSqliteDatabase(databasePath);
     this.db.pragma("foreign_keys = ON");
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");

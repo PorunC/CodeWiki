@@ -1,8 +1,8 @@
-import type Database from "better-sqlite3";
+import type { CodeWikiSqliteDatabase } from "./sqlite.js";
 
 type Row = Record<string, unknown>;
 
-export function ensureSchema(db: Database.Database): void {
+export function ensureSchema(db: CodeWikiSqliteDatabase): void {
   db.exec(SCHEMA_SQL);
   ensureColumn(db, "repo", "git_url", "git_url TEXT");
   ensureColumn(db, "repo", "commit_hash", "commit_hash TEXT");
@@ -41,7 +41,7 @@ export function ensureSchema(db: Database.Database): void {
 }
 
 function ensureColumn(
-  db: Database.Database,
+  db: CodeWikiSqliteDatabase,
   table: string,
   column: string,
   ddl: string,

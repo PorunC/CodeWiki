@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { CodeWikiSqliteDatabase } from "./sqlite.js";
 import { randomUUID } from "node:crypto";
 import type { AnalysisRun, JsonObject } from "../types.js";
 import {
@@ -9,7 +9,7 @@ import {
 } from "./mappers.js";
 
 export class AnalysisRunRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: CodeWikiSqliteDatabase) {}
 
   createAnalysisRun(repoId: string): AnalysisRun {
     const run: AnalysisRun = {

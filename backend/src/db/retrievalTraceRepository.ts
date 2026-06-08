@@ -1,9 +1,9 @@
-import type Database from "better-sqlite3";
+import type { CodeWikiSqliteDatabase } from "./sqlite.js";
 import type { RetrievalTrace } from "../types.js";
 import { isoNow, retrievalTraceFromRow, type Row } from "./mappers.js";
 
 export class RetrievalTraceRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: CodeWikiSqliteDatabase) {}
 
   saveRetrievalTrace(trace: RetrievalTrace): RetrievalTrace {
     const saved = {

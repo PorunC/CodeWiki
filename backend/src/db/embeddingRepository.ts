@@ -1,4 +1,4 @@
-import type Database from "better-sqlite3";
+import type { CodeWikiSqliteDatabase } from "./sqlite.js";
 import type { CodeChunk, CodeChunkEmbedding } from "../types.js";
 import {
   chunkFromRow,
@@ -14,7 +14,7 @@ export type CodeChunkEmbeddingSearchOptions = {
 };
 
 export class CodeChunkEmbeddingRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: CodeWikiSqliteDatabase) {}
 
   replaceCodeChunkEmbeddings(
     repoId: string,

@@ -1,9 +1,9 @@
-import type Database from "better-sqlite3";
+import type { CodeWikiSqliteDatabase } from "./sqlite.js";
 import type { RepoDescriptor } from "../types.js";
 import { isoNow, repoFromRow, type Row } from "./mappers.js";
 
 export class RepoRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: CodeWikiSqliteDatabase) {}
 
   upsertRepo(repo: RepoDescriptor): RepoDescriptor {
     const now = isoNow();

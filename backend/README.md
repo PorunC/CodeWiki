@@ -24,7 +24,9 @@ codewiki --version
 codewiki --help
 ```
 
-CodeWiki requires Node.js 22 or newer.
+CodeWiki requires Node.js 22.13 or newer. SQLite storage uses Node's built-in
+`node:sqlite` module, so Windows installs do not need Visual Studio Build Tools
+or a native `better-sqlite3` compile step.
 
 ## First Run
 
@@ -43,8 +45,8 @@ http://127.0.0.1:8000
 From the UI you can register a repository, analyze it, inspect the graph, generate
 wiki pages, and ask source-grounded questions.
 
-By default CodeWiki stores data in a local SQLite database. You can choose a
-database location with:
+By default CodeWiki stores data in a local SQLite database backed by
+`node:sqlite`. You can choose a database location with:
 
 ```bash
 export CODEWIKI_DATABASE_URL="sqlite:///$HOME/.codewiki/codewiki.sqlite3"

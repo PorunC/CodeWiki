@@ -166,6 +166,18 @@ function checkPackageMetadata() {
     installedPackageJson.types === "dist/index.d.ts",
     `package types points to ${installedPackageJson.types}`,
   );
+  assert(
+    installedPackageJson.engines?.node === ">=22.13.0",
+    `package Node engine is ${installedPackageJson.engines?.node}`,
+  );
+  assert(
+    !installedPackageJson.dependencies?.["better-sqlite3"],
+    "package must not depend on better-sqlite3.",
+  );
+  assert(
+    !installedPackageJson.devDependencies?.["@types/better-sqlite3"],
+    "package must not depend on @types/better-sqlite3.",
+  );
 }
 
 function checkCliBinaries() {
