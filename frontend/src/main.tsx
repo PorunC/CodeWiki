@@ -1,3 +1,4 @@
+import "./polyfills";
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
 
@@ -11,4 +12,3 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>
 );
-
