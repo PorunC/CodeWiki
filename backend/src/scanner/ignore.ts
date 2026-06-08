@@ -76,12 +76,20 @@ export class IgnoreStack {
   }
 
   ignores(relativePathFromRoot: string, isDirectory: boolean): boolean {
+    const normalizedPath = normalizeIgnorePath(relativePathFromRoot);
     let ignored = false;
     for (const { base, matcher } of this.matchers) {
-      const baseRelative = relative(this.root, base).split("\\").join("/");
+      const baseRelative = normalizeIgnorePath(relative(this.root, base));
+      if (
+        baseRelative &&
+        normalizedPath !== baseRelative &&
+        !normalizedPath.startsWith(`${baseRelative}/`)
+      ) {
+        continue;
+      }
       const candidate = baseRelative
-        ? relativePathFromRoot.slice(baseRelative.length + 1)
-        : relativePathFromRoot;
+        ? normalizeIgnorePath(normalizedPath.slice(baseRelative.length + 1))
+        : normalizedPath;
       if (!candidate || candidate.startsWith("../")) {
         continue;
       }
@@ -91,4 +99,13 @@ export class IgnoreStack {
     }
     return ignored;
   }
+}
+
+function normalizeIgnorePath(value: string): string {
+  return value
+    .split("\\")
+    .join("/")
+    .replace(/^\/+/, "")
+    .replace(/^\.\//, "")
+    .replace(/\/+/g, "/");
 }

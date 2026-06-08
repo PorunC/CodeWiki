@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { IgnoreStack } from "../src/scanner/ignore.js";
 import { RepoScanner } from "../src/scanner/scanner.js";
 
 describe("RepoScanner", () => {
@@ -32,5 +33,28 @@ describe("RepoScanner", () => {
     expect(scan.files.find((file) => file.path === "main.py")?.is_source).toBe(
       true,
     );
+  });
+
+  it("normalizes Windows-style ignore candidates and scopes nested gitignore files", () => {
+    const repo = mkdtempSync(join(tmpdir(), "codewiki-scan-ignore-"));
+    mkdirSync(join(repo, "src"), { recursive: true });
+    mkdirSync(join(repo, "tasks"), { recursive: true });
+    writeFileSync(join(repo, "src", ".gitignore"), "tasks/\n");
+    writeFileSync(join(repo, "src", "main.ts"), "export const main = 1;\n");
+    writeFileSync(join(repo, "tasks", "task.ts"), "export const task = 1;\n");
+
+    const matcher = new IgnoreStack(repo);
+    matcher.addGitignore(join(repo, "src"));
+
+    expect(() => matcher.ignores("/tasks", true)).not.toThrow();
+    expect(matcher.ignores("/tasks", true)).toBe(false);
+    expect(matcher.ignores("src/tasks", true)).toBe(true);
+
+    const scan = new RepoScanner().scan(repo);
+    expect(scan.files.map((file) => file.path)).toEqual([
+      "src/.gitignore",
+      "src/main.ts",
+      "tasks/task.ts",
+    ]);
   });
 });
