@@ -67,7 +67,8 @@ Run analysis:
 codewiki analyze my-repo
 ```
 
-Generate a wiki catalog and pages:
+Generate a provider-backed wiki catalog and pages after configuring catalog/page
+LLM profiles:
 
 ```bash
 codewiki wiki catalog my-repo
@@ -78,7 +79,7 @@ List and read generated pages:
 
 ```bash
 codewiki wiki list my-repo
-codewiki wiki read root my-repo
+codewiki wiki read overview my-repo
 ```
 
 Ask a question:
@@ -107,9 +108,9 @@ or Git URL. Add `--json` to most commands for machine-readable output.
 ## Agent-Generated Wiki
 
 CodeWiki can also act as a local evidence engine for Codex, Claude Code, or other
-agents. In this mode CodeWiki does not call an external LLM for page writing. It
-plans pages, returns bounded GraphRAG evidence, saves the agent-written Markdown,
-and validates citations.
+agents. In this mode CodeWiki does not call an external LLM for catalog or page
+writing. It returns bounded local evidence, lets the agent write the catalog and
+Markdown, saves the results, and validates citations.
 
 Install the Codex skill:
 
@@ -122,6 +123,10 @@ Then use the local workflow:
 ```bash
 codewiki repos add . --name my-repo --json
 codewiki analyze my-repo --json
+codewiki wiki catalog-evidence my-repo --language en --json
+# Write catalog JSON with title/items, then save it:
+cat catalog.json | codewiki wiki catalog-save my-repo --language en --stdin --json
+codewiki wiki catalog-validate my-repo --language en --json
 codewiki wiki plan my-repo --language en --json
 codewiki wiki evidence src my-repo --language en --json
 printf '# Src\n\nThis page is grounded in returned evidence. [[S1]]\n' \
@@ -136,6 +141,9 @@ citations or unknown slugs are saved as drafts and reported by `wiki validate`.
 Claude Code can use the same capability through `codewiki-mcp`. Configure the MCP
 server and call:
 
+- `codewiki_wiki_catalog_evidence`
+- `codewiki_wiki_catalog_save`
+- `codewiki_wiki_catalog_validate`
 - `codewiki_wiki_plan`
 - `codewiki_wiki_evidence`
 - `codewiki_wiki_page_save`
@@ -163,6 +171,8 @@ Use separate task profiles when you want different models for wiki pages, Q&A, o
 community naming:
 
 ```bash
+export CODEWIKI_LLM__PROFILES__CATALOG__MODEL="openai/gpt-4.1"
+export CODEWIKI_LLM__PROFILES__CATALOG__API_KEY="$OPENAI_API_KEY"
 export CODEWIKI_LLM__PROFILES__PAGE__MODEL="openai/gpt-4.1"
 export CODEWIKI_LLM__PROFILES__PAGE__API_KEY="$OPENAI_API_KEY"
 export CODEWIKI_LLM__PROFILES__COMMUNITY_SUMMARY__MODEL="openai/gpt-4.1"

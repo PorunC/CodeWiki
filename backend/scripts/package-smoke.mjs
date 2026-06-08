@@ -66,7 +66,10 @@ const REQUIRED_MCP_TOOLS = [
   "codewiki_runs_list",
   "codewiki_trace",
   "codewiki_update",
+  "codewiki_wiki_catalog_evidence",
   "codewiki_wiki_catalog_generate",
+  "codewiki_wiki_catalog_save",
+  "codewiki_wiki_catalog_validate",
   "codewiki_wiki_evidence",
   "codewiki_wiki_page_read",
   "codewiki_wiki_page_regenerate",
@@ -129,6 +132,59 @@ function prepareSampleRepo() {
     join(sampleRepo, "src", "util.ts"),
     "export function helper(x: number) { return x + 1; }\n",
   );
+}
+
+function agentCatalogJson(title) {
+  return JSON.stringify({
+    title,
+    items: [
+      {
+        title: "Overview",
+        slug: "overview",
+        path: "overview",
+        order: 0,
+        kind: "page",
+        topic: "repository overview",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Architecture",
+        slug: "architecture",
+        path: "architecture",
+        order: 1,
+        kind: "page",
+        topic: "runtime architecture",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Reading Guide",
+        slug: "reading-guide",
+        path: "reading-guide",
+        order: 2,
+        kind: "page",
+        topic: "recommended reading order",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Dependencies",
+        slug: "dependencies",
+        path: "dependencies",
+        order: 3,
+        kind: "page",
+        topic: "imports and dependencies",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Src",
+        slug: "src",
+        path: "src",
+        order: 4,
+        kind: "page",
+        topic: "TypeScript source files",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+    ],
+  });
 }
 
 function packPackage() {
@@ -370,29 +426,79 @@ function checkRepositoryWorkflow() {
     currentDirectoryAnalysis.node_count >= 4,
     `current-directory analysis produced too few nodes: ${currentDirectoryAnalysis.node_count}`,
   );
-  const generatedCatalog = JSON.parse(
+  const catalogEvidence = JSON.parse(
     execPackageBin([
       "codewiki",
       "--database-url",
       smokeEnv.CODEWIKI_DATABASE_URL,
       "wiki",
-      "catalog",
+      "catalog-evidence",
       "smoke",
       "--json",
     ]).stdout,
   );
   assert(
-    generatedCatalog.title === "smoke Wiki",
-    `wiki catalog title was ${generatedCatalog.title}`,
+    catalogEvidence.prompt_version === "catalog:deepwiki:v4",
+    `catalog evidence prompt version was ${catalogEvidence.prompt_version}`,
   );
   assert(
-    Array.isArray(generatedCatalog.validation_errors) &&
-      generatedCatalog.validation_errors.length === 0,
-    "wiki catalog did not include an empty validation_errors array.",
+    catalogEvidence.catalog_evidence?.module_candidates?.some(
+      (candidate) => candidate.path === "src",
+    ),
+    "agent catalog evidence did not include the src module candidate.",
+  );
+  const emptyAgentPlan = JSON.parse(
+    execPackageBin([
+      "codewiki",
+      "--database-url",
+      smokeEnv.CODEWIKI_DATABASE_URL,
+      "wiki",
+      "plan",
+      "smoke",
+      "--json",
+    ]).stdout,
   );
   assert(
-    generatedCatalog.structure?.items?.length >= 1,
-    "wiki catalog did not include catalog items.",
+    emptyAgentPlan.status === "catalog_required" &&
+      Array.isArray(emptyAgentPlan.pages) &&
+      emptyAgentPlan.pages.length === 0,
+    "agent wiki plan should request catalog generation before pages.",
+  );
+  const savedCatalog = JSON.parse(
+    execPackageBin(
+      [
+        "codewiki",
+        "--database-url",
+        smokeEnv.CODEWIKI_DATABASE_URL,
+        "wiki",
+        "catalog-save",
+        "smoke",
+        "--stdin",
+        "--json",
+      ],
+      {
+        input: agentCatalogJson("smoke Wiki"),
+      },
+    ).stdout,
+  );
+  assert(
+    savedCatalog.status === "saved",
+    `agent catalog save status was ${savedCatalog.status}.`,
+  );
+  const validatedCatalog = JSON.parse(
+    execPackageBin([
+      "codewiki",
+      "--database-url",
+      smokeEnv.CODEWIKI_DATABASE_URL,
+      "wiki",
+      "catalog-validate",
+      "smoke",
+      "--json",
+    ]).stdout,
+  );
+  assert(
+    validatedCatalog.status === "valid",
+    `agent catalog validate status was ${validatedCatalog.status}.`,
   );
   const agentPlan = JSON.parse(
     execPackageBin([
@@ -406,7 +512,8 @@ function checkRepositoryWorkflow() {
     ]).stdout,
   );
   assert(
-    agentPlan.pages?.some((page) => page.slug === "src"),
+    agentPlan.status === "planned" &&
+      agentPlan.pages?.some((page) => page.slug === "src"),
     "agent wiki plan did not include the src page.",
   );
   const agentEvidence = JSON.parse(
@@ -632,8 +739,8 @@ function checkSkillInstall() {
     "codewiki skill install codex did not install SKILL.md.",
   );
   assert(
-    readFileSync(skillPath, "utf8").includes("codewiki wiki plan"),
-    "installed CodeWiki skill does not describe the wiki plan workflow.",
+    readFileSync(skillPath, "utf8").includes("codewiki wiki catalog-evidence"),
+    "installed CodeWiki skill does not describe the agent catalog workflow.",
   );
   assertValidSkillFrontmatter(readFileSync(skillPath, "utf8"));
 }

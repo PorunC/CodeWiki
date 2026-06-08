@@ -30,17 +30,65 @@ export function buildCatalogItems(nodes: CodeGraphNode[]): CatalogItem[] {
     const directory = directoryName(node.file_path);
     directories.set(directory, (directories.get(directory) ?? 0) + 1);
   }
-  return [...directories.entries()]
+  const moduleItems: CatalogItem[] = [...directories.entries()]
+    .filter(([directory]) => directory !== "root")
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([directory, count], index) => ({
       title: titleFromSlug(directory),
       slug: slugify(directory),
-      path: directory === "root" ? null : directory,
-      order: index,
+      path: directory,
+      order: index + 4,
       kind: "page",
       topic: `${count} files`,
-      source_hints: directory === "root" ? [] : [directory],
+      source_hints: [directory],
     }));
+  return [
+    {
+      title: "Overview",
+      slug: "overview",
+      path: "overview",
+      order: 0,
+      kind: "page",
+      topic:
+        "repository overview, entry points, README, and main developer orientation",
+      source_hints: ["README.md"],
+      children: [],
+    },
+    {
+      title: "Architecture",
+      slug: "architecture",
+      path: "architecture",
+      order: 1,
+      kind: "page",
+      topic:
+        "repository architecture, runtime layers, core components, and cross-module flows",
+      source_hints: [],
+      children: [],
+    },
+    {
+      title: "Reading Guide",
+      slug: "reading-guide",
+      path: "reading-guide",
+      order: 2,
+      kind: "page",
+      topic:
+        "recommended reading order for understanding the repository from entry points to internals",
+      source_hints: ["README.md"],
+      children: [],
+    },
+    {
+      title: "Dependencies",
+      slug: "dependencies",
+      path: "dependencies",
+      order: 3,
+      kind: "page",
+      topic:
+        "internal dependencies, external packages, imports, configuration, and integration boundaries",
+      source_hints: [],
+      children: [],
+    },
+    ...moduleItems,
+  ];
 }
 
 export function catalogStructure(items: CatalogItem[]): JsonObject {

@@ -109,9 +109,17 @@ CODEWIKI_LLM__PROFILES__PAGE__API_KEY=
 ```bash
 codewiki repos add . --name my-repo
 codewiki analyze my-repo
-codewiki wiki catalog my-repo
-codewiki wiki pages my-repo
 codewiki ask "How does the main workflow fit together?" my-repo
+```
+
+`codewiki wiki catalog` and `codewiki wiki pages` are the provider-backed wiki
+generation path. Configure catalog/page LLM profiles before using them. Without
+CodeWiki LLM API credentials, use the agent workflow instead:
+
+```bash
+codewiki wiki catalog-evidence my-repo --json
+codewiki wiki catalog-save my-repo --stdin --json < catalog.json
+codewiki wiki plan my-repo --json
 ```
 
 Most repository arguments accept an id, id prefix, registered name, path, or Git URL.
@@ -190,9 +198,15 @@ codewiki repos scan .
 # Analyze and build local graph/chunk data
 codewiki analyze my-repo
 
-# Wiki generation
+# Provider-backed wiki generation
 codewiki wiki catalog my-repo
 codewiki wiki pages my-repo
+
+# Agent-generated wiki catalog without CodeWiki LLM API credentials
+codewiki wiki catalog-evidence my-repo --json
+codewiki wiki catalog-save my-repo --stdin --json < catalog.json
+codewiki wiki plan my-repo --json
+
 codewiki wiki list my-repo --json
 codewiki wiki read overview my-repo
 
@@ -215,7 +229,7 @@ codewiki serve --host 127.0.0.1 --port 8000
 | `GET` | `/api/repos/{repo_id}/graph` | Read graph nodes, edges, and communities |
 | `GET` | `/api/repos/{repo_id}/graph/search?q=...` | Search indexed nodes |
 | `GET` | `/api/repos/{repo_id}/graph/status` | Read graph status summary |
-| `POST` | `/api/repos/{repo_id}/wiki/catalog?language=en` | Generate a local or provider-backed wiki catalog |
+| `POST` | `/api/repos/{repo_id}/wiki/catalog?language=en` | Generate a provider-backed wiki catalog |
 | `POST` | `/api/repos/{repo_id}/wiki/pages/generate?language=en` | Generate wiki pages |
 | `GET` | `/api/repos/{repo_id}/wiki?language=en` | Read wiki catalog and pages |
 | `POST` | `/api/repos/{repo_id}/ask` | Ask a source-grounded local question |

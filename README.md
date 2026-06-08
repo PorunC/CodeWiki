@@ -70,16 +70,28 @@ You can also run the complete flow from the CLI:
 cd /path/to/your/repo
 codewiki repos add . --name my-repo
 codewiki analyze my-repo
-codewiki wiki catalog my-repo
-codewiki wiki pages my-repo
 codewiki ask "How does the main workflow fit together?" my-repo
+```
+
+For provider-backed wiki generation, configure catalog/page LLM profiles, then run
+`codewiki wiki catalog my-repo` and `codewiki wiki pages my-repo`.
+
+For Codex/Claude-generated wikis without CodeWiki LLM API credentials, use the
+agent workflow:
+
+```bash
+codewiki wiki catalog-evidence my-repo --json
+# Let the agent write catalog JSON with title/items, then:
+codewiki wiki catalog-save my-repo --stdin --json < catalog.json
+codewiki wiki plan my-repo --json
+codewiki wiki evidence overview my-repo --json
 ```
 
 List and read pages:
 
 ```bash
 codewiki wiki list my-repo
-codewiki wiki read root my-repo
+codewiki wiki read overview my-repo
 ```
 
 Refresh after code changes:
@@ -119,8 +131,8 @@ This creates and uses `.codewiki/codewiki-lite.sqlite3` in the selected project.
 ```bash
 codewiki repos add . --name my-repo
 codewiki analyze .
-codewiki wiki catalog .
-codewiki wiki pages .
+codewiki wiki catalog-evidence .
+codewiki wiki plan .
 codewiki ask "How does the main workflow fit together?" my-repo
 codewiki graph status my-repo
 codewiki graph search "handler" my-repo
@@ -161,9 +173,11 @@ codewiki config list
 codewiki config models
 ```
 
-For wiki pages or community naming, you can configure task-specific profiles:
+For wiki catalogs, pages, or community naming, you can configure task-specific profiles:
 
 ```bash
+CODEWIKI_LLM__PROFILES__CATALOG__MODEL=openai/gpt-4.1
+CODEWIKI_LLM__PROFILES__CATALOG__API_KEY="$OPENAI_API_KEY"
 CODEWIKI_LLM__PROFILES__PAGE__MODEL=openai/gpt-4.1
 CODEWIKI_LLM__PROFILES__PAGE__API_KEY="$OPENAI_API_KEY"
 CODEWIKI_LLM__PROFILES__COMMUNITY_SUMMARY__MODEL=openai/gpt-4.1

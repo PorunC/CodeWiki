@@ -42,9 +42,17 @@ codewiki serve
 ```bash
 codewiki repos add . --name my-repo
 codewiki analyze my-repo
-codewiki wiki catalog my-repo
-codewiki wiki pages my-repo
 codewiki ask "How does the main workflow fit together?" my-repo
+```
+
+`codewiki wiki catalog` 和 `codewiki wiki pages` 是 provider-backed Wiki 生成路径，
+需要先配置 catalog/page LLM profile。没有 CodeWiki LLM API 凭证时，使用 agent
+工作流：
+
+```bash
+codewiki wiki catalog-evidence my-repo --json
+codewiki wiki catalog-save my-repo --stdin --json < catalog.json
+codewiki wiki plan my-repo --json
 ```
 
 大多数仓库参数支持 id、id 前缀、已注册名称、路径或 Git URL。需要机器可读输出时

@@ -327,13 +327,101 @@ export class WikiService {
     languageCode = "en",
   ): Promise<JsonObject> {
     const language = normalizeLanguage(languageCode);
-    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const catalog = await this.store.getLatestDocCatalog(repoId, language);
+    if (!catalog) {
+      return {
+        repo_id: repoId,
+        language_code: language,
+        status: "catalog_required",
+        catalog: null,
+        pages: [],
+        catalog_evidence: await this.catalogGenerator.agentCatalogEvidence({
+          repoId,
+          languageCode: language,
+        }),
+        instructions:
+          "Generate and save a catalog first, then call wiki plan again to get the page queue.",
+      };
+    }
     const nodes = catalogGenerationNodesFromStructure(catalog.structure);
     return {
       repo_id: repoId,
       language_code: language,
+      status: "planned",
       catalog: catalogPayload(catalog),
       pages: nodes.map((node) => agentPageQueueItem(node)),
+    };
+  }
+
+  async agentWikiCatalogEvidence(
+    repoId: string,
+    languageCode = "en",
+  ): Promise<JsonObject> {
+    const language = normalizeLanguage(languageCode);
+    return this.catalogGenerator.agentCatalogEvidence({
+      repoId,
+      languageCode: language,
+    });
+  }
+
+  async saveAgentWikiCatalog(
+    repoId: string,
+    catalogInput: string | JsonObject,
+    languageCode = "en",
+  ): Promise<JsonObject> {
+    const language = normalizeLanguage(languageCode);
+    const parsed = parseAgentCatalogInput(catalogInput);
+    if (!parsed.payload) {
+      return {
+        repo_id: repoId,
+        language_code: language,
+        status: "invalid",
+        validation_errors: parsed.validationErrors,
+        catalog: null,
+      };
+    }
+    const result = await this.catalogGenerator.saveAgentCatalog(
+      { repoId, languageCode: language },
+      parsed.payload,
+    );
+    return {
+      repo_id: repoId,
+      language_code: language,
+      status: result.catalog ? "saved" : "invalid",
+      validation_errors: result.validation_errors,
+      catalog: result.catalog ? catalogPayload(result.catalog) : null,
+    };
+  }
+
+  async validateAgentWikiCatalog(
+    repoId: string,
+    languageCode = "en",
+    catalogInput?: string | JsonObject,
+  ): Promise<JsonObject> {
+    const language = normalizeLanguage(languageCode);
+    const parsed =
+      catalogInput === undefined
+        ? { payload: undefined, validationErrors: [] }
+        : parseAgentCatalogInput(catalogInput);
+    if (parsed.validationErrors.length) {
+      return {
+        repo_id: repoId,
+        language_code: language,
+        status: "invalid",
+        validation_errors: parsed.validationErrors,
+        catalog: null,
+      };
+    }
+    const result = await this.catalogGenerator.validateAgentCatalog(
+      { repoId, languageCode: language },
+      parsed.payload ?? undefined,
+    );
+    return {
+      repo_id: repoId,
+      language_code: language,
+      status: result.validation_errors.length ? "invalid" : "valid",
+      validation_errors: result.validation_errors,
+      catalog: result.catalog ? catalogPayload(result.catalog) : null,
     };
   }
 
@@ -344,7 +432,7 @@ export class WikiService {
     options: { limit?: number } = {},
   ): Promise<JsonObject> {
     const language = normalizeLanguage(languageCode);
-    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const catalog = await this.requireAgentCatalog(repoId, language);
     const nodes = catalogGenerationNodesFromStructure(catalog.structure);
     const node = nodes.find((candidate) => candidate.slug === slug);
     if (!node) {
@@ -365,7 +453,7 @@ export class WikiService {
     options: { title?: string; parentSlug?: string | null } = {},
   ): Promise<JsonObject> {
     const language = normalizeLanguage(languageCode);
-    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const catalog = await this.requireAgentCatalog(repoId, language);
     const nodes = catalogGenerationNodesFromStructure(catalog.structure);
     const node = nodes.find((candidate) => candidate.slug === slug) ?? null;
     const validationErrors = validateAgentMarkdown(markdown);
@@ -429,7 +517,7 @@ export class WikiService {
     languageCode = "en",
   ): Promise<JsonObject> {
     const language = normalizeLanguage(languageCode);
-    const catalog = await this.ensureDeterministicCatalog(repoId, language);
+    const catalog = await this.requireAgentCatalog(repoId, language);
     const nodes = catalogGenerationNodesFromStructure(catalog.structure);
     const validationErrors: string[] = [];
     if (!nodes.some((node) => node.slug === slug)) {
@@ -547,7 +635,7 @@ export class WikiService {
     ).catalog;
   }
 
-  private async ensureDeterministicCatalog(
+  private async requireAgentCatalog(
     repoId: string,
     languageCode: string,
   ): Promise<DocCatalog> {
@@ -555,7 +643,9 @@ export class WikiService {
     if (catalog) {
       return catalog;
     }
-    return this.generateCatalog(repoId, languageCode);
+    throw new Error(
+      "Agent wiki catalog not found. Generate catalog evidence and save an agent-written catalog before requesting page evidence.",
+    );
   }
 
   private async ensureBasePagesWithLlmFallback(
@@ -960,6 +1050,57 @@ function stringJson(value: JsonValue | undefined): string | null {
 
 function numberJson(value: JsonValue | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseAgentCatalogInput(input: string | JsonObject): {
+  payload: JsonObject | null;
+  validationErrors: string[];
+} {
+  if (isRecord(input)) {
+    return { payload: input, validationErrors: [] };
+  }
+  const trimmed = input.trim();
+  const candidate = stripMarkdownFence(trimmed) || extractJsonObject(trimmed);
+  if (!candidate) {
+    return {
+      payload: null,
+      validationErrors: ["Catalog input must be a JSON object."],
+    };
+  }
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    if (!isRecord(parsed)) {
+      return {
+        payload: null,
+        validationErrors: ["Catalog input must be a JSON object."],
+      };
+    }
+    return { payload: parsed as JsonObject, validationErrors: [] };
+  } catch (error) {
+    return {
+      payload: null,
+      validationErrors: [
+        `Catalog input was not valid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      ],
+    };
+  }
+}
+
+function stripMarkdownFence(value: string): string {
+  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(value);
+  return fence?.[1]?.trim() ?? value;
+}
+
+function extractJsonObject(value: string): string | null {
+  const start = value.indexOf("{");
+  const end = value.lastIndexOf("}");
+  return start >= 0 && end > start ? value.slice(start, end + 1) : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function positiveInt(value: number | undefined, fallback: number): number {

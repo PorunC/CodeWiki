@@ -28,6 +28,86 @@ export function registerWikiCommands(
     .description("Read and generate wiki pages");
 
   wiki
+    .command("catalog-evidence")
+    .argument("<repo>", "Repository id, id prefix, or name")
+    .option("--language <language>", "Language code", "en")
+    .option("--json", "Print JSON output")
+    .action((selector: string, options: { language: string; json?: boolean }) =>
+      runWithContextAsync(runtime, async ({ store, services }) => {
+        const repo = await resolveRepo(store, selector);
+        const payload = await services.wiki.agentWikiCatalogEvidence(
+          repo.id,
+          options.language,
+        );
+        output(
+          options.json,
+          payload,
+          `Prepared catalog evidence for ${displayString(repo.name)}`,
+        );
+      }),
+    );
+
+  wiki
+    .command("catalog-save")
+    .argument("<repo>", "Repository id, id prefix, or name")
+    .option("--language <language>", "Language code", "en")
+    .option("--stdin", "Read catalog JSON from stdin")
+    .option("--json", "Print JSON output")
+    .action(
+      (
+        selector: string,
+        options: { language: string; stdin?: boolean; json?: boolean },
+      ) =>
+        runWithContextAsync(runtime, async ({ store, services }) => {
+          if (!options.stdin) {
+            throw new Error("Use --stdin to provide catalog JSON.");
+          }
+          const repo = await resolveRepo(store, selector);
+          const payload = await services.wiki.saveAgentWikiCatalog(
+            repo.id,
+            readStdinText(),
+            options.language,
+          );
+          output(
+            options.json,
+            payload,
+            `Saved agent wiki catalog for ${displayString(repo.name)}`,
+          );
+        }),
+    );
+
+  wiki
+    .command("catalog-validate")
+    .argument("<repo>", "Repository id, id prefix, or name")
+    .option("--language <language>", "Language code", "en")
+    .option(
+      "--stdin",
+      "Validate catalog JSON from stdin instead of saved catalog",
+    )
+    .option("--json", "Print JSON output")
+    .action(
+      (
+        selector: string,
+        options: { language: string; stdin?: boolean; json?: boolean },
+      ) =>
+        runWithContextAsync(runtime, async ({ store, services }) => {
+          const repo = await resolveRepo(store, selector);
+          const payload = await services.wiki.validateAgentWikiCatalog(
+            repo.id,
+            options.language,
+            options.stdin ? readStdinText() : undefined,
+          );
+          const status =
+            typeof payload.status === "string" ? payload.status : "";
+          output(
+            options.json,
+            payload,
+            `Wiki catalog is ${displayString(status)}`,
+          );
+        }),
+    );
+
+  wiki
     .command("plan")
     .argument("<repo>", "Repository id, id prefix, or name")
     .option("--language <language>", "Language code", "en")

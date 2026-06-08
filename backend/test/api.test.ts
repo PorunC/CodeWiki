@@ -7,6 +7,7 @@ import { CodeWikiStore } from "../src/db/store.js";
 import type { CodeWikiStoreApi } from "../src/db/types.js";
 import { createServer } from "../src/http/server.js";
 import { RepoScanner } from "../src/scanner/scanner.js";
+import type { JsonObject } from "../src/types.js";
 
 describe("HTTP API", () => {
   let store: CodeWikiStore | null = null;
@@ -114,18 +115,14 @@ describe("HTTP API", () => {
       url: `/api/repos/${created.id}/wiki/catalog`,
       payload: {},
     });
-    expect(catalogResponse.statusCode).toBe(200);
-    const catalog = catalogResponse.json<{
-      title: string;
-      validation_errors: string[];
-      structure: { items: Array<{ slug: string }> };
-    }>();
-    expect(catalog.title).toBe("repo Wiki");
-    expect(catalog.validation_errors).toEqual([]);
-    expect(catalog.structure.items.map((item) => item.slug)).toEqual([
-      "root",
-      "src",
-    ]);
+    expect(catalogResponse.statusCode).toBe(400);
+    expect(catalogResponse.json<{ detail: string }>().detail).toContain(
+      "LLM catalog profile is not configured",
+    );
+    store.saveDocCatalog(created.id, {
+      title: "repo Wiki",
+      structure: { items: agentCatalogItems() },
+    });
 
     const wikiResponse = await app.inject({
       method: "POST",
@@ -533,6 +530,56 @@ function asyncStore(store: CodeWikiStore): CodeWikiStoreApi {
       return (...args: unknown[]) => Promise.resolve(value.apply(target, args));
     },
   });
+}
+
+function agentCatalogItems(): JsonObject[] {
+  return [
+    {
+      title: "Overview",
+      slug: "overview",
+      path: "overview",
+      order: 0,
+      kind: "page",
+      topic: "repository overview",
+      source_hints: ["README.md"],
+    },
+    {
+      title: "Architecture",
+      slug: "architecture",
+      path: "architecture",
+      order: 1,
+      kind: "page",
+      topic: "runtime architecture",
+      source_hints: ["src/main.ts", "src/util.ts"],
+    },
+    {
+      title: "Reading Guide",
+      slug: "reading-guide",
+      path: "reading-guide",
+      order: 2,
+      kind: "page",
+      topic: "recommended reading order",
+      source_hints: ["README.md"],
+    },
+    {
+      title: "Dependencies",
+      slug: "dependencies",
+      path: "dependencies",
+      order: 3,
+      kind: "page",
+      topic: "imports and dependencies",
+      source_hints: ["src/main.ts", "src/util.ts"],
+    },
+    {
+      title: "Src",
+      slug: "src",
+      path: "src",
+      order: 4,
+      kind: "page",
+      topic: "TypeScript source files",
+      source_hints: ["src/main.ts", "src/util.ts"],
+    },
+  ];
 }
 
 class TrackingScanner extends RepoScanner {

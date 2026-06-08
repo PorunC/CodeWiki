@@ -205,22 +205,58 @@ describe("codewiki CLI", () => {
     expect(analyzed.node_count).toBeGreaterThanOrEqual(4);
     expect(analyzed.community_naming).toBeUndefined();
 
-    const catalog = runJson<{
-      title: string;
-      validation_errors: string[];
-      structure: { items: Array<{ slug: string }> };
-    }>(["wiki", "catalog", added.id, "--json"], env);
-    expect(catalog.title).toBe("cli-repo Wiki");
-    expect(catalog.validation_errors).toEqual([]);
-    expect(catalog.structure.items.map((item) => item.slug)).toEqual([
-      "root",
-      "src",
-    ]);
+    expect(() => runCli(["wiki", "catalog", added.id, "--json"], env)).toThrow(
+      "LLM catalog profile is not configured",
+    );
 
-    const agentPlan = runJson<{
+    const catalogEvidence = runJson<{
+      repo_id: string;
+      prompt_version: string;
+      catalog_evidence: { module_candidates: Array<{ path: string }> };
+    }>(["wiki", "catalog-evidence", added.id, "--json"], env);
+    expect(catalogEvidence.repo_id).toBe(added.id);
+    expect(catalogEvidence.prompt_version).toBe("catalog:deepwiki:v4");
+    expect(
+      catalogEvidence.catalog_evidence.module_candidates.some(
+        (candidate) => candidate.path === "src",
+      ),
+    ).toBe(true);
+
+    const emptyAgentPlan = runJson<{
+      status: string;
       pages: Array<{ slug: string; title: string }>;
     }>(["wiki", "plan", added.id, "--json"], env);
-    expect(agentPlan.pages.map((page) => page.slug)).toEqual(["root", "src"]);
+    expect(emptyAgentPlan.status).toBe("catalog_required");
+    expect(emptyAgentPlan.pages).toEqual([]);
+
+    const savedCatalog = runJson<{
+      status: string;
+      validation_errors: string[];
+    }>(["wiki", "catalog-save", added.id, "--stdin", "--json"], env, {
+      input: agentCatalogJson("cli-repo Wiki"),
+    });
+    expect(savedCatalog.status).toBe("saved");
+    expect(savedCatalog.validation_errors).toEqual([]);
+
+    const catalogValidation = runJson<{
+      status: string;
+      validation_errors: string[];
+    }>(["wiki", "catalog-validate", added.id, "--json"], env);
+    expect(catalogValidation.status).toBe("valid");
+    expect(catalogValidation.validation_errors).toEqual([]);
+
+    const agentPlan = runJson<{
+      status: string;
+      pages: Array<{ slug: string; title: string }>;
+    }>(["wiki", "plan", added.id, "--json"], env);
+    expect(agentPlan.status).toBe("planned");
+    expect(agentPlan.pages.map((page) => page.slug)).toEqual([
+      "overview",
+      "architecture",
+      "reading-guide",
+      "dependencies",
+      "src",
+    ]);
 
     const agentEvidence = runJson<{
       allowed_source_refs: Array<{ citation_id: string; file_path: string }>;
@@ -537,6 +573,59 @@ function responseAt(
   const message = messages[index];
   expect(message).toBeTruthy();
   return message!;
+}
+
+function agentCatalogJson(title: string): string {
+  return JSON.stringify({
+    title,
+    items: [
+      {
+        title: "Overview",
+        slug: "overview",
+        path: "overview",
+        order: 0,
+        kind: "page",
+        topic: "repository overview",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Architecture",
+        slug: "architecture",
+        path: "architecture",
+        order: 1,
+        kind: "page",
+        topic: "runtime architecture",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Reading Guide",
+        slug: "reading-guide",
+        path: "reading-guide",
+        order: 2,
+        kind: "page",
+        topic: "recommended reading order",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Dependencies",
+        slug: "dependencies",
+        path: "dependencies",
+        order: 3,
+        kind: "page",
+        topic: "imports and dependencies",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Src",
+        slug: "src",
+        path: "src",
+        order: 4,
+        kind: "page",
+        topic: "TypeScript source files",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+    ],
+  });
 }
 
 function withoutCodeWikiEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

@@ -23,7 +23,7 @@ describe("WikiService", () => {
     store = null;
   });
 
-  it("builds directory catalogs, generated pages, and copied translations", async () => {
+  it("builds main-compatible catalogs, generated pages, and copied translations", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-"));
     store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
     const repo = store.upsertRepo(repoDescriptor(root));
@@ -35,22 +35,29 @@ describe("WikiService", () => {
 
     const service = new WikiService(store);
     const catalog = await service.generateCatalog(repo.id);
-    const items = catalog.structure.items;
+    const items = jsonObjectArray(catalog.structure.items);
     expect(Array.isArray(items)).toBe(true);
-    expect(items).toEqual([
-      expect.objectContaining({
-        slug: "root",
-        title: "Overview",
-        path: null,
-        topic: "1 files",
-      }),
-      expect.objectContaining({
-        slug: "src",
-        title: "Src",
-        path: "src",
-        topic: "2 files",
-      }),
+    expect(items.map((item) => payloadString(item.slug))).toEqual([
+      "overview",
+      "architecture",
+      "reading-guide",
+      "dependencies",
+      "src",
     ]);
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slug: "overview",
+          title: "Overview",
+          path: "overview",
+        }),
+        expect.objectContaining({
+          slug: "src",
+          title: "Src",
+          path: "src",
+        }),
+      ]),
+    );
 
     const pages = await service.generateAllPages(repo.id);
     const srcPage = pages.find((result) => result.page.slug === "src")?.page;
@@ -113,18 +120,30 @@ describe("WikiService", () => {
     });
     const translatedCatalog = store.getLatestDocCatalog(repo.id, "zh");
     expect(translatedCatalog?.title).toBe("演示仓库 Wiki");
-    expect(translatedCatalog?.structure.items).toEqual([
-      expect.objectContaining({
-        slug: "root",
-        path: null,
-        title: "概览",
-      }),
-      expect.objectContaining({
-        slug: "src",
-        path: "src",
-        title: "源码",
-      }),
+    expect(
+      jsonObjectArray(translatedCatalog?.structure.items).map((item) =>
+        payloadString(item.slug),
+      ),
+    ).toEqual([
+      "overview",
+      "architecture",
+      "reading-guide",
+      "dependencies",
+      "src",
     ]);
+    expect(jsonObjectArray(translatedCatalog?.structure.items)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slug: "overview",
+          path: "overview",
+        }),
+        expect.objectContaining({
+          slug: "src",
+          path: "src",
+          title: "源码",
+        }),
+      ]),
+    );
     const translatedPage = store.getDocPage(repo.id, "src", "zh");
     expect(translatedPage?.title).toBe("源码");
     expect(translatedPage?.markdown).toContain("已翻译 Src");
@@ -170,24 +189,33 @@ describe("WikiService", () => {
       translation: (operation) => translationCompletion(operation),
     });
     const service = new WikiService(store, llm);
+    await service.generateCatalog(repo.id);
+    await service.generateAllPages(repo.id);
 
     const results = await service.generateAllPagesWithLlmFallback(
       repo.id,
       "zh",
     );
 
-    expect(results.map((result) => result.page.language_code)).toEqual([
-      "zh",
-      "zh",
-    ]);
-    expect(results.map((result) => result.page.title)).toEqual([
-      "概览",
-      "源码",
-    ]);
+    expect(results.every((result) => result.page.language_code === "zh")).toBe(
+      true,
+    );
+    expect(results.map((result) => result.page.slug)).toEqual(
+      expect.arrayContaining([
+        "overview",
+        "architecture",
+        "reading-guide",
+        "dependencies",
+        "src",
+      ]),
+    );
+    expect(results.map((result) => result.page.title)).toEqual(
+      expect.arrayContaining(["概览", "源码"]),
+    );
     expect(store.getDocPage(repo.id, "src", "en")?.title).toBe("Src");
     expect(store.getDocPage(repo.id, "src", "zh")?.title).toBe("源码");
-    expect(store.listDocPages(repo.id, "en")).toHaveLength(2);
-    expect(store.listDocPages(repo.id, "zh")).toHaveLength(2);
+    expect(store.listDocPages(repo.id, "en")).toHaveLength(5);
+    expect(store.listDocPages(repo.id, "zh")).toHaveLength(5);
     expect(
       llm.operations.filter((operation) => operation.taskType === "page"),
     ).toHaveLength(0);
@@ -195,7 +223,7 @@ describe("WikiService", () => {
       llm.operations.filter(
         (operation) => operation.taskType === "translation",
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(6);
   });
 
   it("uses provider-backed nested catalogs when a catalog LLM is configured", async () => {
@@ -328,7 +356,7 @@ describe("WikiService", () => {
     );
   });
 
-  it("falls back to the local catalog when provider catalog JSON is invalid", async () => {
+  it("raises when provider catalog JSON remains invalid after repair attempts", async () => {
     const root = mkdtempSync(join(tmpdir(), "codewiki-wiki-catalog-fallback-"));
     store = new CodeWikiStore(join(root, "codewiki.sqlite3"));
     const repo = store.upsertRepo(repoDescriptor(root));
@@ -343,20 +371,12 @@ describe("WikiService", () => {
       new FakeWikiLlm({ catalog: "this is not json" }),
     );
 
-    const result = await service.generateCatalogWithLlmFallback(repo.id);
-
-    expect(result.catalog.title).toBe("Demo Repo Wiki");
-    expect(result.validation_errors).toEqual([
-      "LLM catalog response was not valid JSON.",
-    ]);
-    expect(result.llm).toMatchObject({
-      status: "fallback",
-      error: "LLM catalog response was not valid JSON.",
-    });
-    expect(result.catalog.structure.items).toEqual([
-      expect.objectContaining({ slug: "root", title: "Overview" }),
-      expect.objectContaining({ slug: "src", title: "Src" }),
-    ]);
+    await expect(
+      service.generateCatalogWithLlmFallback(repo.id),
+    ).rejects.toThrow(
+      "LLM did not return a valid catalog JSON object after repair attempts: LLM did not return a JSON object.",
+    );
+    expect(store.getLatestDocCatalog(repo.id)).toBeNull();
   });
 
   it("generates nested pages from catalog items with derived slugs", async () => {
@@ -524,14 +544,46 @@ describe("WikiService", () => {
     });
 
     const service = new WikiService(store);
-    const plan = await service.agentWikiPlan(repo.id);
+    const emptyPlan = await service.agentWikiPlan(repo.id);
 
+    expect(emptyPlan).toMatchObject({
+      repo_id: repo.id,
+      language_code: "en",
+      status: "catalog_required",
+    });
+    expect(jsonObjectArray(emptyPlan.pages)).toEqual([]);
+    expect(jsonObject(emptyPlan.catalog_evidence)).toMatchObject({
+      repo_id: repo.id,
+      prompt_version: "catalog:deepwiki:v4",
+    });
+
+    const catalogEvidence = await service.agentWikiCatalogEvidence(repo.id);
+    expect(jsonObject(catalogEvidence.catalog_evidence)).toMatchObject({
+      language_code: "en",
+    });
+
+    const savedCatalog = await service.saveAgentWikiCatalog(
+      repo.id,
+      agentCatalogJson("Demo Repo Wiki"),
+    );
+    expect(savedCatalog.status).toBe("saved");
+    expect(savedCatalog.validation_errors).toEqual([]);
+
+    const catalogValidation = await service.validateAgentWikiCatalog(repo.id);
+    expect(catalogValidation.status).toBe("valid");
+    expect(catalogValidation.validation_errors).toEqual([]);
+
+    const plan = await service.agentWikiPlan(repo.id);
     expect(plan).toMatchObject({
       repo_id: repo.id,
       language_code: "en",
+      status: "planned",
     });
     expect(jsonObjectArray(plan.pages).map((page) => page.slug)).toEqual([
-      "root",
+      "overview",
+      "architecture",
+      "reading-guide",
+      "dependencies",
       "src",
     ]);
 
@@ -1040,6 +1092,59 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function agentCatalogJson(title = "Demo Repo Wiki"): string {
+  return JSON.stringify({
+    title,
+    items: [
+      {
+        title: "Overview",
+        slug: "overview",
+        path: "overview",
+        order: 0,
+        kind: "page",
+        topic: "repository overview and entry points",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Architecture",
+        slug: "architecture",
+        path: "architecture",
+        order: 1,
+        kind: "page",
+        topic: "runtime architecture and module relationships",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Reading Guide",
+        slug: "reading-guide",
+        path: "reading-guide",
+        order: 2,
+        kind: "page",
+        topic: "recommended reading order",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Dependencies",
+        slug: "dependencies",
+        path: "dependencies",
+        order: 3,
+        kind: "page",
+        topic: "internal imports and dependencies",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Src",
+        slug: "src",
+        path: "src",
+        order: 4,
+        kind: "page",
+        topic: "TypeScript runtime source files and helper implementation",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+    ],
+  });
 }
 
 function repoDescriptor(root: string): RepoDescriptor {

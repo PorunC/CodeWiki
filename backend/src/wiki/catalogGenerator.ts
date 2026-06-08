@@ -1,12 +1,8 @@
 import { basename } from "node:path";
 import type { CodeWikiStoreApi } from "../db/types.js";
-import { notFoundError } from "../errors.js";
+import { notFoundError, validationError } from "../errors.js";
 import { buildRetrievalTrace } from "../graphrag/retrieval.js";
-import {
-  LlmCallError,
-  type CachedLlmCompletion,
-  type LlmOperation,
-} from "../llm/cache.js";
+import type { CachedLlmCompletion, LlmOperation } from "../llm/cache.js";
 import { dynamicJsonMessage, stableJsonMessage } from "../llm/messages.js";
 import { filterWikiGraph } from "../services/fileRoles.js";
 import { loadPrompt } from "../services/prompts.js";
@@ -21,10 +17,10 @@ import type {
   RetrievalTrace,
 } from "../types.js";
 import {
-  buildCatalogItems,
   catalogStructure,
   catalogTitle,
   slugify,
+  titleFromSlug,
   type CatalogItem,
 } from "./catalog.js";
 import type { WikiCatalogResult } from "./payloads.js";
@@ -51,7 +47,6 @@ type WikiCatalogContext = {
   chunks: CodeChunk[];
   communities: GraphCommunity[];
   retrievalTrace: RetrievalTrace;
-  localItems: CatalogItem[];
 };
 
 type CatalogDraft = {
@@ -205,7 +200,7 @@ export class WikiCatalogGenerator {
 
   async generate(request: WikiCatalogRequest): Promise<DocCatalog> {
     return this.saveCatalog(await this.catalogContext(request), (context) =>
-      localCatalogDraft(context),
+      deterministicCatalogDraft(context),
     );
   }
 
@@ -213,79 +208,132 @@ export class WikiCatalogGenerator {
     request: WikiCatalogRequest,
   ): Promise<WikiCatalogResult> {
     const context = await this.catalogContext(request);
-    const localDraft = localCatalogDraft(context);
-    if (!this.llm?.isConfigured("catalog") || !context.nodes.length) {
-      return {
-        catalog: await this.saveCatalog(context, () => localDraft),
-        validation_errors: [],
-      };
+    if (!this.llm?.isConfigured("catalog")) {
+      throw validationError(
+        "LLM catalog profile is not configured. Use the agent catalog workflow (`codewiki wiki catalog-evidence` and `codewiki wiki catalog-save`) when generating with a Codex/Claude Skill.",
+      );
     }
 
-    try {
-      const userPayload = llmInputPayload(context);
-      let attemptPayload = userPayload;
-      let validationErrors: string[] = [];
-      let completion: CachedLlmCompletion | null = null;
-      for (
-        let attempt = 0;
-        attempt < CATALOG_GENERATION_ATTEMPTS;
-        attempt += 1
-      ) {
-        completion = await this.llm.complete(request.repoId, {
-          taskType: "catalog",
-          cacheKey: `catalog:v4:${context.retrievalTrace.trace_id}:attempt:${attempt + 1}`,
-          modelAlias: "catalog",
-          promptVersion: CATALOG_PROMPT_VERSION,
-          inputPayload: attemptPayload,
-          messages: wikiCatalogMessages(attemptPayload, validationErrors),
-          completion: { responseFormat: "json_object" },
-        });
-        const normalized = normalizeCatalogCompletion(
-          completion.result.content,
-          localDraft,
+    const userPayload = llmInputPayload(context);
+    let attemptPayload = userPayload;
+    let validationErrors: string[] = [];
+    let completion: CachedLlmCompletion | null = null;
+    for (let attempt = 0; attempt < CATALOG_GENERATION_ATTEMPTS; attempt += 1) {
+      completion = await this.llm.complete(request.repoId, {
+        taskType: "catalog",
+        cacheKey: `catalog:v4:${context.retrievalTrace.trace_id}:attempt:${attempt + 1}`,
+        modelAlias: "catalog",
+        promptVersion: CATALOG_PROMPT_VERSION,
+        inputPayload: attemptPayload,
+        messages: wikiCatalogMessages(attemptPayload, validationErrors),
+        completion: { responseFormat: "json_object" },
+      });
+      const parsed = parseCatalogCompletion(completion.result.content);
+      validationErrors = parsed.validationErrors;
+      if (parsed.payload) {
+        const normalized = normalizeCatalogPayload(
+          parsed.payload,
+          catalogTitle(context.repo.name),
           catalogScale(context),
         );
-        validationErrors = normalized.validationErrors;
-        if (normalized.items.length) {
-          return {
-            catalog: await this.saveCatalog(context, () => normalized),
-            validation_errors: validationErrors,
-            llm: llmMetadata("success", completion),
-          };
-        }
-        await this.store.updateLlmRunStatus(completion.run.id, {
-          status: "error",
-          error: validationErrors.join("; ") || "Empty catalog.",
-        });
-        attemptPayload = catalogRepairPayload(
-          userPayload,
-          completion.result.content,
-          validationErrors,
-        );
+        return {
+          catalog: await this.saveCatalog(context, () => normalized),
+          validation_errors: normalized.validationErrors,
+          llm: llmMetadata("success", completion),
+        };
       }
 
+      await this.store.updateLlmRunStatus(completion.run.id, {
+        status: "error",
+        error: validationErrors.join("; "),
+      });
+      attemptPayload = catalogRepairPayload(
+        userPayload,
+        completion.result.content,
+        validationErrors,
+      );
+    }
+
+    throw new Error(
+      "LLM did not return a valid catalog JSON object after repair attempts: " +
+        validationErrors.join("; "),
+    );
+  }
+
+  async agentCatalogEvidence(request: WikiCatalogRequest): Promise<JsonObject> {
+    const context = await this.catalogContext(request);
+    return {
+      repo_id: context.repo.id,
+      language_code: context.request.languageCode,
+      prompt_version: CATALOG_PROMPT_VERSION,
+      catalog_evidence: llmInputPayload(context),
+      deterministic_seed: deterministicCatalogDraft(context),
+      instructions:
+        "Generate a DeepWiki-style catalog JSON object with title and items. Follow catalog_evidence.documentation_style, catalog_scale, granularity_contract, catalog_design_requirements, module_candidates, repository_context, communities, and source_chunks. Include the required special pages Overview, Architecture, Reading Guide, and Dependencies. Use source_hints that point to real files or directories from the evidence.",
+    };
+  }
+
+  async saveAgentCatalog(
+    request: WikiCatalogRequest,
+    payload: JsonObject,
+  ): Promise<{ catalog: DocCatalog | null; validation_errors: string[] }> {
+    const context = await this.catalogContext(request);
+    const parsed = validateCatalogPayload(payload);
+    if (parsed.validationErrors.length) {
+      return { catalog: null, validation_errors: parsed.validationErrors };
+    }
+    const normalized = normalizeCatalogPayload(
+      payload,
+      catalogTitle(context.repo.name),
+      catalogScale(context),
+    );
+    if (normalized.validationErrors.length) {
+      return { catalog: null, validation_errors: normalized.validationErrors };
+    }
+    return {
+      catalog: await this.saveCatalog(context, () => normalized),
+      validation_errors: [],
+    };
+  }
+
+  async validateAgentCatalog(
+    request: WikiCatalogRequest,
+    payload?: JsonObject,
+  ): Promise<{ catalog: DocCatalog | null; validation_errors: string[] }> {
+    const context = await this.catalogContext(request);
+    const targetPayload =
+      payload ??
+      (
+        await this.store.getLatestDocCatalog(
+          request.repoId,
+          request.languageCode,
+        )
+      )?.structure;
+    if (!targetPayload) {
       return {
-        catalog: await this.saveCatalog(context, () => localDraft),
-        validation_errors: validationErrors,
-        llm: {
-          status: "fallback",
-          error:
-            validationErrors.join("; ") ||
-            "LLM did not return a valid catalog.",
-          run_id: completion?.run.id ?? null,
-        },
-      };
-    } catch (error) {
-      return {
-        catalog: await this.saveCatalog(context, () => localDraft),
-        validation_errors: [],
-        llm: {
-          status: "fallback",
-          error: error instanceof Error ? error.message : String(error),
-          run_id: error instanceof LlmCallError ? error.runId : null,
-        },
+        catalog: null,
+        validation_errors: ["Wiki catalog not found."],
       };
     }
+    const parsed = validateCatalogPayload(targetPayload);
+    if (parsed.validationErrors.length) {
+      return { catalog: null, validation_errors: parsed.validationErrors };
+    }
+    const normalized = normalizeCatalogPayload(
+      targetPayload,
+      catalogTitle(context.repo.name),
+      catalogScale(context),
+    );
+    return {
+      catalog:
+        payload || normalized.validationErrors.length
+          ? null
+          : ((await this.store.getLatestDocCatalog(
+              request.repoId,
+              request.languageCode,
+            )) ?? null),
+      validation_errors: normalized.validationErrors,
+    };
   }
 
   private async catalogContext(
@@ -317,7 +365,6 @@ export class WikiCatalogGenerator {
       chunks,
       communities: await this.store.listGraphCommunities(request.repoId),
       retrievalTrace,
-      localItems: buildCatalogItems(wikiGraph.nodes),
     };
   }
 
@@ -334,11 +381,56 @@ export class WikiCatalogGenerator {
   }
 }
 
-function localCatalogDraft(context: WikiCatalogContext): CatalogDraft {
-  return {
-    title: catalogTitle(context.repo.name),
-    items: context.localItems,
-  };
+function deterministicCatalogDraft(context: WikiCatalogContext): CatalogDraft {
+  const scale = catalogScale(context);
+  return normalizeCatalogPayload(
+    {
+      title: catalogTitle(context.repo.name),
+      items: deterministicCatalogItems(context, scale),
+    },
+    catalogTitle(context.repo.name),
+    scale,
+  );
+}
+
+function deterministicCatalogItems(
+  context: WikiCatalogContext,
+  scale: CatalogScale,
+): CatalogItem[] {
+  const remainingTopLevel = Math.max(
+    0,
+    scale.max_top_level_items - SPECIAL_CATALOG_PAGES.length,
+  );
+  return [
+    ...SPECIAL_CATALOG_PAGES.map((item) => ({ ...item, children: [] })),
+    ...moduleCandidateCatalogItems(
+      moduleCandidates(context.nodes, context.edges),
+      remainingTopLevel,
+    ),
+  ];
+}
+
+function moduleCandidateCatalogItems(
+  candidates: JsonObject[],
+  limit: number,
+): CatalogItem[] {
+  return candidates
+    .filter((candidate) => stringValue(candidate.path) !== ".")
+    .slice(0, limit)
+    .map((candidate, index) => {
+      const path = stringValue(candidate.path);
+      const files = stringList(candidate.files).slice(0, 6);
+      return {
+        title: titleFromSlug(path),
+        slug: slugify(path),
+        path,
+        order: SPECIAL_CATALOG_PAGES.length + index,
+        kind: "page",
+        topic: stringValue(candidate.split_hint) || `Repository module ${path}`,
+        source_hints: files.length ? files : [path],
+        children: [],
+      };
+    });
 }
 
 function wikiCatalogMessages(
@@ -501,26 +593,22 @@ function catalogRequiredJsonShapeItems(): CatalogItem[] {
   ];
 }
 
-function normalizeCatalogCompletion(
-  content: string,
-  fallback: CatalogDraft,
+function normalizeCatalogPayload(
+  payload: JsonObject,
+  fallbackTitle: string,
   scale: CatalogScale,
 ): NormalizedCatalog {
   const validationErrors: string[] = [];
-  const parsed = parseJsonObject(content, validationErrors);
-  if (!parsed) {
-    return { ...fallback, items: [], validationErrors };
-  }
-  const root = catalogRoot(parsed);
+  const root = catalogRoot(payload);
   const rawItems =
     Array.isArray(root.items) && root.items.length
       ? root.items
       : Array.isArray(root.pages)
         ? root.pages
-        : root.items;
+        : [];
   if (!Array.isArray(rawItems)) {
     validationErrors.push("Catalog response must contain an items array.");
-    return { ...fallback, items: [], validationErrors };
+    return { title: fallbackTitle, items: [], validationErrors };
   }
   const topLevelLimit = Math.max(
     SPECIAL_CATALOG_PAGES.length,
@@ -545,8 +633,42 @@ function normalizeCatalogCompletion(
     ).slice(0, topLevelLimit),
     totalItemLimit,
   );
-  const title = nonEmptyString(root.title) ?? fallback.title;
+  const title = nonEmptyString(root.title) ?? fallbackTitle;
   return { title, items, validationErrors };
+}
+
+function parseCatalogCompletion(content: string): {
+  payload: JsonObject | null;
+  validationErrors: string[];
+} {
+  try {
+    const payload = parseJsonObject(content);
+    const validation = validateCatalogPayload(payload);
+    return validation.validationErrors.length
+      ? { payload: null, validationErrors: validation.validationErrors }
+      : { payload, validationErrors: [] };
+  } catch (error) {
+    return {
+      payload: null,
+      validationErrors: [
+        error instanceof Error ? error.message : String(error),
+      ],
+    };
+  }
+}
+
+function validateCatalogPayload(payload: JsonObject): {
+  validationErrors: string[];
+} {
+  const root = catalogRoot(payload);
+  const rawItems =
+    Array.isArray(root.items) && root.items.length ? root.items : root.pages;
+  if (!Array.isArray(rawItems)) {
+    return {
+      validationErrors: ["Catalog response must contain an items array."],
+    };
+  }
+  return { validationErrors: [] };
 }
 
 function catalogRoot(parsed: JsonObject): JsonObject {
@@ -1050,26 +1172,47 @@ function normalizeItem(
   };
 }
 
-function parseJsonObject(
-  content: string,
-  validationErrors: string[],
-): JsonObject | null {
+function parseJsonObject(content: string): JsonObject {
   const trimmed = stripMarkdownFence(content.trim());
-  const candidates = [trimmed, extractObject(trimmed)].filter(
-    (candidate): candidate is string => Boolean(candidate),
-  );
-  for (const candidate of candidates) {
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!isRecord(parsed)) {
+      throw new Error("LLM response must be a JSON object.");
+    }
+    return parsed as JsonObject;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "LLM response must be a JSON object."
+    ) {
+      throw error;
+    }
+    const extracted = extractObject(trimmed);
+    if (!extracted) {
+      throw new Error("LLM did not return a JSON object.");
+    }
     try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (isRecord(parsed)) {
-        return parsed as JsonObject;
+      const parsed = JSON.parse(extracted) as unknown;
+      if (!isRecord(parsed)) {
+        throw new Error("LLM response must be a JSON object.");
       }
-    } catch {
-      // Try the next candidate below.
+      return parsed as JsonObject;
+    } catch (nestedError) {
+      if (
+        nestedError instanceof Error &&
+        nestedError.message === "LLM response must be a JSON object."
+      ) {
+        throw nestedError;
+      }
+      throw new Error(
+        `LLM returned malformed JSON: ${
+          nestedError instanceof Error
+            ? nestedError.message
+            : String(nestedError)
+        }`,
+      );
     }
   }
-  validationErrors.push("LLM catalog response was not valid JSON.");
-  return null;
 }
 
 function stripMarkdownFence(value: string): string {

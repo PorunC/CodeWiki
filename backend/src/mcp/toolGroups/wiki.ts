@@ -1,4 +1,5 @@
 import { resolveRepo } from "../../services/repoResolver.js";
+import type { JsonObject } from "../../types.js";
 import {
   catalogPayload,
   catalogResultPayload,
@@ -24,6 +25,77 @@ export function buildWikiTools({
   services,
 }: ToolRuntime): ToolSpec[] {
   return [
+    tool(
+      "codewiki_wiki_catalog_evidence",
+      "Return local evidence for an agent-written wiki catalog without calling an external LLM.",
+      objectSchema({
+        repo: repoSelectorSchema(),
+        language: { type: "string", default: "en" },
+      }),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.wiki.agentWikiCatalogEvidence(
+          repo.id,
+          languageArg(args),
+        );
+      },
+    ),
+    tool(
+      "codewiki_wiki_catalog_save",
+      "Save an agent-written wiki catalog JSON object.",
+      objectSchema(
+        {
+          repo: repoSelectorSchema(),
+          catalog: {
+            type: "object",
+            description: "Catalog JSON with title and items.",
+          },
+          language: { type: "string", default: "en" },
+        },
+        ["catalog"],
+      ),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        return services.wiki.saveAgentWikiCatalog(
+          repo.id,
+          requiredObject(args, "catalog"),
+          languageArg(args),
+        );
+      },
+    ),
+    tool(
+      "codewiki_wiki_catalog_validate",
+      "Validate the saved or provided agent-written wiki catalog.",
+      objectSchema({
+        repo: repoSelectorSchema(),
+        catalog: {
+          type: "object",
+          description: "Optional catalog JSON with title and items.",
+        },
+        language: { type: "string", default: "en" },
+      }),
+      async (args) => {
+        const repo = await resolveRepo(
+          store,
+          scanner,
+          optionalString(args, "repo"),
+        );
+        const catalog = optionalObject(args, "catalog");
+        return services.wiki.validateAgentWikiCatalog(
+          repo.id,
+          languageArg(args),
+          catalog ?? undefined,
+        );
+      },
+    ),
     tool(
       "codewiki_wiki_plan",
       "Plan agent-generated wiki pages without calling an external LLM.",
@@ -282,4 +354,27 @@ export function buildWikiTools({
         ),
     ),
   ];
+}
+
+function requiredObject(args: JsonObject, key: string): JsonObject {
+  const value = optionalObject(args, key);
+  if (!value) {
+    throw new Error(`Argument '${key}' must be an object.`);
+  }
+  return value;
+}
+
+function optionalObject(args: JsonObject, key: string): JsonObject | null {
+  const value = args[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`Argument '${key}' must be an object.`);
+  }
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

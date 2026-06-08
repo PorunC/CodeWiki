@@ -70,6 +70,9 @@ describe("CodeWiki MCP server", () => {
         "codewiki_repo_add",
         "codewiki_analyze",
         "codewiki_wiki_pages_generate",
+        "codewiki_wiki_catalog_evidence",
+        "codewiki_wiki_catalog_save",
+        "codewiki_wiki_catalog_validate",
         "codewiki_wiki_plan",
         "codewiki_wiki_evidence",
         "codewiki_wiki_page_save",
@@ -176,24 +179,68 @@ describe("CodeWiki MCP server", () => {
     );
     expect(namedCommunities.error).toContain("community_summary");
 
-    const catalog = await callTool<{
-      title: string;
-      validation_errors: string[];
-      structure: { items: Array<{ slug: string }> };
-    }>(server, "codewiki_wiki_catalog_generate", {
+    const catalogError = await callToolError(
+      server,
+      "codewiki_wiki_catalog_generate",
+      {
+        repo: added.id,
+      },
+    );
+    expect(catalogError.error).toContain(
+      "LLM catalog profile is not configured",
+    );
+
+    const catalogEvidence = await callTool<{
+      repo_id: string;
+      prompt_version: string;
+      catalog_evidence: { module_candidates: Array<{ path: string }> };
+    }>(server, "codewiki_wiki_catalog_evidence", {
       repo: added.id,
     });
-    expect(catalog.title).toBe("repo Wiki");
-    expect(catalog.validation_errors).toEqual([]);
-    expect(catalog.structure.items.map((item) => item.slug)).toEqual([
-      "root",
-      "src",
-    ]);
+    expect(catalogEvidence.repo_id).toBe(added.id);
+    expect(catalogEvidence.prompt_version).toBe("catalog:deepwiki:v4");
+    expect(
+      catalogEvidence.catalog_evidence.module_candidates.some(
+        (candidate) => candidate.path === "src",
+      ),
+    ).toBe(true);
 
-    const agentPlan = await callTool<{
+    const emptyAgentPlan = await callTool<{
+      status: string;
       pages: Array<{ slug: string; title: string }>;
     }>(server, "codewiki_wiki_plan", { repo: added.id });
-    expect(agentPlan.pages.map((page) => page.slug)).toEqual(["root", "src"]);
+    expect(emptyAgentPlan.status).toBe("catalog_required");
+    expect(emptyAgentPlan.pages).toEqual([]);
+
+    const savedCatalog = await callTool<{
+      status: string;
+      validation_errors: string[];
+    }>(server, "codewiki_wiki_catalog_save", {
+      repo: added.id,
+      catalog: agentCatalogObject("repo Wiki"),
+    });
+    expect(savedCatalog.status).toBe("saved");
+    expect(savedCatalog.validation_errors).toEqual([]);
+
+    const catalogValidation = await callTool<{
+      status: string;
+      validation_errors: string[];
+    }>(server, "codewiki_wiki_catalog_validate", { repo: added.id });
+    expect(catalogValidation.status).toBe("valid");
+    expect(catalogValidation.validation_errors).toEqual([]);
+
+    const agentPlan = await callTool<{
+      status: string;
+      pages: Array<{ slug: string; title: string }>;
+    }>(server, "codewiki_wiki_plan", { repo: added.id });
+    expect(agentPlan.status).toBe("planned");
+    expect(agentPlan.pages.map((page) => page.slug)).toEqual([
+      "overview",
+      "architecture",
+      "reading-guide",
+      "dependencies",
+      "src",
+    ]);
 
     const agentEvidence = await callTool<{
       allowed_source_refs: Array<{ citation_id: string; file_path: string }>;
@@ -346,6 +393,59 @@ async function callToolError(
   const text = asRecord(content[0]).text;
   expect(typeof text).toBe("string");
   return JSON.parse(text as string) as { error: string };
+}
+
+function agentCatalogObject(title: string): JsonObject {
+  return {
+    title,
+    items: [
+      {
+        title: "Overview",
+        slug: "overview",
+        path: "overview",
+        order: 0,
+        kind: "page",
+        topic: "repository overview",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Architecture",
+        slug: "architecture",
+        path: "architecture",
+        order: 1,
+        kind: "page",
+        topic: "runtime architecture",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Reading Guide",
+        slug: "reading-guide",
+        path: "reading-guide",
+        order: 2,
+        kind: "page",
+        topic: "recommended reading order",
+        source_hints: ["README.md"],
+      },
+      {
+        title: "Dependencies",
+        slug: "dependencies",
+        path: "dependencies",
+        order: 3,
+        kind: "page",
+        topic: "imports and dependencies",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+      {
+        title: "Src",
+        slug: "src",
+        path: "src",
+        order: 4,
+        kind: "page",
+        topic: "TypeScript source files",
+        source_hints: ["src/main.ts", "src/util.ts"],
+      },
+    ],
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
