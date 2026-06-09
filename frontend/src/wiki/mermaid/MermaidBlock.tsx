@@ -1,8 +1,12 @@
-import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { Maximize2, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
 type ThemeMode = "dark" | "light";
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 4;
+const SCALE_STEP = 0.1;
 
 export function MermaidBlock({ chart }: { chart: string }) {
   const reactId = useId();
@@ -13,11 +17,30 @@ export function MermaidBlock({ chart }: { chart: string }) {
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const theme = useDocumentTheme();
 
   useEffect(() => {
     setScale(1);
+    setIsFullscreen(false);
   }, [chart]);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsFullscreen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    closeButtonRef.current?.focus();
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,44 +80,84 @@ export function MermaidBlock({ chart }: { chart: string }) {
     return <div className="mermaid-block is-loading">Rendering diagram...</div>;
   }
 
-  return (
-    <div className="mermaid-block">
-      <div className="mermaid-toolbar" aria-label="Diagram zoom controls">
+  const zoomOut = () => setScale((current) => clampScale(current - SCALE_STEP));
+  const zoomIn = () => setScale((current) => clampScale(current + SCALE_STEP));
+  const resetZoom = () => setScale(1);
+  const renderCanvas = (className = "mermaid-canvas") => (
+    <div
+      className={className}
+      style={{ transform: `scale(${scale})` }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+  const renderToolbar = (mode: "inline" | "fullscreen") => (
+    <div
+      className="mermaid-toolbar"
+      aria-label={mode === "fullscreen" ? "Fullscreen diagram controls" : "Diagram zoom controls"}
+    >
+      <button type="button" title="Zoom out" aria-label="Zoom out" onClick={zoomOut}>
+        <ZoomOut size={14} />
+      </button>
+      <span>{Math.round(scale * 100)}%</span>
+      <button type="button" title="Zoom in" aria-label="Zoom in" onClick={zoomIn}>
+        <ZoomIn size={14} />
+      </button>
+      <button type="button" title="Reset zoom" aria-label="Reset zoom" onClick={resetZoom}>
+        <RotateCcw size={14} />
+      </button>
+      {mode === "fullscreen" ? (
+        <button
+          ref={closeButtonRef}
+          type="button"
+          title="Close fullscreen"
+          aria-label="Close fullscreen diagram"
+          onClick={() => setIsFullscreen(false)}
+        >
+          <X size={15} />
+        </button>
+      ) : (
         <button
           type="button"
-          title="Zoom out"
-          aria-label="Zoom out"
-          onClick={() => setScale((current) => Math.max(0.5, Number((current - 0.1).toFixed(2))))}
+          title="Open fullscreen"
+          aria-label="Open diagram fullscreen"
+          onClick={() => setIsFullscreen(true)}
         >
-          <ZoomOut size={14} />
+          <Maximize2 size={14} />
         </button>
-        <span>{Math.round(scale * 100)}%</span>
-        <button
-          type="button"
-          title="Zoom in"
-          aria-label="Zoom in"
-          onClick={() => setScale((current) => Math.min(2.4, Number((current + 0.1).toFixed(2))))}
-        >
-          <ZoomIn size={14} />
-        </button>
-        <button
-          type="button"
-          title="Reset zoom"
-          aria-label="Reset zoom"
-          onClick={() => setScale(1)}
-        >
-          <RotateCcw size={14} />
-        </button>
-      </div>
-      <div className="mermaid-viewport">
-        <div
-          className="mermaid-canvas"
-          style={{ transform: `scale(${scale})` }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
-      </div>
+      )}
     </div>
   );
+
+  return (
+    <>
+      <div className="mermaid-block">
+        {renderToolbar("inline")}
+        <div className="mermaid-viewport" aria-hidden={isFullscreen}>
+          {isFullscreen ? null : renderCanvas()}
+        </div>
+      </div>
+      {isFullscreen
+        ? createPortal(
+            <div
+              className="mermaid-fullscreen"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Fullscreen Mermaid diagram"
+            >
+              <div className="mermaid-fullscreen-header">{renderToolbar("fullscreen")}</div>
+              <div className="mermaid-fullscreen-viewport">
+                {renderCanvas("mermaid-canvas mermaid-canvas-fullscreen")}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
+}
+
+function clampScale(value: number): number {
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Number(value.toFixed(2))));
 }
 
 function useDocumentTheme(): ThemeMode {

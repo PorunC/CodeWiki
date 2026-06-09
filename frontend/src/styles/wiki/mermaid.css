@@ -71,6 +71,42 @@
   max-width: none;
 }
 
+.mermaid-fullscreen {
+  background: var(--color-panel-overlay-strong);
+  color: var(--color-text-secondary);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  inset: 0;
+  padding: 14px;
+  position: fixed;
+  z-index: 2000;
+}
+
+.mermaid-fullscreen-header {
+  align-items: center;
+  background: var(--color-toolbar-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+  padding: 8px;
+}
+
+.mermaid-fullscreen-viewport {
+  background: var(--color-canvas);
+  border: 1px solid var(--color-border-medium);
+  border-radius: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+}
+
+.mermaid-canvas-fullscreen {
+  min-height: 100%;
+  min-width: 100%;
+}
+
 .mermaid-block.is-loading {
   align-items: center;
   color: var(--color-text-muted);
